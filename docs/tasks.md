@@ -29,9 +29,9 @@ Success means a full mock draft can be completed without the app breaking.
 
 - [x] Define Player type
 - [x] Define RankingEntry type
-- [ ] Define DraftPick type
-- [ ] Define Draft type
-- [ ] Define Team type
+- [x] Define DraftPick type
+- [x] Define Draft type
+- [x] Define Team type
 - [ ] Define UserRoster type
 - [ ] Define Recommendation type
 
@@ -45,10 +45,10 @@ Success means a full mock draft can be completed without the app breaking.
 
 ### Draft Engine
 
-- [ ] Generate snake draft order
-- [ ] Track current pick
-- [ ] Track current round
-- [ ] Track active drafting team
+- [x] Generate snake draft order
+- [x] Track current pick
+- [x] Track current round
+- [x] Track active drafting team
 - [ ] Mark drafted players unavailable
 
 ### Manual Pick Entry

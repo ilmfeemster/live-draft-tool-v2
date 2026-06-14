@@ -13,3 +13,27 @@ export type RankingEntry = {
   positionRank: number;
   tier: number;
 };
+
+export type Team = {
+  id: string;
+  name: string;
+  draftPosition: number;
+};
+
+export type DraftPick = {
+  pickNumber: number;
+  round: number;
+  pickInRound: number;
+  teamId: string;
+  playerId?: string;
+};
+
+export type Draft = {
+  id: string;
+  teamCount: number;
+  rounds: number;
+  userTeamId: string;
+  currentPickNumber: number;
+  teams: Team[];
+  picks: DraftPick[];
+};
