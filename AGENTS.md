@@ -35,6 +35,47 @@ Avoid documentation drift.
 
 ---
 
+## Slice Workflow
+
+If `docs/current-slice.md` doesn't exist when planning a new slice, feel free to make it.
+
+Use `docs/current-slice.md` as the working plan for the active feature.
+
+IMPORTANT: Implementation Steps should be concrete enough that a lower-reasoning implementation pass can execute them without redefining the approach.
+
+When planning a new slice:
+- Define the smallest meaningful user-visible increment.
+- Replace the contents of `docs/current-slice.md`.
+- Include only information needed to implement the active slice.
+- Prefer implementation slices that can be completed and reviewed in a single commit.
+- Avoid combining unrelated work.
+
+Before finalizing `docs/current-slice.md`, review the proposed slice and answer:
+
+1. Is this the smallest meaningful increment?
+2. Could a lower-reasoning implementation pass execute these steps without redefining the approach?
+3. Does the slice avoid unnecessary architecture changes?
+4. Is the expected blast radius reasonable (generally ≤5 files)?
+5. Could the entire slice be reviewed and reverted comfortably?
+6. Are the acceptance criteria observable and testable?
+
+If any answer is "no," revise the slice before presenting it for approval.
+
+When implementing a slice:
+- Follow the plan in `docs/current-slice.md`.
+- Work through the listed steps sequentially.
+- Stay within the stated goals and non-goals.
+- Do not introduce new features or major refactors unless required.
+- If blocked by missing information or contradictions in the slice, stop and report the issue rather than expanding scope.
+
+After implementation:
+- Report acceptance criteria status.
+- Summarize files changed.
+- Suggest the next slice.
+- Do not automatically begin the next slice.
+
+---
+
 ## Project Context
 
 Use the documentation as the source of truth.
