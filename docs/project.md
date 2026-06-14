@@ -36,7 +36,7 @@ The user participates in live fantasy football drafts and wants better decision 
 - TE
 - FLEX
 - FLEX
-- DEF
+- DST
 - K
 
 ### Bench

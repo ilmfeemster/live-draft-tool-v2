@@ -19,16 +19,16 @@ Success means a full mock draft can be completed without the app breaking.
 
 ### Project Setup
 
-- [ ] Create Next.js app
-- [ ] Configure TypeScript
-- [ ] Setup Tailwind CSS
-- [ ] Setup Git repository
-- [ ] Create docs folder
+- [x] Create Next.js app
+- [x] Configure TypeScript
+- [x] Setup Tailwind CSS
+- [x] Setup Git repository
+- [x] Create docs folder
 
 ### Core Domain Modeling
 
-- [ ] Define Player type
-- [ ] Define RankingEntry type
+- [x] Define Player type
+- [x] Define RankingEntry type
 - [ ] Define DraftPick type
 - [ ] Define Draft type
 - [ ] Define Team type
@@ -37,11 +37,11 @@ Success means a full mock draft can be completed without the app breaking.
 
 ### Rankings System
 
-- [ ] Create seed rankings dataset
-- [ ] Load rankings into application state
-- [ ] Render available players table
-- [ ] Add position filtering
-- [ ] Add ranking sorting
+- [x] Create seed rankings dataset
+- [x] Load rankings into application state
+- [x] Render available players table
+- [x] Add position filtering
+- [x] Add ranking sorting
 
 ### Draft Engine
 

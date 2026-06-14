@@ -1,0 +1,268 @@
+import type { RankingEntry } from "@/types/draft";
+
+export const seedRankings: RankingEntry[] = [
+  {
+    overallRank: 1,
+    positionRank: 1,
+    tier: 1,
+    player: {
+      id: "ja-marr-chase",
+      name: "Ja'Marr Chase",
+      team: "CIN",
+      position: "WR",
+    },
+  },
+  {
+    overallRank: 2,
+    positionRank: 1,
+    tier: 1,
+    player: {
+      id: "bijan-robinson",
+      name: "Bijan Robinson",
+      team: "ATL",
+      position: "RB",
+    },
+  },
+  {
+    overallRank: 3,
+    positionRank: 2,
+    tier: 1,
+    player: {
+      id: "justin-jefferson",
+      name: "Justin Jefferson",
+      team: "MIN",
+      position: "WR",
+    },
+  },
+  {
+    overallRank: 4,
+    positionRank: 3,
+    tier: 1,
+    player: {
+      id: "ceedee-lamb",
+      name: "CeeDee Lamb",
+      team: "DAL",
+      position: "WR",
+    },
+  },
+  {
+    overallRank: 5,
+    positionRank: 2,
+    tier: 1,
+    player: {
+      id: "jahmyr-gibbs",
+      name: "Jahmyr Gibbs",
+      team: "DET",
+      position: "RB",
+    },
+  },
+  {
+    overallRank: 6,
+    positionRank: 4,
+    tier: 2,
+    player: {
+      id: "amon-ra-st-brown",
+      name: "Amon-Ra St. Brown",
+      team: "DET",
+      position: "WR",
+    },
+  },
+  {
+    overallRank: 7,
+    positionRank: 3,
+    tier: 2,
+    player: {
+      id: "saquon-barkley",
+      name: "Saquon Barkley",
+      team: "PHI",
+      position: "RB",
+    },
+  },
+  {
+    overallRank: 8,
+    positionRank: 5,
+    tier: 2,
+    player: {
+      id: "puka-nacua",
+      name: "Puka Nacua",
+      team: "LAR",
+      position: "WR",
+    },
+  },
+  {
+    overallRank: 9,
+    positionRank: 4,
+    tier: 2,
+    player: {
+      id: "christian-mccaffrey",
+      name: "Christian McCaffrey",
+      team: "SF",
+      position: "RB",
+    },
+  },
+  {
+    overallRank: 10,
+    positionRank: 6,
+    tier: 2,
+    player: {
+      id: "malik-nabers",
+      name: "Malik Nabers",
+      team: "NYG",
+      position: "WR",
+    },
+  },
+  {
+    overallRank: 11,
+    positionRank: 5,
+    tier: 3,
+    player: {
+      id: "derrick-henry",
+      name: "Derrick Henry",
+      team: "BAL",
+      position: "RB",
+    },
+  },
+  {
+    overallRank: 12,
+    positionRank: 7,
+    tier: 3,
+    player: {
+      id: "nico-collins",
+      name: "Nico Collins",
+      team: "HOU",
+      position: "WR",
+    },
+  },
+  {
+    overallRank: 13,
+    positionRank: 6,
+    tier: 3,
+    player: {
+      id: "jonathan-taylor",
+      name: "Jonathan Taylor",
+      team: "IND",
+      position: "RB",
+    },
+  },
+  {
+    overallRank: 14,
+    positionRank: 1,
+    tier: 3,
+    player: {
+      id: "brock-bowers",
+      name: "Brock Bowers",
+      team: "LV",
+      position: "TE",
+    },
+  },
+  {
+    overallRank: 15,
+    positionRank: 1,
+    tier: 3,
+    player: {
+      id: "lamar-jackson",
+      name: "Lamar Jackson",
+      team: "BAL",
+      position: "QB",
+    },
+  },
+  {
+    overallRank: 16,
+    positionRank: 2,
+    tier: 3,
+    player: {
+      id: "josh-allen",
+      name: "Josh Allen",
+      team: "BUF",
+      position: "QB",
+    },
+  },
+  {
+    overallRank: 17,
+    positionRank: 2,
+    tier: 4,
+    player: {
+      id: "trey-mcbride",
+      name: "Trey McBride",
+      team: "ARI",
+      position: "TE",
+    },
+  },
+  {
+    overallRank: 18,
+    positionRank: 3,
+    tier: 4,
+    player: {
+      id: "jayden-daniels",
+      name: "Jayden Daniels",
+      team: "WAS",
+      position: "QB",
+    },
+  },
+  {
+    overallRank: 19,
+    positionRank: 3,
+    tier: 4,
+    player: {
+      id: "george-kittle",
+      name: "George Kittle",
+      team: "SF",
+      position: "TE",
+    },
+  },
+  {
+    overallRank: 20,
+    positionRank: 4,
+    tier: 4,
+    player: {
+      id: "jalen-hurts",
+      name: "Jalen Hurts",
+      team: "PHI",
+      position: "QB",
+    },
+  },
+  {
+    overallRank: 21,
+    positionRank: 1,
+    tier: 5,
+    player: {
+      id: "philadelphia-eagles-dst",
+      name: "Philadelphia Eagles",
+      team: "PHI",
+      position: "DST",
+    },
+  },
+  {
+    overallRank: 22,
+    positionRank: 2,
+    tier: 5,
+    player: {
+      id: "pittsburgh-steelers-dst",
+      name: "Pittsburgh Steelers",
+      team: "PIT",
+      position: "DST",
+    },
+  },
+  {
+    overallRank: 23,
+    positionRank: 1,
+    tier: 5,
+    player: {
+      id: "brandon-aubrey",
+      name: "Brandon Aubrey",
+      team: "DAL",
+      position: "K",
+    },
+  },
+  {
+    overallRank: 24,
+    positionRank: 2,
+    tier: 5,
+    player: {
+      id: "justin-tucker",
+      name: "Justin Tucker",
+      team: "BAL",
+      position: "K",
+    },
+  },
+];
