@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { AvailablePlayersTable } from "@/components/AvailablePlayersTable";
 import { DraftStatusPanel } from "@/components/DraftStatusPanel";
+import { UserRosterPanel } from "@/components/UserRosterPanel";
 import type { Draft, RankingEntry } from "@/types/draft";
 
 type DraftRoomProps = {
@@ -24,6 +25,27 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
   const availableRankings = useMemo(() => {
     return rankings.filter((entry) => !draftedPlayerIds.has(entry.player.id));
   }, [draftedPlayerIds, rankings]);
+
+  const userRosterPlayers = useMemo(() => {
+    return activeDraft.picks
+      .filter((pick) => pick.teamId === activeDraft.userTeamId && pick.playerId)
+      .map((pick) => {
+        const ranking = rankings.find((entry) => entry.player.id === pick.playerId);
+
+        if (!ranking) {
+          return undefined;
+        }
+
+        return {
+          pickNumber: pick.pickNumber,
+          name: ranking.player.name,
+          team: ranking.player.team,
+          position: ranking.player.position,
+        };
+      })
+      .filter((player): player is NonNullable<typeof player> => Boolean(player))
+      .sort((a, b) => a.pickNumber - b.pickNumber);
+  }, [activeDraft.picks, activeDraft.userTeamId, rankings]);
 
   const canUndoLastPick = draftedPlayerIds.size > 0;
 
@@ -97,11 +119,14 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
   return (
     <div className="grid min-h-0 gap-6 xl:grid-cols-[1fr_320px]">
       <AvailablePlayersTable rankings={availableRankings} onDraftPlayer={draftPlayer} />
-      <DraftStatusPanel
-        draft={activeDraft}
-        canUndoLastPick={canUndoLastPick}
-        onUndoLastPick={undoLastPick}
-      />
+      <div className="flex flex-col gap-6">
+        <DraftStatusPanel
+          draft={activeDraft}
+          canUndoLastPick={canUndoLastPick}
+          onUndoLastPick={undoLastPick}
+        />
+        <UserRosterPanel players={userRosterPlayers} />
+      </div>
     </div>
   );
 }

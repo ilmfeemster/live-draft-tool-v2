@@ -60,10 +60,10 @@ Success means a full mock draft can be completed without the app breaking.
 
 ### User Roster
 
-- [ ] Detect user picks
-- [ ] Add player to roster
+- [x] Detect user picks
+- [x] Add player to roster
 - [ ] Display roster slots
-- [ ] Display positional counts
+- [x] Display positional counts
 - [ ] Detect overfilled positions
 
 ### Recommendation Engine V1
