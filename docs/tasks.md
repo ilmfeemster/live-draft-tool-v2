@@ -56,7 +56,7 @@ Success means a full mock draft can be completed without the app breaking.
 - [ ] Build player search
 - [x] Draft selected player
 - [x] Advance draft state
-- [ ] Add undo functionality
+- [x] Add undo functionality
 
 ### User Roster
 

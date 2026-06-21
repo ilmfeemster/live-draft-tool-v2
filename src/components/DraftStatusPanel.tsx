@@ -2,6 +2,8 @@ import type { Draft, DraftPick } from "@/types/draft";
 
 type DraftStatusPanelProps = {
   draft: Draft;
+  canUndoLastPick: boolean;
+  onUndoLastPick: () => void;
 };
 
 function getCurrentPick(draft: Draft): DraftPick {
@@ -14,7 +16,11 @@ function getCurrentPick(draft: Draft): DraftPick {
   return currentPick;
 }
 
-export function DraftStatusPanel({ draft }: DraftStatusPanelProps) {
+export function DraftStatusPanel({
+  draft,
+  canUndoLastPick,
+  onUndoLastPick,
+}: DraftStatusPanelProps) {
   const currentPick = getCurrentPick(draft);
   const activeTeam = draft.teams.find((team) => team.id === currentPick.teamId);
   const userTeam = draft.teams.find((team) => team.id === draft.userTeamId);
@@ -60,6 +66,15 @@ export function DraftStatusPanel({ draft }: DraftStatusPanelProps) {
           Draft position {userTeam?.draftPosition ?? "unknown"}
         </div>
       </div>
+
+      <button
+        type="button"
+        className="h-10 rounded bg-zinc-950 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500"
+        disabled={!canUndoLastPick}
+        onClick={onUndoLastPick}
+      >
+        Undo Last Pick
+      </button>
     </aside>
   );
 }
