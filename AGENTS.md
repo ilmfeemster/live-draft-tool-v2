@@ -66,7 +66,17 @@ When implementing a slice:
 - Work through the listed steps sequentially.
 - Stay within the stated goals and non-goals.
 - Do not introduce new features or major refactors unless required.
-- If blocked by missing information or contradictions in the slice, stop and report the issue rather than expanding scope.
+- If blocked by missing information, contradictions, or failing validation that appears unrelated to the slice, stop and report the issue rather than expanding scope.
+
+Lower-model slice rules:
+- Treat `docs/current-slice.md` as the source of truth.
+- Do not infer extra requirements from the app’s future roadmap.
+- If a step can be completed with a small local change, prefer that over adding abstractions.
+- Do not rename existing files, components, props, or types unless the slice explicitly says to.
+- Do not “clean up” unrelated code.
+- Do not update package dependencies unless the slice explicitly requires it.
+- When updating `docs/tasks.md`, only check items directly completed by the current slice.
+- If validation fails, fix only issues caused by this slice.
 
 After implementation:
 - Report acceptance criteria status.

@@ -44,6 +44,10 @@ From the draft board, each available player row has a draft action. When the act
 
 Avoid changing domain types unless implementation reveals a real gap.
 
+## Implementation Constraint
+
+This slice should be completed with the simplest local React state implementation. Do not add persistence, context providers, reducers, global state, new domain models, or draft history.
+
 ## Implementation Steps
 
 1. Create `src/components/DraftRoom.tsx` as a client component.
@@ -61,7 +65,7 @@ Avoid changing domain types unless implementation reveals a real gap.
    - Render `DraftStatusPanel` with the current draft state.
 
 2. Update `src/components/AvailablePlayersTable.tsx`.
-   - Add an optional or required `onDraftPlayer(playerId: string)` prop.
+   - Add a required `onDraftPlayer(playerId: string)` prop.
    - Add an Action column.
    - Render a `Draft` button for each row.
    - Call `onDraftPlayer(entry.player.id)` when clicked.
@@ -72,9 +76,10 @@ Avoid changing domain types unless implementation reveals a real gap.
    - Render `DraftRoom` with `defaultDraft` and `seedRankings`.
 
 4. Update `docs/tasks.md`.
-   - Mark manual pick entry pieces complete only if they are satisfied by this slice.
+   - Mark `Draft selected player` complete.
+   - Mark `Advance draft state` complete.
    - Mark `Mark drafted players unavailable` complete if drafted players disappear.
-   - Leave search, undo, and roster tracking unchecked.
+   - Leave `Build player search`, undo, and roster tracking unchecked.
 
 5. Validate.
    - Run `npm run lint`.
