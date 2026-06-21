@@ -1,73 +1,82 @@
-# Current Slice: Undo Last Pick V1
+# Current Slice: User Roster V1
 
 ## Goal
 
-Allow the user to undo the most recent drafted player and return the draft to the previous pick.
+Show the user's drafted players and basic position counts as the draft progresses.
 
-This slice proves the reverse draft state transition:
+This slice proves that the app can distinguish the user's picks from the rest of the draft:
 
-- The most recent pick can be cleared.
-- The drafted player returns to the available player pool.
-- The draft status moves back to the undone pick.
+- Picks made by `draft.userTeamId` appear in a roster panel.
+- Picks made by other teams do not appear in the user's roster.
+- Undoing a user pick removes that player from the roster.
 
 ## User-Visible Increment
 
-After drafting a player, an `Undo Last Pick` action is available in the Draft Status panel. Using it clears the last drafted player, returns that player to the available list, and moves Current Pick back by one.
+The draft board includes a `Your Roster` panel. As picks are entered, players drafted by the user's team appear in that panel, and position counts update.
 
 ## Goals
 
-- Add an undo action for the most recent drafted pick.
-- Disable undo when no picks have been drafted.
-- Clear `playerId` from the most recent drafted pick.
-- Set `currentPickNumber` back to the undone pick number.
-- Make the previously drafted player appear in the available players table again.
+- Derive user roster entries from `activeDraft.picks`.
+- Join user picks to `rankings` to display player name, team, position, and pick number.
+- Show basic position counts for `QB`, `RB`, `WR`, `TE`, `DST`, and `K`.
+- Keep the roster panel in sync with draft and undo actions.
+- Keep all roster state derived; do not store a second roster state.
 
 ## Non-Goals
 
-- Multi-step history UI.
-- Draft board history display.
-- Confirm dialogs.
-- Keyboard shortcuts.
-- Roster tracking.
+- Roster slot assignment.
+- FLEX eligibility logic.
+- Overfilled position warnings.
 - Recommendations.
+- Search.
 - Persistence.
-- Reducers, context providers, or global state.
+- New draft setup UI.
+- Context providers, reducers, global state, or new domain models.
 
 ## Expected Files
 
 - `src/components/DraftRoom.tsx`
-- `src/components/DraftStatusPanel.tsx`
+- `src/components/UserRosterPanel.tsx`
 - `docs/tasks.md`
 
-Avoid changing domain types or adding new files unless implementation reveals a real gap.
+Avoid changing domain types unless implementation reveals a real gap.
 
 ## Implementation Constraint
 
-Use the existing local React state in `DraftRoom`. Do not add reducers, context, global state, persistence, new domain models, or a separate history structure.
+Use derived data from existing local React state in `DraftRoom`. Do not add a separate `UserRoster` type, separate roster state, reducers, context, global state, persistence, or a draft history model.
 
 ## Implementation Steps
 
-1. Update `src/components/DraftRoom.tsx`.
-   - Derive `canUndoLastPick` from whether any pick has a `playerId`.
-   - Implement `undoLastPick()`.
-   - In `undoLastPick`, find the drafted pick with the highest `pickNumber`.
-   - If no drafted pick exists, return the existing draft.
-   - Clear `playerId` from that pick.
-   - Set `currentPickNumber` to that pick's `pickNumber`.
-   - Pass `canUndoLastPick` and `undoLastPick` to `DraftStatusPanel`.
+1. Create `src/components/UserRosterPanel.tsx`.
+   - Accept a `players` prop containing roster entries.
+   - Define the roster entry prop type locally in this file or export it only if `DraftRoom` needs it.
+   - Each roster entry should include:
+     - `pickNumber`
+     - `name`
+     - `team`
+     - `position`
+   - Derive position counts for `QB`, `RB`, `WR`, `TE`, `DST`, and `K`.
+   - Render a `Your Roster` heading.
+   - Render position counts.
+   - Render an empty state when there are no user players.
+   - Render a simple list of drafted user players when present.
 
-2. Update `src/components/DraftStatusPanel.tsx`.
-   - Add required props:
-     - `canUndoLastPick: boolean`
-     - `onUndoLastPick: () => void`
-   - Render an `Undo Last Pick` button.
-   - Disable the button when `canUndoLastPick` is false.
-   - Call `onUndoLastPick` when clicked.
-   - Keep existing status display behavior.
+2. Update `src/components/DraftRoom.tsx`.
+   - Import `UserRosterPanel`.
+   - Derive `userRosterPlayers` from `activeDraft.picks` and `rankings`.
+   - Include only picks where:
+     - `pick.teamId === activeDraft.userTeamId`
+     - `pick.playerId` exists
+   - Find the matching ranking entry by `player.id`.
+   - Sort roster players by `pickNumber`.
+   - Render `UserRosterPanel` in the right-side column near `DraftStatusPanel`.
+   - Keep `availableRankings`, draft, and undo behavior unchanged except as needed for layout.
 
 3. Update `docs/tasks.md`.
-   - Mark `Add undo functionality` complete.
-   - Leave roster tracking, search, recommendations, and validation checklist items unchanged unless directly completed by this slice.
+   - Mark `Detect user picks` complete.
+   - Mark `Add player to roster` complete.
+   - Mark `Display positional counts` complete.
+   - Leave `Display roster slots` and `Detect overfilled positions` unchecked.
 
 4. Validate.
    - Run `npm run lint`.
@@ -76,21 +85,24 @@ Use the existing local React state in `DraftRoom`. Do not add reducers, context,
 
 ## Acceptance Criteria
 
-- The app renders with the available players table and draft status panel.
-- `Undo Last Pick` is visible in the Draft Status panel.
-- `Undo Last Pick` is disabled before any player is drafted.
-- Drafting a player enables `Undo Last Pick`.
-- Undoing clears the most recent drafted pick.
-- Undoing returns the player to the available table.
-- Undoing moves Current Pick back to the undone pick number.
+- The app renders with the available players table, draft status panel, and user roster panel.
+- The user roster panel shows an empty state before user picks are drafted.
+- Drafting picks for teams other than `draft.userTeamId` does not add players to the user roster.
+- Drafting a pick for `draft.userTeamId` adds that player to the user roster.
+- Undoing a user pick removes that player from the user roster.
+- Position counts update from drafted user players.
 - `npm run lint` passes.
 - `npm run build` passes.
 
+## Manual Test Notes
+
+The default user team is `Team 6`, so the first user roster addition occurs on pick 6. To test manually, draft six players and verify the sixth player appears in `Your Roster`.
+
 ## Slice Review
 
-- Smallest meaningful increment: yes, it adds one required reverse action for the existing manual pick flow.
-- Concrete enough for implementation: yes, state ownership, props, and update behavior are specified.
-- Avoids unnecessary architecture changes: yes, it reuses local state in `DraftRoom`.
+- Smallest meaningful increment: yes, it proves user roster tracking without slot assignment or warnings.
+- Concrete enough for implementation: yes, data derivation, files, and display requirements are specified.
+- Avoids unnecessary architecture changes: yes, roster is derived from existing local draft state.
 - Blast radius reasonable: yes, expected changes are two source files plus task docs.
-- Review/revert comfort: yes, the slice is isolated to undo behavior.
-- Observable/testable acceptance criteria: yes, UI button state and draft state changes are explicit.
+- Review/revert comfort: yes, the slice is isolated to one new panel and one derived data path.
+- Observable/testable acceptance criteria: yes, roster visibility and counts can be checked through the UI.
