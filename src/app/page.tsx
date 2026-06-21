@@ -1,5 +1,4 @@
-import { AvailablePlayersTable } from "@/components/AvailablePlayersTable";
-import { DraftStatusPanel } from "@/components/DraftStatusPanel";
+import { DraftRoom } from "@/components/DraftRoom";
 import { defaultDraft } from "@/data/defaultDraft";
 import { seedRankings } from "@/data/seedRankings";
 
@@ -37,10 +36,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="grid min-h-0 gap-6 xl:grid-cols-[1fr_320px]">
-          <AvailablePlayersTable rankings={seedRankings} />
-          <DraftStatusPanel draft={defaultDraft} />
-        </div>
+        <DraftRoom draft={defaultDraft} rankings={seedRankings} />
       </div>
     </main>
   );

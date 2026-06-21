@@ -49,13 +49,13 @@ Success means a full mock draft can be completed without the app breaking.
 - [x] Track current pick
 - [x] Track current round
 - [x] Track active drafting team
-- [ ] Mark drafted players unavailable
+- [x] Mark drafted players unavailable
 
 ### Manual Pick Entry
 
 - [ ] Build player search
-- [ ] Draft selected player
-- [ ] Advance draft state
+- [x] Draft selected player
+- [x] Advance draft state
 - [ ] Add undo functionality
 
 ### User Roster

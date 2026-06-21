@@ -9,9 +9,10 @@ const positionFilters: PositionFilter[] = ["ALL", "QB", "RB", "WR", "TE", "DST",
 
 type AvailablePlayersTableProps = {
   rankings: RankingEntry[];
+  onDraftPlayer: (playerId: string) => void;
 };
 
-export function AvailablePlayersTable({ rankings }: AvailablePlayersTableProps) {
+export function AvailablePlayersTable({ rankings, onDraftPlayer }: AvailablePlayersTableProps) {
   const [selectedPosition, setSelectedPosition] = useState<PositionFilter>("ALL");
 
   const availablePlayers = useMemo(() => {
@@ -64,6 +65,7 @@ export function AvailablePlayersTable({ rankings }: AvailablePlayersTableProps) 
                 <th className="w-24 border-b border-zinc-200 px-4 py-3 font-semibold">Team</th>
                 <th className="w-28 border-b border-zinc-200 px-4 py-3 font-semibold">Pos</th>
                 <th className="w-24 border-b border-zinc-200 px-4 py-3 font-semibold">Tier</th>
+                <th className="w-28 border-b border-zinc-200 px-4 py-3 font-semibold">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
@@ -81,6 +83,15 @@ export function AvailablePlayersTable({ rankings }: AvailablePlayersTableProps) 
                     </span>
                   </td>
                   <td className="px-4 py-3 text-zinc-600">{entry.tier}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      className="h-8 rounded bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800"
+                      onClick={() => onDraftPlayer(entry.player.id)}
+                    >
+                      Draft
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
