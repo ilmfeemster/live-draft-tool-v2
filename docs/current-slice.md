@@ -1,108 +1,99 @@
-# Current Slice: User Roster V1
+# Current Slice: Manual Testing Data V1
 
 ## Goal
 
-Show the user's drafted players and basic position counts as the draft progresses.
+Make local manual testing faster by shrinking the default draft and expanding the seed rankings.
 
-This slice proves that the app can distinguish the user's picks from the rest of the draft:
+This slice supports upcoming roster slot testing by making it easier to:
 
-- Picks made by `draft.userTeamId` appear in a roster panel.
-- Picks made by other teams do not appear in the user's roster.
-- Undoing a user pick removes that player from the roster.
+- reach the user's picks quickly,
+- draft enough players to fill starter and bench slots,
+- test multiple positions without running out of seed players.
 
 ## User-Visible Increment
 
-The draft board includes a `Your Roster` panel. As picks are entered, players drafted by the user's team appear in that panel, and position counts update.
+The default draft uses 4 teams instead of 12, and the available player pool contains more seed players across all positions.
 
 ## Goals
 
-- Derive user roster entries from `activeDraft.picks`.
-- Join user picks to `rankings` to display player name, team, position, and pick number.
-- Show basic position counts for `QB`, `RB`, `WR`, `TE`, `DST`, and `K`.
-- Keep the roster panel in sync with draft and undo actions.
-- Keep all roster state derived; do not store a second roster state.
+- Change the default local draft from 12 teams to 4 teams.
+- Keep the user draft position valid and easy to reach.
+- Add enough seed rankings to manually draft through starter and bench scenarios.
+- Include extra players at `RB`, `WR`, and `TE` so future FLEX and Bench behavior can be tested.
+- Include multiple `QB`, `DST`, and `K` options.
+- Keep this as seed/default data only.
 
 ## Non-Goals
 
-- Roster slot assignment.
-- FLEX eligibility logic.
-- Overfilled position warnings.
-- Recommendations.
-- Search.
-- Persistence.
-- New draft setup UI.
-- Context providers, reducers, global state, or new domain models.
+- Do not change MVP league settings in `docs/project.md`.
+- Do not change architecture docs.
+- Do not add draft setup UI.
+- Do not add roster slot assignment.
+- Do not add recommendations.
+- Do not add persistence.
+- Do not change draft engine logic.
+- Do not add new domain types.
 
 ## Expected Files
 
-- `src/components/DraftRoom.tsx`
-- `src/components/UserRosterPanel.tsx`
-- `docs/tasks.md`
+- `src/data/defaultDraft.ts`
+- `src/data/seedRankings.ts`
+- `docs/current-slice.md`
 
-Avoid changing domain types unless implementation reveals a real gap.
+Do not update `docs/tasks.md`; this slice supports manual testing but does not complete a product checklist item.
 
 ## Implementation Constraint
 
-Use derived data from existing local React state in `DraftRoom`. Do not add a separate `UserRoster` type, separate roster state, reducers, context, global state, persistence, or a draft history model.
+Treat the 4-team draft as temporary local seed/default data for faster validation. Do not change the documented MVP target of a 12-team draft.
 
 ## Implementation Steps
 
-1. Create `src/components/UserRosterPanel.tsx`.
-   - Accept a `players` prop containing roster entries.
-   - Define the roster entry prop type locally in this file or export it only if `DraftRoom` needs it.
-   - Each roster entry should include:
-     - `pickNumber`
-     - `name`
-     - `team`
-     - `position`
-   - Derive position counts for `QB`, `RB`, `WR`, `TE`, `DST`, and `K`.
-   - Render a `Your Roster` heading.
-   - Render position counts.
-   - Render an empty state when there are no user players.
-   - Render a simple list of drafted user players when present.
+1. Update `src/data/defaultDraft.ts`.
+   - Change `teamCount` from `12` to `4`.
+   - Keep `rounds` at `16`.
+   - Set `userDraftPosition` to `2`.
+   - Leave the rest of the file structure unchanged.
 
-2. Update `src/components/DraftRoom.tsx`.
-   - Import `UserRosterPanel`.
-   - Derive `userRosterPlayers` from `activeDraft.picks` and `rankings`.
-   - Include only picks where:
-     - `pick.teamId === activeDraft.userTeamId`
-     - `pick.playerId` exists
-   - Find the matching ranking entry by `player.id`.
-   - Sort roster players by `pickNumber`.
-   - Render `UserRosterPanel` in the right-side column near `DraftStatusPanel`.
-   - Keep `availableRankings`, draft, and undo behavior unchanged except as needed for layout.
+2. Update `src/data/seedRankings.ts`.
+   - Expand `seedRankings` from 24 players to at least 48 players.
+   - Preserve unique `id` values.
+   - Preserve ascending `overallRank` values with no gaps.
+   - Keep each entry typed as `RankingEntry`.
+   - Add enough players to cover at least:
+     - 6 QB
+     - 12 RB
+     - 16 WR
+     - 6 TE
+     - 4 DST
+     - 4 K
+   - Keep names real-ish and plausible.
 
-3. Update `docs/tasks.md`.
-   - Mark `Detect user picks` complete.
-   - Mark `Add player to roster` complete.
-   - Mark `Display positional counts` complete.
-   - Leave `Display roster slots` and `Detect overfilled positions` unchecked.
-
-4. Validate.
+3. Validate.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - If practical, run the dev server and verify page HTML renders.
+   - If practical, request the local page and verify it renders with the larger player pool.
 
 ## Acceptance Criteria
 
-- The app renders with the available players table, draft status panel, and user roster panel.
-- The user roster panel shows an empty state before user picks are drafted.
-- Drafting picks for teams other than `draft.userTeamId` does not add players to the user roster.
-- Drafting a pick for `draft.userTeamId` adds that player to the user roster.
-- Undoing a user pick removes that player from the user roster.
-- Position counts update from drafted user players.
+- The default draft has 4 teams.
+- The user draft position is 2.
+- The draft still has 16 rounds.
+- The available player pool has at least 48 players.
+- Seed player ids are unique.
+- Overall ranks are sequential.
+- The app renders the larger available player pool.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-The default user team is `Team 6`, so the first user roster addition occurs on pick 6. To test manually, draft six players and verify the sixth player appears in `Your Roster`.
+With 4 teams and user draft position 2, user picks occur quickly at picks 2, 7, 10, 15, and so on. This makes it easier to test roster tracking and future roster slot assignment without entering many unrelated picks.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it proves user roster tracking without slot assignment or warnings.
-- Concrete enough for implementation: yes, data derivation, files, and display requirements are specified.
-- Avoids unnecessary architecture changes: yes, roster is derived from existing local draft state.
-- Blast radius reasonable: yes, expected changes are two source files plus task docs.
-- Review/revert comfort: yes, the slice is isolated to one new panel and one derived data path.
-- Observable/testable acceptance criteria: yes, roster visibility and counts can be checked through the UI.
+- Smallest meaningful increment: yes, it changes only local test data needed for faster manual validation.
+- Concrete enough for implementation: yes, exact file edits and data requirements are listed.
+- Avoids unnecessary architecture changes: yes, no logic or architecture changes are required.
+- Blast radius reasonable: yes, expected changes are two data files plus this slice plan.
+- Review/revert comfort: yes, the slice is isolated to seed/default data.
+- Observable/testable acceptance criteria: yes, counts, ranks, ids, and rendering can be checked directly.
