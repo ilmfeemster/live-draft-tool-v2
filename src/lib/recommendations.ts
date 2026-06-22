@@ -1,10 +1,10 @@
 import type { Position, RankingEntry, Recommendation } from "@/types/draft";
 
 const DEFAULT_RECOMMENDATION_LIMIT = 5;
-const DIRECT_STARTER_NEED_BONUS = 30;
-const FLEX_NEED_BONUS = 15;
-const TIER_DROP_MULTIPLIER = 20;
-const MAX_TIER_DROP_BONUS = 40;
+const DIRECT_STARTER_NEED_BONUS = 15;
+const FLEX_NEED_BONUS = 5;
+const TIER_DROP_MULTIPLIER = 5;
+const MAX_TIER_DROP_BONUS = 10;
 const flexPositions: Position[] = ["RB", "WR", "TE"];
 
 type RosterNeedPlayer = {
@@ -97,6 +97,14 @@ export function calculateTierDropModifier(
   const samePositionRankings = availableRankings
     .filter((candidate) => candidate.player.position === ranking.player.position)
     .sort((a, b) => a.overallRank - b.overallRank);
+  const sameTierRankings = samePositionRankings.filter((candidate) => {
+    return candidate.tier === ranking.tier;
+  });
+
+  if (sameTierRankings.length > 1) {
+    return { modifier: 0, reason: null };
+  }
+
   const rankingIndex = samePositionRankings.findIndex((candidate) => {
     return candidate.player.id === ranking.player.id;
   });
