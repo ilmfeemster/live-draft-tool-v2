@@ -77,8 +77,8 @@ Success means a full mock draft can be completed without the app breaking.
 
 ### Recommendation UI
 
-- [ ] Display recommendations
-- [ ] Display recommendation reasons
+- [x] Display recommendations
+- [x] Display recommendation reasons
 - [ ] Display tier warnings
 - [ ] Display scarcity warnings
 - [ ] Highlight user pick

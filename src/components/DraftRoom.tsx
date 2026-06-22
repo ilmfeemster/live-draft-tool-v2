@@ -3,7 +3,9 @@
 import { useMemo, useState } from "react";
 import { AvailablePlayersTable } from "@/components/AvailablePlayersTable";
 import { DraftStatusPanel } from "@/components/DraftStatusPanel";
+import { RecommendationsPanel } from "@/components/RecommendationsPanel";
 import { UserRosterPanel } from "@/components/UserRosterPanel";
+import { generateTopRecommendations } from "@/lib/recommendations";
 import type { Draft, RankingEntry } from "@/types/draft";
 
 type DraftRoomProps = {
@@ -25,6 +27,10 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
   const availableRankings = useMemo(() => {
     return rankings.filter((entry) => !draftedPlayerIds.has(entry.player.id));
   }, [draftedPlayerIds, rankings]);
+
+  const recommendations = useMemo(() => {
+    return generateTopRecommendations(availableRankings);
+  }, [availableRankings]);
 
   const userRosterPlayers = useMemo(() => {
     return activeDraft.picks
@@ -118,7 +124,13 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
 
   return (
     <div className="grid min-h-0 gap-6 xl:grid-cols-[1fr_320px]">
-      <AvailablePlayersTable rankings={availableRankings} onDraftPlayer={draftPlayer} />
+      <div className="flex min-h-0 flex-col gap-6">
+        <RecommendationsPanel
+          recommendations={recommendations}
+          onDraftPlayer={draftPlayer}
+        />
+        <AvailablePlayersTable rankings={availableRankings} onDraftPlayer={draftPlayer} />
+      </div>
       <div className="flex flex-col gap-6">
         <DraftStatusPanel
           draft={activeDraft}
