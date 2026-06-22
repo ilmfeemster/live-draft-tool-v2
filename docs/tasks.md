@@ -33,7 +33,7 @@ Success means a full mock draft can be completed without the app breaking.
 - [x] Define Draft type
 - [x] Define Team type
 - [ ] Define UserRoster type
-- [ ] Define Recommendation type
+- [x] Define Recommendation type
 
 ### Rankings System
 
@@ -68,12 +68,12 @@ Success means a full mock draft can be completed without the app breaking.
 
 ### Recommendation Engine V1
 
-- [ ] Add ranking score
+- [x] Add ranking score
 - [ ] Add roster need modifier
 - [ ] Add scarcity modifier
 - [ ] Add tier-drop modifier
-- [ ] Generate top 5 recommendations
-- [ ] Generate recommendation explanations
+- [x] Generate top 5 recommendations
+- [x] Generate recommendation explanations
 
 ### Recommendation UI
 

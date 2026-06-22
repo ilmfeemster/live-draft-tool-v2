@@ -15,6 +15,12 @@ export type RankingEntry = {
   tier: number;
 };
 
+export type Recommendation = {
+  ranking: RankingEntry;
+  score: number;
+  reasons: string[];
+};
+
 export type Team = {
   id: string;
   name: string;
