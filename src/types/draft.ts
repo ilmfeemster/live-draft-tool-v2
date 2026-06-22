@@ -10,6 +10,7 @@ export type Player = {
 export type RankingEntry = {
   player: Player;
   overallRank: number;
+  adpRank: number | null;
   positionRank: number;
   tier: number;
 };

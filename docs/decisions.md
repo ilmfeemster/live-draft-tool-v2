@@ -159,6 +159,27 @@ Focus on validating the core live-draft workflow before expanding scope.
 
 ---
 
+## 2026-06-22
+
+### Seed Rankings Source
+
+Decision:
+
+Use the local FantasyPros CSV as the source for the MVP seed rankings, converted into the existing `RankingEntry[]` application shape.
+
+Reason:
+
+A larger realistic player pool is needed to test draft flow and upcoming recommendation logic without adding runtime CSV import, database work, or package dependencies.
+
+Tradeoffs:
+
+- CSV-only fields such as bye week, upside, bust, and SOS are not used yet.
+- ECR-vs-ADP is stored as a derived `adpRank` for future recommendation logic, with `null` used when the CSV has no ADP offset.
+- Updating rankings currently requires regenerating the typed seed data.
+- The app keeps a simple static data path while recommendation behavior is still being validated.
+
+---
+
 ## Template
 
 ### YYYY-MM-DD

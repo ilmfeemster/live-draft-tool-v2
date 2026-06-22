@@ -1,153 +1,140 @@
-# Current Slice: Player Search V1
+# Current Slice: FantasyPros Seed Rankings V1
 
 ## Goal
 
-Make manual pick entry faster by adding a simple search input to the available players table.
+Replace the small handwritten seed rankings with the larger FantasyPros CSV data set so recommendation work can be tested against a more realistic player pool.
 
-This is a live-draft usability slice. The user should be able to quickly narrow the available player pool by typing part of a player name or NFL team abbreviation, then draft from the filtered results.
+The app should continue using the existing `RankingEntry[]` shape.
 
 ## User-Visible Increment
 
-The `Available Players` panel includes a search input above the table. Typing into it filters the visible available players while preserving the existing position filter and ranking sort.
+The `Available Players` table loads the larger FantasyPros rankings data. Existing search, position filtering, drafting, undo, and roster behavior continue working.
 
 ## Goals
 
-- Add a search input to `AvailablePlayersTable`.
-- Filter available rankings by:
-  - Player name.
-  - NFL team abbreviation.
-- Keep the existing position filter.
-- Combine search and position filtering.
-- Keep filtered results sorted by `overallRank`.
-- Show the filtered count in the existing helper text.
-- Show a simple empty state when no players match the active search/filter.
-- Keep drafting behavior unchanged.
-- Keep search state local to `AvailablePlayersTable`.
+- Use `src/data/FantasyPros_2026_Draft_ALL_Rankings.csv` as the source for seed rankings.
+- Convert CSV rows into the existing `RankingEntry` structure.
+- Preserve current supported positions:
+  - `QB`
+  - `RB`
+  - `WR`
+  - `TE`
+  - `DST`
+  - `K`
+- Parse `POS` values such as `WR12` into:
+  - `position: "WR"`
+  - `positionRank: 12`
+- Parse `RK` into `overallRank`.
+- Parse `ECR VS ADP` into `adpRank` by adding it to `RK` when the offset is numeric.
+- Store `adpRank: null` when `ECR VS ADP` is `-`.
+- Parse `TIERS` into `tier`.
+- Preserve player name and team abbreviation.
+- Keep app behavior unchanged outside the larger data set.
+- Fix only app issues directly caused by the larger data set.
 
 ## Non-Goals
 
-- Fuzzy search.
-- Search by position rank or tier.
-- Keyboard shortcuts.
-- Autocomplete.
-- Highlighting matched text.
-- Recent searches.
-- Player queue.
-- Watchlist.
-- Recommendation changes.
-- Draft state changes.
+- Runtime CSV upload/import UI.
+- CSV editing UI.
+- New database work.
+- Prisma integration.
+- Recommendation engine logic.
+- Recommendation UI.
+- Player metadata beyond the current type plus derived ADP rank.
+- Bye week, upside, bust, or SOS usage.
 - New dependencies.
-- URL query params or persistence.
+- Changing draft order, team count, or rounds.
 
 ## Expected Files
 
-- `src/components/AvailablePlayersTable.tsx`
-- `docs/tasks.md`
+- `src/data/seedRankings.ts`
 - `docs/current-slice.md`
+- `docs/decisions.md` if a durable data-source decision is useful
 
-Avoid changing `DraftRoom`, draft types, seed data, recommendation logic, or package dependencies.
+Do not update `docs/tasks.md` unless an existing unchecked task is directly completed by this slice.
+
+Avoid changing components unless the larger data set reveals a concrete rendering or interaction bug.
 
 ## Implementation Constraint
 
-Use local React state inside `AvailablePlayersTable`.
+Keep `seedRankings` as a typed `RankingEntry[]` export so current imports do not need to change.
 
 Do not add:
 
-- Context.
-- Reducers.
-- Global state.
-- Search libraries.
-- New components unless the table becomes meaningfully harder to read.
-- New domain types.
+- A runtime CSV parser.
+- A CSV upload workflow.
+- A new state management layer.
+- A database.
+- Package dependencies.
 
-## Search Behavior
+## Data Conversion Rules
 
-The search query should:
+For each CSV row:
 
-- Be controlled by local component state.
-- Trim leading and trailing whitespace before filtering.
-- Match case-insensitively.
-- Match against `entry.player.name`.
-- Match against `entry.player.team`.
-- Return all position-filtered players when the trimmed query is empty.
-- Work together with the existing position filter.
+1. `RK` becomes `overallRank`.
+2. `ECR VS ADP` is parsed as a signed numeric offset when available.
+3. `overallRank + ECR VS ADP` becomes `adpRank`.
+4. `ECR VS ADP` value `-` becomes `adpRank: null`.
+5. `TIERS` becomes `tier`.
+6. `PLAYER NAME` becomes `player.name`.
+7. `TEAM` becomes `player.team`.
+8. `POS` is split into position letters and numeric rank.
+9. Position letters must match the existing `Position` union.
+10. Numeric rank becomes `positionRank`.
+11. `player.id` is generated from player name, team, and position rank to avoid duplicate-name collisions.
 
-Filtering order should be:
-
-1. Position filter.
-2. Search filter.
-3. Sort by `overallRank`.
-
-## UI Rules
-
-- Place the search input in the `Available Players` header area near the existing position filter.
-- Use a plain text input.
-- Add an accessible label, either visible or screen-reader-only.
-- Use placeholder text such as `Search players or teams`.
-- Keep the existing position filter buttons visible.
-- Keep the table layout intact.
-- When no players match, render one table row or compact message inside the table area explaining that no available players match the current filters.
+If a row cannot be parsed into the current model, skip it only if necessary and document the skipped row in the final report.
 
 ## Implementation Steps
 
-1. Update `src/components/AvailablePlayersTable.tsx`.
-   - Add local `searchQuery` state.
-   - Normalize the search query inside the existing `useMemo`.
-   - Apply position filtering, then search filtering, then ranking sorting.
-   - Add a search input to the header area.
-   - Keep the existing position filter controls.
-   - Add an empty state for zero filtered results.
-   - Keep `onDraftPlayer(entry.player.id)` unchanged.
+1. Inspect the CSV shape.
+   - Confirm required columns exist.
+   - Confirm positions are limited to the supported position union.
+   - Confirm row count.
 
-2. Update `docs/tasks.md`.
-   - Mark `Build player search` complete.
-   - Do not change recommendation, roster, or backlog items.
+2. Update `src/data/seedRankings.ts`.
+   - Replace the small handwritten list with rankings generated from the CSV.
+   - Keep `import type { RankingEntry } from "@/types/draft";`.
+   - Keep `export const seedRankings: RankingEntry[] = [...]`.
+   - Ensure generated data is valid TypeScript.
 
-3. Validate.
+3. Validate app compatibility.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - If practical, request the local page and verify the search input renders.
+   - If practical, request the local page and verify the larger available-player count renders.
 
-4. Manual test.
-   - Search for part of a known player name.
-   - Search using different casing.
-   - Search for a team abbreviation.
-   - Combine search with a position filter.
-   - Clear the search and confirm the full position-filtered list returns.
-   - Draft a searched player and confirm they disappear from available players.
-   - Undo that pick and confirm the player returns if they still match the active search/filter.
+4. Manual smoke test.
+   - Search for a player from the new data set.
+   - Filter each supported position.
+   - Draft and undo at least one player.
+   - Confirm the roster still updates.
 
 ## Acceptance Criteria
 
-- `Available Players` renders a search input.
-- Empty search preserves the existing available player list behavior.
-- Searching by partial player name filters visible players.
-- Searching by team abbreviation filters visible players.
-- Search is case-insensitive.
-- Search combines correctly with the existing position filter.
-- Filtered results remain sorted by `overallRank`.
-- The helper text count updates to match the filtered visible list.
-- A clear empty state appears when no players match.
-- Drafting a searched player still works.
-- Undoing a searched pick makes the player available again when they match the active filters.
+- `seedRankings` contains the larger FantasyPros player pool.
+- All exported ranking entries conform to the existing `RankingEntry` type.
+- Overall rank, ADP rank, tier, position, and position rank are parsed correctly.
+- Player ids are stable and unique.
+- The app renders the larger available-player count.
+- Existing search still works.
+- Existing position filters still work.
+- Drafting a player still removes them from available players.
+- Undo still returns the player to available players.
+- User roster still updates for user picks.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-Useful seeded examples:
+The CSV currently contains 487 player rows after the header.
 
-- `chase` should find `Ja'Marr Chase`.
-- `bal` should find Baltimore players or teams such as `BAL`.
-- `te` should not be treated as a position filter through search; use the existing `TE` button for position filtering.
-
-When testing draft and undo with an active search, prefer a player whose team/name uniquely narrows the table so the disappear/return behavior is easy to see.
+The default draft remains a 4-team, 16-round test draft. This slice intentionally does not change that because the goal is data breadth for recommendation testing, not draft configuration.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this adds basic search only, without fuzzy matching or keyboard shortcut complexity.
-- Concrete enough for implementation: yes, state location, filtering order, matched fields, empty state, and validation steps are explicit.
-- Avoids unnecessary architecture changes: yes, search state stays local to `AvailablePlayersTable`.
-- Blast radius reasonable: yes, expected implementation touches one component plus task docs.
-- Review/revert comfort: yes, the slice is isolated to table filtering and display.
-- Observable/testable acceptance criteria: yes, all behavior is visible in the UI and covered by lint/build plus manual checks.
+- Smallest meaningful increment: yes, this updates only the seed rankings data source needed before recommendations.
+- Concrete enough for implementation: yes, the CSV columns, parsing rules, validation, and non-goals are explicit.
+- Avoids unnecessary architecture changes: yes, the app keeps the existing `RankingEntry[]` contract and avoids runtime import complexity.
+- Blast radius reasonable: yes, expected implementation is one data module plus this plan, with docs decision only if warranted.
+- Review/revert comfort: yes, the data update can be reverted independently of recommendation work.
+- Observable/testable acceptance criteria: yes, row count, rendering, filters, draft, undo, lint, and build are all testable.
