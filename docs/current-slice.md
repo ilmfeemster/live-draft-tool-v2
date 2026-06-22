@@ -1,140 +1,178 @@
-# Current Slice: FantasyPros Seed Rankings V1
+# Current Slice: Recommendation Engine Ranking Score V1
 
 ## Goal
 
-Replace the small handwritten seed rankings with the larger FantasyPros CSV data set so recommendation work can be tested against a more realistic player pool.
+Create the first recommendation engine increment: a pure ranking-based recommender that returns the top 5 available players with simple explanations.
 
-The app should continue using the existing `RankingEntry[]` shape.
+This slice establishes the recommendation data shape and scoring flow without introducing roster need, scarcity, tier-drop, or UI complexity yet.
 
 ## User-Visible Increment
 
-The `Available Players` table loads the larger FantasyPros rankings data. Existing search, position filtering, drafting, undo, and roster behavior continue working.
+No UI change is required in this slice.
+
+The implementation creates recommendation logic that future UI work can call. The app should continue rendering and drafting exactly as it does today.
 
 ## Goals
 
-- Use `src/data/FantasyPros_2026_Draft_ALL_Rankings.csv` as the source for seed rankings.
-- Convert CSV rows into the existing `RankingEntry` structure.
-- Preserve current supported positions:
-  - `QB`
-  - `RB`
-  - `WR`
-  - `TE`
-  - `DST`
-  - `K`
-- Parse `POS` values such as `WR12` into:
-  - `position: "WR"`
-  - `positionRank: 12`
-- Parse `RK` into `overallRank`.
-- Parse `ECR VS ADP` into `adpRank` by adding it to `RK` when the offset is numeric.
-- Store `adpRank: null` when `ECR VS ADP` is `-`.
-- Parse `TIERS` into `tier`.
-- Preserve player name and team abbreviation.
-- Keep app behavior unchanged outside the larger data set.
-- Fix only app issues directly caused by the larger data set.
+- Define a `Recommendation` type.
+- Add a pure recommendation engine module.
+- Score available players using overall ranking value.
+- Generate the top 5 recommendations from available rankings.
+- Generate simple recommendation explanations from the scoring inputs.
+- Keep recommendations deterministic and inspectable.
+- Keep all recommendation logic independent of React components.
+- Preserve existing draft, search, roster, and table behavior.
 
 ## Non-Goals
 
-- Runtime CSV upload/import UI.
-- CSV editing UI.
-- New database work.
-- Prisma integration.
-- Recommendation engine logic.
 - Recommendation UI.
-- Player metadata beyond the current type plus derived ADP rank.
-- Bye week, upside, bust, or SOS usage.
+- Roster need modifier.
+- Positional scarcity modifier.
+- Tier-drop modifier.
+- ADP-based modifier.
+- Draft pick timing logic.
+- Lineup-slot optimization.
+- Persistence.
+- Database work.
 - New dependencies.
-- Changing draft order, team count, or rounds.
+- Runtime CSV parsing.
+- Changing the draft flow.
 
 ## Expected Files
 
-- `src/data/seedRankings.ts`
+- `src/types/draft.ts`
+- `src/lib/recommendations.ts`
+- `docs/tasks.md`
 - `docs/current-slice.md`
-- `docs/decisions.md` if a durable data-source decision is useful
 
-Do not update `docs/tasks.md` unless an existing unchecked task is directly completed by this slice.
-
-Avoid changing components unless the larger data set reveals a concrete rendering or interaction bug.
+Avoid changing components in this slice unless TypeScript compatibility requires a small import/type adjustment.
 
 ## Implementation Constraint
 
-Keep `seedRankings` as a typed `RankingEntry[]` export so current imports do not need to change.
+Keep recommendation logic pure and boring.
 
 Do not add:
 
-- A runtime CSV parser.
-- A CSV upload workflow.
-- A new state management layer.
-- A database.
+- React state for recommendations.
+- Context.
+- Reducers.
+- Global state.
+- API routes.
+- Server actions.
 - Package dependencies.
+- UI components.
 
-## Data Conversion Rules
+## Recommendation Type
 
-For each CSV row:
+Add a `Recommendation` type to `src/types/draft.ts`.
 
-1. `RK` becomes `overallRank`.
-2. `ECR VS ADP` is parsed as a signed numeric offset when available.
-3. `overallRank + ECR VS ADP` becomes `adpRank`.
-4. `ECR VS ADP` value `-` becomes `adpRank: null`.
-5. `TIERS` becomes `tier`.
-6. `PLAYER NAME` becomes `player.name`.
-7. `TEAM` becomes `player.team`.
-8. `POS` is split into position letters and numeric rank.
-9. Position letters must match the existing `Position` union.
-10. Numeric rank becomes `positionRank`.
-11. `player.id` is generated from player name, team, and position rank to avoid duplicate-name collisions.
+Use a simple shape:
 
-If a row cannot be parsed into the current model, skip it only if necessary and document the skipped row in the final report.
+- `ranking`: the `RankingEntry` being recommended.
+- `score`: total numeric recommendation score.
+- `reasons`: array of human-readable explanation strings.
+
+Do not create a separate `RecommendationReason` type yet unless implementation proves it materially improves clarity.
+
+## Ranking Score Rules
+
+Create a pure helper in `src/lib/recommendations.ts`.
+
+Recommended exports:
+
+- `calculateRankingScore(ranking: RankingEntry): number`
+- `generateTopRecommendations(rankings: RankingEntry[], limit?: number): Recommendation[]`
+
+Scoring rule:
+
+```txt
+ranking score = 1000 - overallRank
+```
+
+Reasoning:
+
+- Lower overall rank is better.
+- The score is intentionally simple and easy to inspect.
+- The constant keeps scores positive for the current 487-player seed data.
+- Future slices can add modifiers to this base score.
+
+Sorting rule:
+
+1. Higher `score` first.
+2. Lower `overallRank` as tie-breaker.
+3. Player name alphabetically as final deterministic tie-breaker.
+
+Recommendation limit:
+
+- Default to `5`.
+- Allow callers to pass a custom positive limit.
+- Return an empty array when no rankings are provided.
+
+Explanation rules:
+
+Each recommendation should include at least one reason string.
+
+Required reason:
+
+- `Ranked #<overallRank> overall`
+
+Optional ADP context:
+
+- If `adpRank` is not `null`, include `ADP rank #<adpRank>`.
+- Do not use ADP to modify score in this slice.
 
 ## Implementation Steps
 
-1. Inspect the CSV shape.
-   - Confirm required columns exist.
-   - Confirm positions are limited to the supported position union.
-   - Confirm row count.
+1. Update `src/types/draft.ts`.
+   - Add `Recommendation`.
+   - Reuse existing `RankingEntry`.
+   - Do not change existing draft or player types unless required.
 
-2. Update `src/data/seedRankings.ts`.
-   - Replace the small handwritten list with rankings generated from the CSV.
-   - Keep `import type { RankingEntry } from "@/types/draft";`.
-   - Keep `export const seedRankings: RankingEntry[] = [...]`.
-   - Ensure generated data is valid TypeScript.
+2. Create `src/lib/recommendations.ts`.
+   - Import `RankingEntry` and `Recommendation` as types.
+   - Implement `calculateRankingScore`.
+   - Implement `generateTopRecommendations`.
+   - Keep functions pure and deterministic.
+   - Do not mutate the input rankings array.
 
-3. Validate app compatibility.
+3. Update `docs/tasks.md`.
+   - Mark `Define Recommendation type` complete.
+   - Mark `Add ranking score` complete.
+   - Mark `Generate top 5 recommendations` complete.
+   - Mark `Generate recommendation explanations` complete only if the helper returns reasons.
+   - Leave roster need, scarcity, tier-drop, and all UI items unchecked.
+
+4. Validate.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - If practical, request the local page and verify the larger available-player count renders.
-
-4. Manual smoke test.
-   - Search for a player from the new data set.
-   - Filter each supported position.
-   - Draft and undo at least one player.
-   - Confirm the roster still updates.
+   - If practical, run a quick local script or REPL check that `generateTopRecommendations(seedRankings)` returns 5 recommendations with Ja'Marr Chase first.
 
 ## Acceptance Criteria
 
-- `seedRankings` contains the larger FantasyPros player pool.
-- All exported ranking entries conform to the existing `RankingEntry` type.
-- Overall rank, ADP rank, tier, position, and position rank are parsed correctly.
-- Player ids are stable and unique.
-- The app renders the larger available-player count.
-- Existing search still works.
-- Existing position filters still work.
-- Drafting a player still removes them from available players.
-- Undo still returns the player to available players.
-- User roster still updates for user picks.
+- `Recommendation` type exists.
+- `calculateRankingScore` returns higher scores for better overall ranks.
+- `generateTopRecommendations(seedRankings)` returns exactly 5 recommendations by default.
+- Recommendations are sorted by score descending.
+- The top recommendation from the current seed data is Ja'Marr Chase.
+- Each recommendation includes at least one explanation.
+- Recommendations include ADP context when `adpRank` is available.
+- Rankings with `adpRank: null` still generate recommendations.
+- Input rankings are not mutated.
+- Existing app UI still renders.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-The CSV currently contains 487 player rows after the header.
+This slice does not display recommendations yet.
 
-The default draft remains a 4-team, 16-round test draft. This slice intentionally does not change that because the goal is data breadth for recommendation testing, not draft configuration.
+Validation can be done by importing `seedRankings` and `generateTopRecommendations` in a quick local script or REPL check after implementation. The expected first five recommendations should match the first five available overall rankings before any draft picks.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this updates only the seed rankings data source needed before recommendations.
-- Concrete enough for implementation: yes, the CSV columns, parsing rules, validation, and non-goals are explicit.
-- Avoids unnecessary architecture changes: yes, the app keeps the existing `RankingEntry[]` contract and avoids runtime import complexity.
-- Blast radius reasonable: yes, expected implementation is one data module plus this plan, with docs decision only if warranted.
-- Review/revert comfort: yes, the data update can be reverted independently of recommendation work.
-- Observable/testable acceptance criteria: yes, row count, rendering, filters, draft, undo, lint, and build are all testable.
+- Smallest meaningful increment: yes, this creates the recommendation type and first pure scoring function without UI or extra modifiers.
+- Concrete enough for implementation: yes, types, exports, scoring formula, sorting, explanations, and task updates are explicit.
+- Avoids unnecessary architecture changes: yes, recommendation logic stays in a small pure `lib` module.
+- Blast radius reasonable: yes, expected implementation touches one type file, one new lib file, and task docs.
+- Review/revert comfort: yes, the slice is independent of UI and draft state changes.
+- Observable/testable acceptance criteria: yes, helper outputs, ordering, reasons, lint, and build are all directly checkable.
