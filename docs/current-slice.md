@@ -18,7 +18,7 @@ The default draft uses 4 teams instead of 12, and the available player pool cont
 
 - Change the default local draft from 12 teams to 4 teams.
 - Keep the user draft position valid and easy to reach.
-- Add enough seed rankings to manually draft through starter and bench scenarios.
+- Add enough seed rankings to manually complete the full 4-team, 16-round draft.
 - Include extra players at `RB`, `WR`, and `TE` so future FLEX and Bench behavior can be tested.
 - Include multiple `QB`, `DST`, and `K` options.
 - Keep this as seed/default data only.
@@ -55,17 +55,17 @@ Treat the 4-team draft as temporary local seed/default data for faster validatio
    - Leave the rest of the file structure unchanged.
 
 2. Update `src/data/seedRankings.ts`.
-   - Expand `seedRankings` from 24 players to at least 48 players.
+   - Expand `seedRankings` from 24 players to exactly 64 players.
    - Preserve unique `id` values.
    - Preserve ascending `overallRank` values with no gaps.
    - Keep each entry typed as `RankingEntry`.
    - Add enough players to cover at least:
-     - 6 QB
-     - 12 RB
-     - 16 WR
-     - 6 TE
-     - 4 DST
-     - 4 K
+     - 10 QB
+     - 18 RB
+     - 22 WR
+     - 8 TE
+     - 3 DST
+     - 3 K
    - Keep names real-ish and plausible.
 
 3. Validate.
@@ -78,7 +78,7 @@ Treat the 4-team draft as temporary local seed/default data for faster validatio
 - The default draft has 4 teams.
 - The user draft position is 2.
 - The draft still has 16 rounds.
-- The available player pool has at least 48 players.
+- The available player pool has exactly 64 players.
 - Seed player ids are unique.
 - Overall ranks are sequential.
 - The app renders the larger available player pool.
@@ -87,7 +87,7 @@ Treat the 4-team draft as temporary local seed/default data for faster validatio
 
 ## Manual Test Notes
 
-With 4 teams and user draft position 2, user picks occur quickly at picks 2, 7, 10, 15, and so on. This makes it easier to test roster tracking and future roster slot assignment without entering many unrelated picks.
+With 4 teams and user draft position 2, user picks occur quickly at picks 2, 7, 10, 15, and so on. A 64-player seed pool supports a complete 4-team, 16-round mock draft without running out of players.
 
 ## Slice Review
 
