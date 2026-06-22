@@ -1,146 +1,153 @@
-# Current Slice: Expand Overflow Bench Slots V1
+# Current Slice: Player Search V1
 
 ## Goal
 
-Fix the roster display edge case where drafted user players can disappear once all eligible starter and Bench slots are filled.
+Make manual pick entry faster by adding a simple search input to the available players table.
 
-The roster panel should always show every user-drafted player, even in unlikely draft shapes such as:
-
-- Drafting 11+ players at the same FLEX-eligible position.
-- Filling Bench while leaving `DST` or `K` empty.
-- Drafting extra `QB`, `DST`, or `K` players after their starter slot and fixed Bench slots are full.
+This is a live-draft usability slice. The user should be able to quickly narrow the available player pool by typing part of a player name or NFL team abbreviation, then draft from the filtered results.
 
 ## User-Visible Increment
 
-The `Your Roster` panel still shows the MVP starter slots and six normal Bench slots. If more user-drafted players remain after those slots are filled, the panel adds extra Bench rows so no drafted player is hidden.
+The `Available Players` panel includes a search input above the table. Typing into it filters the visible available players while preserving the existing position filter and ranking sort.
 
 ## Goals
 
-- Preserve the existing MVP starter slots:
-  - `QB`
-  - `RB`
-  - `RB`
-  - `WR`
-  - `WR`
-  - `TE`
-  - `FLEX`
-  - `FLEX`
-  - `DST`
-  - `K`
-- Preserve the existing six normal `Bench` slots.
-- Add derived overflow Bench slots only for players that cannot fit into the normal starter or Bench slots.
-- Keep all roster data derived from the existing `players` prop.
-- Keep existing position counts visible.
-- Keep the existing empty roster state before any user picks.
-- Keep the existing flat drafted-player list if it remains compact and useful.
+- Add a search input to `AvailablePlayersTable`.
+- Filter available rankings by:
+  - Player name.
+  - NFL team abbreviation.
+- Keep the existing position filter.
+- Combine search and position filtering.
+- Keep filtered results sorted by `overallRank`.
+- Show the filtered count in the existing helper text.
+- Show a simple empty state when no players match the active search/filter.
+- Keep drafting behavior unchanged.
+- Keep search state local to `AvailablePlayersTable`.
 
 ## Non-Goals
 
-- Overfilled position warnings.
-- Roster validation errors.
-- Optimal roster assignment.
-- Drag/drop roster management.
-- Manual slot overrides.
-- Recommendation logic.
-- Persistence.
-- New domain models.
-- Context providers, reducers, or global state.
+- Fuzzy search.
+- Search by position rank or tier.
+- Keyboard shortcuts.
+- Autocomplete.
+- Highlighting matched text.
+- Recent searches.
+- Player queue.
+- Watchlist.
+- Recommendation changes.
+- Draft state changes.
+- New dependencies.
+- URL query params or persistence.
 
 ## Expected Files
 
-- `src/components/UserRosterPanel.tsx`
+- `src/components/AvailablePlayersTable.tsx`
+- `docs/tasks.md`
 - `docs/current-slice.md`
-
-Do not update `docs/tasks.md` unless implementation reveals that an existing task is directly completed by this bug fix. Leave `Detect overfilled positions` unchecked.
 
 Avoid changing `DraftRoom`, draft types, seed data, recommendation logic, or package dependencies.
 
 ## Implementation Constraint
 
-Keep the solution local to `UserRosterPanel`. Use derived data inside the existing slot-assignment flow.
+Use local React state inside `AvailablePlayersTable`.
 
 Do not add:
 
-- Separate roster state.
-- A `UserRoster` domain type.
-- Reducers.
 - Context.
+- Reducers.
 - Global state.
-- Persistence.
-- A general-purpose roster engine.
+- Search libraries.
+- New components unless the table becomes meaningfully harder to read.
+- New domain types.
 
-## Slot Assignment Rules
+## Search Behavior
 
-Assign players in the order they appear in the `players` prop, which should already be sorted by `pickNumber`.
+The search query should:
 
-For each player:
+- Be controlled by local component state.
+- Trim leading and trailing whitespace before filtering.
+- Match case-insensitively.
+- Match against `entry.player.name`.
+- Match against `entry.player.team`.
+- Return all position-filtered players when the trimmed query is empty.
+- Work together with the existing position filter.
 
-1. `QB` fills the `QB` slot first, then normal Bench slots.
-2. `RB` fills `RB` slots first, then `FLEX` slots, then normal Bench slots.
-3. `WR` fills `WR` slots first, then `FLEX` slots, then normal Bench slots.
-4. `TE` fills the `TE` slot first, then `FLEX` slots, then normal Bench slots.
-5. `DST` fills the `DST` slot first, then normal Bench slots.
-6. `K` fills the `K` slot first, then normal Bench slots.
-7. If no eligible starter or normal Bench slot is open, append an overflow Bench slot for that player.
+Filtering order should be:
 
-Overflow Bench slots should:
+1. Position filter.
+2. Search filter.
+3. Sort by `overallRank`.
 
-- Be created only for overflow players.
-- Appear after the six normal Bench slots.
-- Use stable ids such as `bench-overflow-1`, `bench-overflow-2`, etc.
-- Use the visible label `Bench`.
-- Show the same filled-player details as normal filled slots.
-- Not create empty overflow slots.
+## UI Rules
+
+- Place the search input in the `Available Players` header area near the existing position filter.
+- Use a plain text input.
+- Add an accessible label, either visible or screen-reader-only.
+- Use placeholder text such as `Search players or teams`.
+- Keep the existing position filter buttons visible.
+- Keep the table layout intact.
+- When no players match, render one table row or compact message inside the table area explaining that no available players match the current filters.
 
 ## Implementation Steps
 
-1. Update `src/components/UserRosterPanel.tsx`.
-   - Adjust the local slot assignment helper so it tracks whether a player was assigned.
-   - When a player cannot be assigned to a starter or normal Bench slot, append a filled overflow Bench slot for that player.
-   - Keep the starter slot definitions and six normal Bench slot definitions intact.
-   - Keep empty slot rendering for starter and normal Bench slots.
-   - Ensure overflow Bench slots render only when filled.
-   - Keep position counts unchanged.
-   - Keep the empty roster state when no players are drafted.
+1. Update `src/components/AvailablePlayersTable.tsx`.
+   - Add local `searchQuery` state.
+   - Normalize the search query inside the existing `useMemo`.
+   - Apply position filtering, then search filtering, then ranking sorting.
+   - Add a search input to the header area.
+   - Keep the existing position filter controls.
+   - Add an empty state for zero filtered results.
+   - Keep `onDraftPlayer(entry.player.id)` unchanged.
 
-2. Validate.
+2. Update `docs/tasks.md`.
+   - Mark `Build player search` complete.
+   - Do not change recommendation, roster, or backlog items.
+
+3. Validate.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - If practical, request the local page and verify the roster panel still renders.
+   - If practical, request the local page and verify the search input renders.
 
-3. Manual test the bug scenario.
-   - Draft enough user players to fill all eligible starter and normal Bench slots while leaving `DST` or `K` empty.
-   - Confirm the extra user picks appear as additional Bench rows instead of disappearing.
-   - Undo the last overflow pick and confirm the extra Bench row disappears.
+4. Manual test.
+   - Search for part of a known player name.
+   - Search using different casing.
+   - Search for a team abbreviation.
+   - Combine search with a position filter.
+   - Clear the search and confirm the full position-filtered list returns.
+   - Draft a searched player and confirm they disappear from available players.
+   - Undo that pick and confirm the player returns if they still match the active search/filter.
 
 ## Acceptance Criteria
 
-- `Your Roster` still renders before any user picks.
-- Position counts still render.
-- MVP starter slots and six normal Bench slots still render.
-- Empty starter and normal Bench slots remain visibly empty.
-- Overflow Bench slots are not shown when no overflow players exist.
-- A user-drafted player that cannot fit into any starter or normal Bench slot appears in an additional Bench row.
-- Multiple overflow players each appear in their own additional Bench row.
-- Overflow Bench rows appear after the six normal Bench slots.
-- Overflow Bench rows do not create empty placeholders.
-- Undoing an overflow user pick removes the corresponding overflow Bench row.
+- `Available Players` renders a search input.
+- Empty search preserves the existing available player list behavior.
+- Searching by partial player name filters visible players.
+- Searching by team abbreviation filters visible players.
+- Search is case-insensitive.
+- Search combines correctly with the existing position filter.
+- Filtered results remain sorted by `overallRank`.
+- The helper text count updates to match the filtered visible list.
+- A clear empty state appears when no players match.
+- Drafting a searched player still works.
+- Undoing a searched pick makes the player available again when they match the active filters.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-With the 4-team default draft and user draft position 2, user picks occur at picks 2, 7, 10, 15, 18, 23, 26, and so on.
+Useful seeded examples:
 
-The easiest manual edge case is to avoid drafting `DST` and `K`, then keep drafting `RB`, `WR`, and `TE` until the two direct position groups, two `FLEX` slots, and six normal Bench slots are full. Any additional user `RB`, `WR`, or `TE` should appear as an extra Bench row.
+- `chase` should find `Ja'Marr Chase`.
+- `bal` should find Baltimore players or teams such as `BAL`.
+- `te` should not be treated as a position filter through search; use the existing `TE` button for position filtering.
 
-Another edge case is drafting extra `QB`, `DST`, or `K` players after their starter slot and all normal Bench slots are full.
+When testing draft and undo with an active search, prefer a player whose team/name uniquely narrows the table so the disappear/return behavior is easy to see.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this fixes a specific roster visibility bug without adding warnings or validation.
-- Concrete enough for implementation: yes, the overflow rule, slot placement, and ids are explicit.
-- Avoids unnecessary architecture changes: yes, all logic stays derived inside `UserRosterPanel`.
-- Blast radius reasonable: yes, expected implementation touches one component and this planning doc.
-- Review/revert comfort: yes, the change is isolated to roster display behavior.
-- Observable/testable acceptance criteria: yes, overflow rows and undo behavior are visible in the UI.
+- Smallest meaningful increment: yes, this adds basic search only, without fuzzy matching or keyboard shortcut complexity.
+- Concrete enough for implementation: yes, state location, filtering order, matched fields, empty state, and validation steps are explicit.
+- Avoids unnecessary architecture changes: yes, search state stays local to `AvailablePlayersTable`.
+- Blast radius reasonable: yes, expected implementation touches one component plus task docs.
+- Review/revert comfort: yes, the slice is isolated to table filtering and display.
+- Observable/testable acceptance criteria: yes, all behavior is visible in the UI and covered by lint/build plus manual checks.
