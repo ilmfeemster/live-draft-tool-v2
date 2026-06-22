@@ -1,178 +1,176 @@
-# Current Slice: Recommendation Engine Ranking Score V1
+# Current Slice: Recommendation UI V1
 
 ## Goal
 
-Create the first recommendation engine increment: a pure ranking-based recommender that returns the top 5 available players with simple explanations.
+Display the current top 5 ranking-based recommendations in the draft room.
 
-This slice establishes the recommendation data shape and scoring flow without introducing roster need, scarcity, tier-drop, or UI complexity yet.
+The recommendation panel should appear above the available players list and search controls so the user sees the short decision-support view before scanning the full player pool.
 
 ## User-Visible Increment
 
-No UI change is required in this slice.
+The draft room shows a `Recommendations` panel above `Available Players`.
 
-The implementation creates recommendation logic that future UI work can call. The app should continue rendering and drafting exactly as it does today.
+The panel lists the top 5 available players from the existing ranking-score engine. As players are drafted or undone, the panel updates because it is derived from the same available rankings as the table.
 
 ## Goals
 
-- Define a `Recommendation` type.
-- Add a pure recommendation engine module.
-- Score available players using overall ranking value.
-- Generate the top 5 recommendations from available rankings.
-- Generate simple recommendation explanations from the scoring inputs.
-- Keep recommendations deterministic and inspectable.
-- Keep all recommendation logic independent of React components.
-- Preserve existing draft, search, roster, and table behavior.
+- Render top 5 recommendations above the draft list and search bar.
+- Use the existing `generateTopRecommendations` helper.
+- Keep recommendation inputs derived from `availableRankings`.
+- Display each recommended player's:
+  - Rank/order in the recommendation list.
+  - Name.
+  - Team.
+  - Position plus position rank.
+  - Overall rank.
+  - Score.
+  - Reasons.
+- Include a `Draft` button for each recommendation.
+- Keep existing available players table behavior unchanged.
+- Keep recommendation scoring unchanged.
+- Keep roster need, scarcity, and tier-drop logic out of this slice.
 
 ## Non-Goals
 
-- Recommendation UI.
 - Roster need modifier.
 - Positional scarcity modifier.
 - Tier-drop modifier.
-- ADP-based modifier.
-- Draft pick timing logic.
-- Lineup-slot optimization.
-- Persistence.
-- Database work.
+- ADP-based scoring.
+- Tier warnings.
+- Scarcity warnings.
+- Highlighting the user's pick.
+- Recommendation tuning.
+- Recommendation persistence.
+- Search/filtering inside recommendations.
+- Collapsible panels.
+- Keyboard shortcuts.
 - New dependencies.
-- Runtime CSV parsing.
-- Changing the draft flow.
 
 ## Expected Files
 
-- `src/types/draft.ts`
-- `src/lib/recommendations.ts`
+- `src/components/RecommendationsPanel.tsx`
+- `src/components/DraftRoom.tsx`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing components in this slice unless TypeScript compatibility requires a small import/type adjustment.
+Avoid changing `AvailablePlayersTable`, seed data, draft types, or recommendation scoring unless implementation reveals a direct compatibility issue.
 
 ## Implementation Constraint
 
-Keep recommendation logic pure and boring.
+Keep the panel presentational.
 
 Do not add:
 
-- React state for recommendations.
+- New global state.
 - Context.
 - Reducers.
-- Global state.
 - API routes.
 - Server actions.
 - Package dependencies.
-- UI components.
+- New recommendation scoring rules.
 
-## Recommendation Type
+## Layout Rules
 
-Add a `Recommendation` type to `src/types/draft.ts`.
+- In `DraftRoom`, render the recommendations panel above `AvailablePlayersTable`.
+- Keep the existing right sidebar layout for draft status and roster.
+- On desktop, the main column should flow:
+  1. Recommendations
+  2. Available Players header/search/filter
+  3. Available Players table
+- On smaller widths, preserve the current stacked behavior.
 
-Use a simple shape:
+## Component Shape
 
-- `ranking`: the `RankingEntry` being recommended.
-- `score`: total numeric recommendation score.
-- `reasons`: array of human-readable explanation strings.
+Create `src/components/RecommendationsPanel.tsx`.
 
-Do not create a separate `RecommendationReason` type yet unless implementation proves it materially improves clarity.
+Props:
 
-## Ranking Score Rules
+- `recommendations: Recommendation[]`
+- `onDraftPlayer: (playerId: string) => void`
 
-Create a pure helper in `src/lib/recommendations.ts`.
+Rendering:
 
-Recommended exports:
+- Use a section with heading `Recommendations`.
+- Include a short helper line such as `Ranking-based suggestions from available players.`
+- Render a compact list of recommendation rows or cards.
+- Each item should show:
+  - Recommendation index.
+  - Player name.
+  - Team and position.
+  - Overall rank.
+  - Score.
+  - Reasons.
+  - Draft button.
+- If the list is empty, render a compact empty state.
 
-- `calculateRankingScore(ranking: RankingEntry): number`
-- `generateTopRecommendations(rankings: RankingEntry[], limit?: number): Recommendation[]`
+## DraftRoom Integration
 
-Scoring rule:
+In `DraftRoom`:
 
-```txt
-ranking score = 1000 - overallRank
-```
+1. Import `generateTopRecommendations`.
+2. Import `RecommendationsPanel`.
+3. Derive `recommendations` with `useMemo` from `availableRankings`.
+4. Render `RecommendationsPanel` before `AvailablePlayersTable`.
+5. Pass the existing `draftPlayer` handler into both the recommendation panel and table.
 
-Reasoning:
-
-- Lower overall rank is better.
-- The score is intentionally simple and easy to inspect.
-- The constant keeps scores positive for the current 487-player seed data.
-- Future slices can add modifiers to this base score.
-
-Sorting rule:
-
-1. Higher `score` first.
-2. Lower `overallRank` as tie-breaker.
-3. Player name alphabetically as final deterministic tie-breaker.
-
-Recommendation limit:
-
-- Default to `5`.
-- Allow callers to pass a custom positive limit.
-- Return an empty array when no rankings are provided.
-
-Explanation rules:
-
-Each recommendation should include at least one reason string.
-
-Required reason:
-
-- `Ranked #<overallRank> overall`
-
-Optional ADP context:
-
-- If `adpRank` is not `null`, include `ADP rank #<adpRank>`.
-- Do not use ADP to modify score in this slice.
+Do not duplicate draft logic.
 
 ## Implementation Steps
 
-1. Update `src/types/draft.ts`.
-   - Add `Recommendation`.
-   - Reuse existing `RankingEntry`.
-   - Do not change existing draft or player types unless required.
+1. Create `src/components/RecommendationsPanel.tsx`.
+   - Import `Recommendation` as a type.
+   - Implement the presentational panel.
+   - Keep styling consistent with existing white bordered panels.
+   - Include a draft button per recommendation.
 
-2. Create `src/lib/recommendations.ts`.
-   - Import `RankingEntry` and `Recommendation` as types.
-   - Implement `calculateRankingScore`.
-   - Implement `generateTopRecommendations`.
-   - Keep functions pure and deterministic.
-   - Do not mutate the input rankings array.
+2. Update `src/components/DraftRoom.tsx`.
+   - Import the recommendation helper and panel.
+   - Derive recommendations from `availableRankings`.
+   - Render the panel above `AvailablePlayersTable`.
 
 3. Update `docs/tasks.md`.
-   - Mark `Define Recommendation type` complete.
-   - Mark `Add ranking score` complete.
-   - Mark `Generate top 5 recommendations` complete.
-   - Mark `Generate recommendation explanations` complete only if the helper returns reasons.
-   - Leave roster need, scarcity, tier-drop, and all UI items unchecked.
+   - Mark `Display recommendations` complete.
+   - Mark `Display recommendation reasons` complete.
+   - Leave tier warnings, scarcity warnings, and highlight user pick unchecked.
 
 4. Validate.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - If practical, run a quick local script or REPL check that `generateTopRecommendations(seedRankings)` returns 5 recommendations with Ja'Marr Chase first.
+   - If practical, request the local page and verify `Recommendations` renders above `Available Players`.
+
+5. Manual smoke test.
+   - Confirm the panel initially shows 5 recommendations.
+   - Confirm Ja'Marr Chase is initially first.
+   - Draft the top recommendation from the panel.
+   - Confirm that player disappears from recommendations and available players.
+   - Undo the pick.
+   - Confirm that player returns to recommendations and available players.
 
 ## Acceptance Criteria
 
-- `Recommendation` type exists.
-- `calculateRankingScore` returns higher scores for better overall ranks.
-- `generateTopRecommendations(seedRankings)` returns exactly 5 recommendations by default.
-- Recommendations are sorted by score descending.
-- The top recommendation from the current seed data is Ja'Marr Chase.
-- Each recommendation includes at least one explanation.
-- Recommendations include ADP context when `adpRank` is available.
-- Rankings with `adpRank: null` still generate recommendations.
-- Input rankings are not mutated.
-- Existing app UI still renders.
+- A `Recommendations` panel renders above the available players list and search bar.
+- The panel shows 5 recommendations when at least 5 players are available.
+- The initial top recommendation is Ja'Marr Chase.
+- Each recommendation shows player identity, overall rank, score, and reasons.
+- Each recommendation has a working `Draft` button.
+- Drafting from recommendations advances draft state.
+- Drafted recommendation disappears from recommendations and available players.
+- Undo restores the player to recommendations and available players when appropriate.
+- Existing search and position filtering still work in `AvailablePlayersTable`.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-This slice does not display recommendations yet.
+This panel is still ranking-only. It is expected to mirror the highest available overall-ranked players, not account for roster construction yet.
 
-Validation can be done by importing `seedRankings` and `generateTopRecommendations` in a quick local script or REPL check after implementation. The expected first five recommendations should match the first five available overall rankings before any draft picks.
+Do not judge strategic usefulness from this slice alone. The purpose is to make the recommendation loop visible so later scoring slices can be validated quickly.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this creates the recommendation type and first pure scoring function without UI or extra modifiers.
-- Concrete enough for implementation: yes, types, exports, scoring formula, sorting, explanations, and task updates are explicit.
-- Avoids unnecessary architecture changes: yes, recommendation logic stays in a small pure `lib` module.
-- Blast radius reasonable: yes, expected implementation touches one type file, one new lib file, and task docs.
-- Review/revert comfort: yes, the slice is independent of UI and draft state changes.
-- Observable/testable acceptance criteria: yes, helper outputs, ordering, reasons, lint, and build are all directly checkable.
+- Smallest meaningful increment: yes, this only displays existing top-5 ranking recommendations and wires draft buttons.
+- Concrete enough for implementation: yes, component props, layout, data flow, task updates, and acceptance criteria are explicit.
+- Avoids unnecessary architecture changes: yes, recommendations remain derived from existing local draft state and pure helper logic.
+- Blast radius reasonable: yes, expected changes are one new component, one parent component, and task docs.
+- Review/revert comfort: yes, the UI panel can be removed without affecting draft state or scoring logic.
+- Observable/testable acceptance criteria: yes, rendering, ordering, draft, undo, lint, and build are all directly testable.
