@@ -1,50 +1,51 @@
-# Current Slice: Roster Need Modifier V1
+# Current Slice: Tier-Drop Modifier V1
 
 ## Goal
 
-Make visible recommendations respond to the user's drafted roster by adding a simple roster need modifier to the existing recommendation engine.
+Make recommendations aware of tier-drop risk by adding a simple tier-drop modifier to the existing recommendation engine.
 
-This slice should make recommendations slightly prefer positions where the user's starter slots are not filled yet, while keeping the scoring model inspectable and intentionally simple.
+This slice should favor an available player when the next available player at the same position is in a worse tier.
 
 ## User-Visible Increment
 
-The existing `Recommendations` panel still appears above the available players list, but recommendation scores and reasons now include roster-need context.
+The existing `Recommendations` panel continues to show top recommendations, but scores and reasons now include tier-drop context when a recommended player is the last available player in their position tier.
 
-As the user's team drafts players, recommendations update to reflect filled and unfilled starter positions.
+Example reason:
+
+- `Tier drop after this WR`
 
 ## Goals
 
-- Add a roster need modifier to the existing recommendation score.
+- Add a tier-drop modifier to the existing recommendation score.
 - Keep base ranking score unchanged.
-- Pass user roster context from `DraftRoom` into the recommendation helper.
-- Add recommendation reasons that explain roster need bonuses.
+- Keep roster need modifier unchanged.
+- Use only current available rankings to detect tier-drop risk.
+- Add recommendation reasons that explain tier-drop bonuses.
+- Surface tier warnings through the existing recommendation reason chips.
 - Keep recommendations deterministic.
-- Keep logic pure and independent of React rendering.
-- Keep the existing recommendation panel layout.
-- Avoid introducing a full `UserRoster` domain model in this slice.
+- Keep all recommendation logic pure and independent of React rendering.
 
 ## Non-Goals
 
 - Positional scarcity modifier.
-- Tier-drop modifier.
 - ADP-based scoring.
-- Optimal lineup assignment.
-- Overfilled position warnings.
-- Manual roster slot overrides.
+- Roster need changes.
 - Recommendation UI redesign.
-- Recommendation persistence.
-- New dependencies.
+- Separate warning component.
+- Draft pick timing logic.
+- Bench or lineup optimization.
+- Persistence.
 - Database work.
+- New dependencies.
 - Global state.
 
 ## Expected Files
 
 - `src/lib/recommendations.ts`
-- `src/components/DraftRoom.tsx`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing `RecommendationsPanel`, `AvailablePlayersTable`, seed data, draft types, or roster display unless implementation reveals a direct compatibility issue.
+Avoid changing `DraftRoom`, `RecommendationsPanel`, seed data, draft types, or available-player UI unless implementation reveals a direct compatibility issue.
 
 ## Implementation Constraint
 
@@ -58,72 +59,47 @@ Do not add:
 - API routes.
 - Server actions.
 - Package dependencies.
-- A full `UserRoster` model.
+- New UI components.
 
-## Roster Need Input
+## Tier-Drop Model
 
-The recommendation engine needs only drafted user player positions.
+Use current available rankings only.
 
-Use a small local type in `src/lib/recommendations.ts`, such as:
+For a candidate recommendation:
 
-```ts
-type RosterNeedPlayer = {
-  position: Position;
-};
-```
+1. Look at available rankings with the same `player.position`.
+2. Sort those same-position rankings by `overallRank`.
+3. Find the next same-position player after the candidate.
+4. If there is no next same-position player, no tier-drop bonus in this slice.
+5. If the next same-position player's `tier` is greater than the candidate's `tier`, the candidate gets a tier-drop bonus.
+6. If the next same-position player's `tier` is the same or better, no tier-drop bonus.
 
-Update `generateTopRecommendations` to accept an optional options object:
-
-```ts
-generateTopRecommendations(rankings, {
-  limit,
-  rosterPlayers,
-})
-```
-
-Keep backward compatibility for callers that pass only rankings.
-
-## Starter Need Model
-
-Use the MVP starting lineup from `docs/project.md`:
-
-- `QB`: 1
-- `RB`: 2
-- `WR`: 2
-- `TE`: 1
-- `FLEX`: 2, using `RB`, `WR`, or `TE`
-- `DST`: 1
-- `K`: 1
-
-For this slice, use a simple position-level need calculation:
-
-- `QB` needs 1.
-- `RB` needs 2 direct starter slots.
-- `WR` needs 2 direct starter slots.
-- `TE` needs 1 direct starter slot.
-- `DST` needs 1.
-- `K` needs 1.
-- `FLEX` need should add modest extra value to `RB`, `WR`, and `TE` until two total FLEX-eligible surplus players exist after direct starter slots are filled.
-
-Do not model Bench needs.
+Do not compare against players at other positions.
 
 ## Modifier Rules
 
-Keep values intentionally small relative to base ranking score.
+Keep the modifier small and inspectable.
 
-Recommended modifiers:
+Recommended modifier:
 
-- Direct starter need bonus: `+30`
-- FLEX need bonus for `RB`, `WR`, and `TE`: `+15`
-- No need bonus: `0`
+```txt
+tier drop bonus = 20 * tier gap
+```
+
+Where:
+
+```txt
+tier gap = next same-position tier - candidate tier
+```
+
+Cap the tier-drop bonus at `+40` so it cannot dominate overall rank too aggressively yet.
 
 Examples:
 
-- If user has no QB, available QBs receive `+30`.
-- If user has one RB, available RBs receive `+30`.
-- If user has two RBs and no extra FLEX-eligible players, available RBs receive `+15`.
-- If user has two RBs, two WRs, one TE, and two additional FLEX-eligible players, RB/WR/TE receive no roster need bonus.
-- If user has a DST, available DSTs receive no roster need bonus.
+- Candidate `WR` tier 1, next available `WR` tier 1: `+0`
+- Candidate `WR` tier 1, next available `WR` tier 2: `+20`
+- Candidate `TE` tier 3, next available `TE` tier 5: `+40` after cap
+- Candidate `K` with no later available `K`: `+0`
 
 ## Explanation Rules
 
@@ -131,71 +107,74 @@ Recommendations should keep existing reasons:
 
 - Overall rank reason.
 - ADP rank reason when available.
+- Roster need reason when applicable.
 
-Add roster need reasons only when a bonus applies:
+Add a tier-drop reason only when a bonus applies:
 
-- Direct need: `Fills <POSITION> starter need`
-- FLEX need: `Helps fill FLEX need`
+- `Tier drop after this <POSITION>`
 
-Do not show a roster need reason when the modifier is `0`.
+If the tier gap is greater than 1, include the gap:
+
+- `Tier drop after this <POSITION> by <N> tiers`
+
+Do not show a tier-drop reason when the modifier is `0`.
 
 ## Implementation Steps
 
 1. Update `src/lib/recommendations.ts`.
-   - Add local roster need input type.
-   - Add options object support for `generateTopRecommendations`.
-   - Preserve default limit of 5.
-   - Add `calculateRosterNeedModifier`.
-   - Add roster need reasons.
+   - Add a `TierDropResult` local type.
+   - Add `calculateTierDropModifier(ranking, availableRankings)`.
+   - Use same-position available rankings to find the next same-position player.
+   - Add tier-drop modifier to total score.
+   - Add tier-drop reason to recommendation reasons.
+   - Keep base ranking and roster need scoring unchanged.
    - Keep input arrays immutable.
 
-2. Update `src/components/DraftRoom.tsx`.
-   - Pass `userRosterPlayers` into `generateTopRecommendations`.
-   - Ensure recommendations still derive from `availableRankings`.
+2. Update `docs/tasks.md`.
+   - Mark `Add tier-drop modifier` complete.
+   - Mark `Display tier warnings` complete because tier-drop reasons appear in the recommendation panel.
+   - Leave scarcity modifier and scarcity warnings unchecked.
 
-3. Update `docs/tasks.md`.
-   - Mark `Add roster need modifier` complete.
-   - Leave scarcity and tier-drop unchecked.
-   - Do not change recommendation UI checklist items.
-
-4. Validate.
+3. Validate.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - If practical, run a quick local script that verifies a missing position receives a higher score than the base ranking score.
+   - If practical, run a quick local script that verifies:
+     - Same-tier next player gives no tier-drop bonus.
+     - Worse-tier next player gives a tier-drop bonus.
+     - No next same-position player gives no tier-drop bonus.
 
-5. Manual smoke test.
-   - Start with an empty roster and confirm top recommendations include roster need reasons where applicable.
-   - Draft a user pick at a needed position.
-   - Confirm recommendation scores/reasons update after the pick.
-   - Undo the pick and confirm scores/reasons revert.
+4. Manual smoke test.
+   - Load the app and confirm recommendations still render.
+   - Draft enough players at a position to create or expose a tier-drop situation.
+   - Confirm a tier-drop reason appears when applicable.
+   - Undo the pick and confirm recommendations recalculate.
 
 ## Acceptance Criteria
 
 - Base ranking score remains `1000 - overallRank`.
-- Roster need modifier is added to recommendation score.
-- Missing direct starter positions receive `+30`.
-- FLEX-eligible positions receive `+15` when FLEX need remains.
-- No roster need reason appears when no roster need bonus applies.
+- Roster need modifier remains active.
+- Tier-drop modifier is added to recommendation score when the next available same-position player is in a worse tier.
+- Tier-drop bonus is capped at `+40`.
+- No tier-drop reason appears when no tier-drop bonus applies.
+- Tier-drop reasons appear in the existing recommendation panel when applicable.
 - Recommendations still return 5 items by default.
 - Recommendations still sort by score descending.
-- Existing ranking and ADP reasons still appear.
-- Recommendations update when user roster changes.
-- Existing recommendation panel still renders.
+- Existing ranking, ADP, and roster need reasons still appear.
 - Existing draft, undo, search, and available-player behavior still work.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-The modifier is intentionally small. Early recommendations may still heavily favor elite overall-ranked players. That is expected.
+The tier data is overall FantasyPros tier data, not position-specific custom tiers. This slice uses it conservatively by only comparing same-position available players.
 
-This slice is about making roster need visible and testable, not finalizing strategy quality.
+The modifier is intentionally small. It should nudge recommendations when a position is about to drop tiers, not override elite ranking value by itself.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this adds only roster need scoring and reasons.
-- Concrete enough for implementation: yes, input shape, starter model, modifier values, reasons, and task updates are explicit.
-- Avoids unnecessary architecture changes: yes, no new global state or full roster model is introduced.
-- Blast radius reasonable: yes, expected changes are one helper module, one parent component, and task docs.
+- Smallest meaningful increment: yes, this adds only tier-drop scoring and visible tier-drop reasons.
+- Concrete enough for implementation: yes, same-position lookup, modifier formula, cap, reasons, and task updates are explicit.
+- Avoids unnecessary architecture changes: yes, all logic stays inside the pure recommendation helper.
+- Blast radius reasonable: yes, expected changes are one helper module and task docs.
 - Review/revert comfort: yes, the modifier can be removed without affecting draft state or UI structure.
 - Observable/testable acceptance criteria: yes, scores, reasons, draft/undo behavior, lint, and build are directly checkable.
