@@ -97,6 +97,12 @@ export function calculateTierDropModifier(
   const samePositionRankings = availableRankings
     .filter((candidate) => candidate.player.position === ranking.player.position)
     .sort((a, b) => a.overallRank - b.overallRank);
+  const bestAvailableTier = Math.min(...samePositionRankings.map((candidate) => candidate.tier));
+
+  if (ranking.tier !== bestAvailableTier) {
+    return { modifier: 0, reason: null };
+  }
+
   const sameTierRankings = samePositionRankings.filter((candidate) => {
     return candidate.tier === ranking.tier;
   });

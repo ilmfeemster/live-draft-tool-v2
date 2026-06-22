@@ -85,7 +85,7 @@ Do not compare against players at other positions.
 Keep the existing V1 modifier:
 
 ```txt
-tier drop bonus = 20 * tier gap
+tier drop bonus = 5 * tier gap
 ```
 
 Where:
@@ -94,14 +94,14 @@ Where:
 tier gap = next same-position tier - candidate tier
 ```
 
-Cap the tier-drop bonus at `+40`.
+Cap the tier-drop bonus at `+10`.
 
 Examples:
 
 - Candidate `WR` tier 2, any tier-1 `WR` still available: `+0`
 - Candidate `WR` tier 1, two tier-1 `WR`s still available: `+0`
-- Candidate `WR` tier 1, no other tier-1 `WR`s available, next `WR` tier 2: `+20`
-- Candidate `TE` tier 3, tier 3 is the best available `TE` tier, no other tier-3 `TE`s available, next `TE` tier 5: `+40` after cap
+- Candidate `WR` tier 1, no other tier-1 `WR`s available, next `WR` tier 2: `+5`
+- Candidate `TE` tier 3, tier 3 is the best available `TE` tier, no other tier-3 `TE`s available, next `TE` tier 6: `+10` after cap
 - Candidate `K` with no later available `K`: `+0`
 
 ## Explanation Rules
@@ -139,7 +139,7 @@ Do not show a tier-drop reason when the modifier is `0`.
    - Top-tier candidate with another same-position same-tier player still available: no tier-drop bonus.
    - Top-tier candidate is sole remaining player in best available same-position tier and next same-position player is worse tier: tier-drop bonus applies.
    - Candidate is sole remaining player in best available same-position tier but no next same-position player exists: no tier-drop bonus.
-   - Tier gap greater than 1 still caps at `+40`.
+   - Tier gap greater than 2 still caps at `+10`.
 
 3. Run validation.
    - Run `npm run lint`.
@@ -159,7 +159,7 @@ Do not show a tier-drop reason when the modifier is `0`.
 - Tier-drop modifier does not apply to a player outside the best currently available tier for their position.
 - Tier-drop modifier does not apply while another same-position player in the candidate's tier is still available.
 - Tier-drop modifier applies when the candidate is the sole remaining player in the best available same-position tier and the next same-position player is in a worse tier.
-- Tier-drop bonus remains capped at `+40`.
+- Tier-drop bonus remains capped at `+10`.
 - Existing tier-drop reason text remains unchanged.
 - No tier-drop reason appears when no tier-drop bonus applies.
 - Recommendations still return 5 items by default.
