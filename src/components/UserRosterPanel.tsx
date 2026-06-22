@@ -59,19 +59,34 @@ function assignPlayersToSlots(players: UserRosterPlayer[]) {
     });
 
     if (!slot) {
-      return;
+      return false;
     }
 
     slot.player = player;
+    return true;
+  };
+
+  const addOverflowBenchSlot = (player: UserRosterPlayer) => {
+    slots.push({
+      id: `bench-overflow-${slots.length - starterSlots.length - benchSlots.length + 1}`,
+      label: "Bench",
+      acceptedPositions: allPositions,
+      player,
+    });
   };
 
   players.forEach((player) => {
+    let wasAssigned = false;
+
     if (player.position === "RB" || player.position === "WR" || player.position === "TE") {
-      assignToFirstOpenSlot(player, [player.position, "FLEX", "Bench"]);
-      return;
+      wasAssigned = assignToFirstOpenSlot(player, [player.position, "FLEX", "Bench"]);
+    } else {
+      wasAssigned = assignToFirstOpenSlot(player, [player.position, "Bench"]);
     }
 
-    assignToFirstOpenSlot(player, [player.position, "Bench"]);
+    if (!wasAssigned) {
+      addOverflowBenchSlot(player);
+    }
   });
 
   return slots;
