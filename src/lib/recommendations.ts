@@ -3,6 +3,8 @@ import type { Position, RankingEntry, Recommendation } from "@/types/draft";
 const DEFAULT_RECOMMENDATION_LIMIT = 5;
 const DIRECT_STARTER_NEED_BONUS = 30;
 const FLEX_NEED_BONUS = 15;
+const TIER_DROP_MULTIPLIER = 20;
+const MAX_TIER_DROP_BONUS = 40;
 const flexPositions: Position[] = ["RB", "WR", "TE"];
 
 type RosterNeedPlayer = {
@@ -15,6 +17,11 @@ type GenerateTopRecommendationsOptions = {
 };
 
 type RosterNeedResult = {
+  modifier: number;
+  reason: string | null;
+};
+
+type TierDropResult = {
   modifier: number;
   reason: string | null;
 };
@@ -83,9 +90,42 @@ export function calculateRosterNeedModifier(
   return { modifier: 0, reason: null };
 }
 
+export function calculateTierDropModifier(
+  ranking: RankingEntry,
+  availableRankings: RankingEntry[],
+): TierDropResult {
+  const samePositionRankings = availableRankings
+    .filter((candidate) => candidate.player.position === ranking.player.position)
+    .sort((a, b) => a.overallRank - b.overallRank);
+  const rankingIndex = samePositionRankings.findIndex((candidate) => {
+    return candidate.player.id === ranking.player.id;
+  });
+
+  if (rankingIndex === -1) {
+    return { modifier: 0, reason: null };
+  }
+
+  const nextSamePositionRanking = samePositionRankings[rankingIndex + 1];
+
+  if (!nextSamePositionRanking || nextSamePositionRanking.tier <= ranking.tier) {
+    return { modifier: 0, reason: null };
+  }
+
+  const tierGap = nextSamePositionRanking.tier - ranking.tier;
+  const modifier = Math.min(tierGap * TIER_DROP_MULTIPLIER, MAX_TIER_DROP_BONUS);
+  const position = ranking.player.position;
+  const reason =
+    tierGap === 1
+      ? `Tier drop after this ${position}`
+      : `Tier drop after this ${position} by ${tierGap} tiers`;
+
+  return { modifier, reason };
+}
+
 function buildRecommendationReasons(
   ranking: RankingEntry,
   rosterNeedResult: RosterNeedResult,
+  tierDropResult: TierDropResult,
 ) {
   const reasons = [`Ranked #${ranking.overallRank} overall`];
 
@@ -95,6 +135,10 @@ function buildRecommendationReasons(
 
   if (rosterNeedResult.reason) {
     reasons.push(rosterNeedResult.reason);
+  }
+
+  if (tierDropResult.reason) {
+    reasons.push(tierDropResult.reason);
   }
 
   return reasons;
@@ -116,11 +160,12 @@ export function generateTopRecommendations(
     .map((ranking) => {
       const rankingScore = calculateRankingScore(ranking);
       const rosterNeedResult = calculateRosterNeedModifier(ranking, rosterPlayers ?? []);
+      const tierDropResult = calculateTierDropModifier(ranking, rankings);
 
       return {
         ranking,
-        score: rankingScore + rosterNeedResult.modifier,
-        reasons: buildRecommendationReasons(ranking, rosterNeedResult),
+        score: rankingScore + rosterNeedResult.modifier + tierDropResult.modifier,
+        reasons: buildRecommendationReasons(ranking, rosterNeedResult, tierDropResult),
       };
     })
     .sort((a, b) => {

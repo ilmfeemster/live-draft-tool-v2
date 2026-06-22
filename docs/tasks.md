@@ -71,7 +71,7 @@ Success means a full mock draft can be completed without the app breaking.
 - [x] Add ranking score
 - [x] Add roster need modifier
 - [ ] Add scarcity modifier
-- [ ] Add tier-drop modifier
+- [x] Add tier-drop modifier
 - [x] Generate top 5 recommendations
 - [x] Generate recommendation explanations
 
@@ -79,7 +79,7 @@ Success means a full mock draft can be completed without the app breaking.
 
 - [x] Display recommendations
 - [x] Display recommendation reasons
-- [ ] Display tier warnings
+- [x] Display tier warnings
 - [ ] Display scarcity warnings
 - [ ] Highlight user pick
 
