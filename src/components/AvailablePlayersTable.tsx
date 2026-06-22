@@ -14,14 +14,27 @@ type AvailablePlayersTableProps = {
 
 export function AvailablePlayersTable({ rankings, onDraftPlayer }: AvailablePlayersTableProps) {
   const [selectedPosition, setSelectedPosition] = useState<PositionFilter>("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const availablePlayers = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
     return rankings
       .filter((entry) => {
         return selectedPosition === "ALL" || entry.player.position === selectedPosition;
       })
+      .filter((entry) => {
+        if (!normalizedQuery) {
+          return true;
+        }
+
+        return (
+          entry.player.name.toLowerCase().includes(normalizedQuery) ||
+          entry.player.team.toLowerCase().includes(normalizedQuery)
+        );
+      })
       .sort((a, b) => a.overallRank - b.overallRank);
-  }, [rankings, selectedPosition]);
+  }, [rankings, searchQuery, selectedPosition]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4">
@@ -33,25 +46,38 @@ export function AvailablePlayersTable({ rankings, onDraftPlayer }: AvailablePlay
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-1 rounded-md border border-zinc-200 bg-zinc-100 p-1">
-          {positionFilters.map((position) => {
-            const isSelected = selectedPosition === position;
+        <div className="flex flex-col gap-2 lg:items-end">
+          <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
+            Search
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search players or teams"
+              className="h-9 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm font-normal text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20 lg:w-72"
+            />
+          </label>
 
-            return (
-              <button
-                key={position}
-                type="button"
-                className={`h-8 rounded px-3 text-sm font-medium transition ${
-                  isSelected
-                    ? "bg-white text-zinc-950 shadow-sm"
-                    : "text-zinc-600 hover:bg-zinc-200 hover:text-zinc-950"
-                }`}
-                onClick={() => setSelectedPosition(position)}
-              >
-                {position}
-              </button>
-            );
-          })}
+          <div className="flex flex-wrap gap-1 rounded-md border border-zinc-200 bg-zinc-100 p-1">
+            {positionFilters.map((position) => {
+              const isSelected = selectedPosition === position;
+
+              return (
+                <button
+                  key={position}
+                  type="button"
+                  className={`h-8 rounded px-3 text-sm font-medium transition ${
+                    isSelected
+                      ? "bg-white text-zinc-950 shadow-sm"
+                      : "text-zinc-600 hover:bg-zinc-200 hover:text-zinc-950"
+                  }`}
+                  onClick={() => setSelectedPosition(position)}
+                >
+                  {position}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -69,31 +95,39 @@ export function AvailablePlayersTable({ rankings, onDraftPlayer }: AvailablePlay
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
-              {availablePlayers.map((entry) => (
-                <tr key={entry.player.id} className="hover:bg-zinc-50">
-                  <td className="px-4 py-3 font-mono text-zinc-700">{entry.overallRank}</td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-zinc-950">{entry.player.name}</div>
-                  </td>
-                  <td className="px-4 py-3 text-zinc-600">{entry.player.team}</td>
-                  <td className="px-4 py-3">
-                    <span className="font-medium text-zinc-950">
-                      {entry.player.position}
-                      {entry.positionRank}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-zinc-600">{entry.tier}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      className="h-8 rounded bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800"
-                      onClick={() => onDraftPlayer(entry.player.id)}
-                    >
-                      Draft
-                    </button>
+              {availablePlayers.length > 0 ? (
+                availablePlayers.map((entry) => (
+                  <tr key={entry.player.id} className="hover:bg-zinc-50">
+                    <td className="px-4 py-3 font-mono text-zinc-700">{entry.overallRank}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-zinc-950">{entry.player.name}</div>
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600">{entry.player.team}</td>
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-zinc-950">
+                        {entry.player.position}
+                        {entry.positionRank}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600">{entry.tier}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        className="h-8 rounded bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800"
+                        onClick={() => onDraftPlayer(entry.player.id)}
+                      >
+                        Draft
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-zinc-500">
+                    No available players match the current filters.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
