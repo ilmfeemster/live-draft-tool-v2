@@ -1,176 +1,201 @@
-# Current Slice: Recommendation UI V1
+# Current Slice: Roster Need Modifier V1
 
 ## Goal
 
-Display the current top 5 ranking-based recommendations in the draft room.
+Make visible recommendations respond to the user's drafted roster by adding a simple roster need modifier to the existing recommendation engine.
 
-The recommendation panel should appear above the available players list and search controls so the user sees the short decision-support view before scanning the full player pool.
+This slice should make recommendations slightly prefer positions where the user's starter slots are not filled yet, while keeping the scoring model inspectable and intentionally simple.
 
 ## User-Visible Increment
 
-The draft room shows a `Recommendations` panel above `Available Players`.
+The existing `Recommendations` panel still appears above the available players list, but recommendation scores and reasons now include roster-need context.
 
-The panel lists the top 5 available players from the existing ranking-score engine. As players are drafted or undone, the panel updates because it is derived from the same available rankings as the table.
+As the user's team drafts players, recommendations update to reflect filled and unfilled starter positions.
 
 ## Goals
 
-- Render top 5 recommendations above the draft list and search bar.
-- Use the existing `generateTopRecommendations` helper.
-- Keep recommendation inputs derived from `availableRankings`.
-- Display each recommended player's:
-  - Rank/order in the recommendation list.
-  - Name.
-  - Team.
-  - Position plus position rank.
-  - Overall rank.
-  - Score.
-  - Reasons.
-- Include a `Draft` button for each recommendation.
-- Keep existing available players table behavior unchanged.
-- Keep recommendation scoring unchanged.
-- Keep roster need, scarcity, and tier-drop logic out of this slice.
+- Add a roster need modifier to the existing recommendation score.
+- Keep base ranking score unchanged.
+- Pass user roster context from `DraftRoom` into the recommendation helper.
+- Add recommendation reasons that explain roster need bonuses.
+- Keep recommendations deterministic.
+- Keep logic pure and independent of React rendering.
+- Keep the existing recommendation panel layout.
+- Avoid introducing a full `UserRoster` domain model in this slice.
 
 ## Non-Goals
 
-- Roster need modifier.
 - Positional scarcity modifier.
 - Tier-drop modifier.
 - ADP-based scoring.
-- Tier warnings.
-- Scarcity warnings.
-- Highlighting the user's pick.
-- Recommendation tuning.
+- Optimal lineup assignment.
+- Overfilled position warnings.
+- Manual roster slot overrides.
+- Recommendation UI redesign.
 - Recommendation persistence.
-- Search/filtering inside recommendations.
-- Collapsible panels.
-- Keyboard shortcuts.
 - New dependencies.
+- Database work.
+- Global state.
 
 ## Expected Files
 
-- `src/components/RecommendationsPanel.tsx`
+- `src/lib/recommendations.ts`
 - `src/components/DraftRoom.tsx`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing `AvailablePlayersTable`, seed data, draft types, or recommendation scoring unless implementation reveals a direct compatibility issue.
+Avoid changing `RecommendationsPanel`, `AvailablePlayersTable`, seed data, draft types, or roster display unless implementation reveals a direct compatibility issue.
 
 ## Implementation Constraint
 
-Keep the panel presentational.
+Keep the recommendation helper pure.
 
 Do not add:
 
-- New global state.
 - Context.
 - Reducers.
+- Global state.
 - API routes.
 - Server actions.
 - Package dependencies.
-- New recommendation scoring rules.
+- A full `UserRoster` model.
 
-## Layout Rules
+## Roster Need Input
 
-- In `DraftRoom`, render the recommendations panel above `AvailablePlayersTable`.
-- Keep the existing right sidebar layout for draft status and roster.
-- On desktop, the main column should flow:
-  1. Recommendations
-  2. Available Players header/search/filter
-  3. Available Players table
-- On smaller widths, preserve the current stacked behavior.
+The recommendation engine needs only drafted user player positions.
 
-## Component Shape
+Use a small local type in `src/lib/recommendations.ts`, such as:
 
-Create `src/components/RecommendationsPanel.tsx`.
+```ts
+type RosterNeedPlayer = {
+  position: Position;
+};
+```
 
-Props:
+Update `generateTopRecommendations` to accept an optional options object:
 
-- `recommendations: Recommendation[]`
-- `onDraftPlayer: (playerId: string) => void`
+```ts
+generateTopRecommendations(rankings, {
+  limit,
+  rosterPlayers,
+})
+```
 
-Rendering:
+Keep backward compatibility for callers that pass only rankings.
 
-- Use a section with heading `Recommendations`.
-- Include a short helper line such as `Ranking-based suggestions from available players.`
-- Render a compact list of recommendation rows or cards.
-- Each item should show:
-  - Recommendation index.
-  - Player name.
-  - Team and position.
-  - Overall rank.
-  - Score.
-  - Reasons.
-  - Draft button.
-- If the list is empty, render a compact empty state.
+## Starter Need Model
 
-## DraftRoom Integration
+Use the MVP starting lineup from `docs/project.md`:
 
-In `DraftRoom`:
+- `QB`: 1
+- `RB`: 2
+- `WR`: 2
+- `TE`: 1
+- `FLEX`: 2, using `RB`, `WR`, or `TE`
+- `DST`: 1
+- `K`: 1
 
-1. Import `generateTopRecommendations`.
-2. Import `RecommendationsPanel`.
-3. Derive `recommendations` with `useMemo` from `availableRankings`.
-4. Render `RecommendationsPanel` before `AvailablePlayersTable`.
-5. Pass the existing `draftPlayer` handler into both the recommendation panel and table.
+For this slice, use a simple position-level need calculation:
 
-Do not duplicate draft logic.
+- `QB` needs 1.
+- `RB` needs 2 direct starter slots.
+- `WR` needs 2 direct starter slots.
+- `TE` needs 1 direct starter slot.
+- `DST` needs 1.
+- `K` needs 1.
+- `FLEX` need should add modest extra value to `RB`, `WR`, and `TE` until two total FLEX-eligible surplus players exist after direct starter slots are filled.
+
+Do not model Bench needs.
+
+## Modifier Rules
+
+Keep values intentionally small relative to base ranking score.
+
+Recommended modifiers:
+
+- Direct starter need bonus: `+30`
+- FLEX need bonus for `RB`, `WR`, and `TE`: `+15`
+- No need bonus: `0`
+
+Examples:
+
+- If user has no QB, available QBs receive `+30`.
+- If user has one RB, available RBs receive `+30`.
+- If user has two RBs and no extra FLEX-eligible players, available RBs receive `+15`.
+- If user has two RBs, two WRs, one TE, and two additional FLEX-eligible players, RB/WR/TE receive no roster need bonus.
+- If user has a DST, available DSTs receive no roster need bonus.
+
+## Explanation Rules
+
+Recommendations should keep existing reasons:
+
+- Overall rank reason.
+- ADP rank reason when available.
+
+Add roster need reasons only when a bonus applies:
+
+- Direct need: `Fills <POSITION> starter need`
+- FLEX need: `Helps fill FLEX need`
+
+Do not show a roster need reason when the modifier is `0`.
 
 ## Implementation Steps
 
-1. Create `src/components/RecommendationsPanel.tsx`.
-   - Import `Recommendation` as a type.
-   - Implement the presentational panel.
-   - Keep styling consistent with existing white bordered panels.
-   - Include a draft button per recommendation.
+1. Update `src/lib/recommendations.ts`.
+   - Add local roster need input type.
+   - Add options object support for `generateTopRecommendations`.
+   - Preserve default limit of 5.
+   - Add `calculateRosterNeedModifier`.
+   - Add roster need reasons.
+   - Keep input arrays immutable.
 
 2. Update `src/components/DraftRoom.tsx`.
-   - Import the recommendation helper and panel.
-   - Derive recommendations from `availableRankings`.
-   - Render the panel above `AvailablePlayersTable`.
+   - Pass `userRosterPlayers` into `generateTopRecommendations`.
+   - Ensure recommendations still derive from `availableRankings`.
 
 3. Update `docs/tasks.md`.
-   - Mark `Display recommendations` complete.
-   - Mark `Display recommendation reasons` complete.
-   - Leave tier warnings, scarcity warnings, and highlight user pick unchecked.
+   - Mark `Add roster need modifier` complete.
+   - Leave scarcity and tier-drop unchecked.
+   - Do not change recommendation UI checklist items.
 
 4. Validate.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - If practical, request the local page and verify `Recommendations` renders above `Available Players`.
+   - If practical, run a quick local script that verifies a missing position receives a higher score than the base ranking score.
 
 5. Manual smoke test.
-   - Confirm the panel initially shows 5 recommendations.
-   - Confirm Ja'Marr Chase is initially first.
-   - Draft the top recommendation from the panel.
-   - Confirm that player disappears from recommendations and available players.
-   - Undo the pick.
-   - Confirm that player returns to recommendations and available players.
+   - Start with an empty roster and confirm top recommendations include roster need reasons where applicable.
+   - Draft a user pick at a needed position.
+   - Confirm recommendation scores/reasons update after the pick.
+   - Undo the pick and confirm scores/reasons revert.
 
 ## Acceptance Criteria
 
-- A `Recommendations` panel renders above the available players list and search bar.
-- The panel shows 5 recommendations when at least 5 players are available.
-- The initial top recommendation is Ja'Marr Chase.
-- Each recommendation shows player identity, overall rank, score, and reasons.
-- Each recommendation has a working `Draft` button.
-- Drafting from recommendations advances draft state.
-- Drafted recommendation disappears from recommendations and available players.
-- Undo restores the player to recommendations and available players when appropriate.
-- Existing search and position filtering still work in `AvailablePlayersTable`.
+- Base ranking score remains `1000 - overallRank`.
+- Roster need modifier is added to recommendation score.
+- Missing direct starter positions receive `+30`.
+- FLEX-eligible positions receive `+15` when FLEX need remains.
+- No roster need reason appears when no roster need bonus applies.
+- Recommendations still return 5 items by default.
+- Recommendations still sort by score descending.
+- Existing ranking and ADP reasons still appear.
+- Recommendations update when user roster changes.
+- Existing recommendation panel still renders.
+- Existing draft, undo, search, and available-player behavior still work.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-This panel is still ranking-only. It is expected to mirror the highest available overall-ranked players, not account for roster construction yet.
+The modifier is intentionally small. Early recommendations may still heavily favor elite overall-ranked players. That is expected.
 
-Do not judge strategic usefulness from this slice alone. The purpose is to make the recommendation loop visible so later scoring slices can be validated quickly.
+This slice is about making roster need visible and testable, not finalizing strategy quality.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this only displays existing top-5 ranking recommendations and wires draft buttons.
-- Concrete enough for implementation: yes, component props, layout, data flow, task updates, and acceptance criteria are explicit.
-- Avoids unnecessary architecture changes: yes, recommendations remain derived from existing local draft state and pure helper logic.
-- Blast radius reasonable: yes, expected changes are one new component, one parent component, and task docs.
-- Review/revert comfort: yes, the UI panel can be removed without affecting draft state or scoring logic.
-- Observable/testable acceptance criteria: yes, rendering, ordering, draft, undo, lint, and build are all directly testable.
+- Smallest meaningful increment: yes, this adds only roster need scoring and reasons.
+- Concrete enough for implementation: yes, input shape, starter model, modifier values, reasons, and task updates are explicit.
+- Avoids unnecessary architecture changes: yes, no new global state or full roster model is introduced.
+- Blast radius reasonable: yes, expected changes are one helper module, one parent component, and task docs.
+- Review/revert comfort: yes, the modifier can be removed without affecting draft state or UI structure.
+- Observable/testable acceptance criteria: yes, scores, reasons, draft/undo behavior, lint, and build are directly checkable.
