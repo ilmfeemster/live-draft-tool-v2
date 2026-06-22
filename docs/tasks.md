@@ -62,7 +62,7 @@ Success means a full mock draft can be completed without the app breaking.
 
 - [x] Detect user picks
 - [x] Add player to roster
-- [ ] Display roster slots
+- [x] Display roster slots
 - [x] Display positional counts
 - [ ] Detect overfilled positions
 
