@@ -28,10 +28,6 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
     return rankings.filter((entry) => !draftedPlayerIds.has(entry.player.id));
   }, [draftedPlayerIds, rankings]);
 
-  const recommendations = useMemo(() => {
-    return generateTopRecommendations(availableRankings);
-  }, [availableRankings]);
-
   const userRosterPlayers = useMemo(() => {
     return activeDraft.picks
       .filter((pick) => pick.teamId === activeDraft.userTeamId && pick.playerId)
@@ -52,6 +48,12 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
       .filter((player): player is NonNullable<typeof player> => Boolean(player))
       .sort((a, b) => a.pickNumber - b.pickNumber);
   }, [activeDraft.picks, activeDraft.userTeamId, rankings]);
+
+  const recommendations = useMemo(() => {
+    return generateTopRecommendations(availableRankings, {
+      rosterPlayers: userRosterPlayers,
+    });
+  }, [availableRankings, userRosterPlayers]);
 
   const canUndoLastPick = draftedPlayerIds.size > 0;
 

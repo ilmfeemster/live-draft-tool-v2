@@ -69,7 +69,7 @@ Success means a full mock draft can be completed without the app breaking.
 ### Recommendation Engine V1
 
 - [x] Add ranking score
-- [ ] Add roster need modifier
+- [x] Add roster need modifier
 - [ ] Add scarcity modifier
 - [ ] Add tier-drop modifier
 - [x] Generate top 5 recommendations
