@@ -1,58 +1,60 @@
-# Current Slice: Top-Tier Tier-Drop Eligibility Fix
+# Current Slice: Real Draft Defaults
 
 ## Goal
 
-Fix the tier-drop modifier so it only rewards a player when they are the sole remaining available player in the best currently available tier for their position.
+Prepare the app for practical draft use by making the default draft match the documented MVP league settings.
 
-The current eligibility fix prevents boosting a player when other same-position players remain in that player's own tier. However, it can still boost a lower-tier player even while a better tier at the same position is available. That is misleading because the true tier-drop decision is at the top available tier boundary, not at every lower tier boundary.
+The project docs define a 12-team redraft snake league with 16 roster spots. The app currently seeds a 4-team draft, which is useful for fast testing but no longer matches the intended MVP usage.
 
 ## User-Visible Increment
 
-The `Recommendations` panel should still show tier-drop reasons, but only for a player who represents the current top-tier cutoff at their position.
+When the app loads, the draft status and snake order should reflect a 12-team, 16-round draft instead of a 4-team test draft.
 
-Examples:
+The user should still be able to:
 
-- If tier-1 WRs are still available, a tier-2 WR should not receive a tier-drop bonus.
-- If exactly one tier-1 WR remains and the next available WR is tier 2, that tier-1 WR may receive a tier-drop bonus.
-- If no tier-1 WRs remain and exactly one tier-2 WR remains, that tier-2 WR may receive a tier-drop bonus only if tier 2 is now the best available WR tier.
+- Draft players manually.
+- Undo picks.
+- See available players update.
+- See their roster update.
+- See recommendations update.
 
 ## Goals
 
-- Keep the existing tier-drop scoring formula.
-- Keep the existing tier-drop reason text.
-- Add a top-available-tier eligibility check before applying the tier-drop modifier.
-- Preserve the same-position same-tier uniqueness check.
-- Use only current available rankings.
-- Keep base ranking score unchanged.
-- Keep roster need modifier unchanged.
-- Keep recommendations deterministic.
-- Keep all recommendation logic pure and independent of React rendering.
+- Change the default draft from 4 teams to 12 teams.
+- Keep the draft at 16 rounds.
+- Keep the current static default draft approach.
+- Keep the current user draft position as a simple constant for now.
+- Preserve existing snake draft generation behavior.
+- Preserve existing draft, undo, roster, available-player, and recommendation behavior.
+- Keep the change small enough to review and revert comfortably.
 
 ## Non-Goals
 
-- Predict whether a player will be gone by the user's next pick.
-- Simulate opponent picks.
-- Add draft-position timing logic.
-- Add positional scarcity modifier.
-- Add ADP-based scoring.
-- Change roster need logic.
-- Redesign recommendation UI.
-- Add new warning components.
-- Add new state, context, reducers, API routes, server actions, or dependencies.
+- Draft setup form.
+- Runtime draft-position selection.
+- Runtime team-count selection.
+- Runtime rankings import.
+- Persistence.
+- Database work.
+- Recommendation scoring changes.
+- UI redesign.
+- New state management.
+- New dependencies.
 
 ## Expected Files
 
-- `src/lib/recommendations.ts`
+- `src/data/defaultDraft.ts`
 - `docs/current-slice.md`
 
-Avoid changing `DraftRoom`, `RecommendationsPanel`, seed data, draft types, available-player UI, or `docs/tasks.md` unless implementation reveals a direct compatibility issue.
+Avoid changing recommendation logic, draft order helpers, UI components, seed rankings, or task docs unless implementation reveals a direct compatibility issue.
 
 ## Implementation Constraint
 
-Keep the recommendation helper pure.
+Keep this as a static configuration update.
 
 Do not add:
 
+- Forms.
 - Context.
 - Reducers.
 - Global state.
@@ -61,135 +63,85 @@ Do not add:
 - Package dependencies.
 - New UI components.
 
-## Tier-Drop Eligibility Model
+## Draft Defaults
 
-Use current available rankings only.
-
-For a candidate recommendation:
-
-1. Look at available rankings with the same `player.position`.
-2. Sort those same-position rankings by `overallRank`.
-3. Determine the best available tier at that position.
-4. If the candidate's `tier` is not the best available tier at that position, no tier-drop bonus applies.
-5. Find available same-position players in the candidate's same `tier`.
-6. If more than one same-position player remains in the candidate's tier, no tier-drop bonus applies.
-7. Find the next same-position player after the candidate.
-8. If there is no next same-position player, no tier-drop bonus applies in this slice.
-9. If the next same-position player's `tier` is greater than the candidate's `tier`, the candidate gets a tier-drop bonus.
-10. If the next same-position player's `tier` is the same or better, no tier-drop bonus applies.
-
-Do not compare against players at other positions.
-
-## Modifier Rules
-
-Keep the existing V1 modifier:
+Use the documented MVP defaults:
 
 ```txt
-tier drop bonus = 5 * tier gap
+teamCount = 12
+rounds = 16
 ```
 
-Where:
+Keep the existing `userDraftPosition` constant for this slice.
 
-```txt
-tier gap = next same-position tier - candidate tier
-```
-
-Cap the tier-drop bonus at `+10`.
-
-Examples:
-
-- Candidate `WR` tier 2, any tier-1 `WR` still available: `+0`
-- Candidate `WR` tier 1, two tier-1 `WR`s still available: `+0`
-- Candidate `WR` tier 1, no other tier-1 `WR`s available, next `WR` tier 2: `+5`
-- Candidate `TE` tier 3, tier 3 is the best available `TE` tier, no other tier-3 `TE`s available, next `TE` tier 6: `+10` after cap
-- Candidate `K` with no later available `K`: `+0`
-
-## Explanation Rules
-
-Keep existing recommendation reasons:
-
-- Overall rank reason.
-- ADP rank reason when available.
-- Roster need reason when applicable.
-
-Add a tier-drop reason only when all eligibility checks pass and the modifier is greater than `0`:
-
-- `Tier drop after this <POSITION>`
-
-If the tier gap is greater than 1, keep the existing gap reason:
-
-- `Tier drop after this <POSITION> by <N> tiers`
-
-Do not show a tier-drop reason when the modifier is `0`.
+If the existing `userDraftPosition` is within the 12-team range, leave it unchanged. If implementation reveals it is invalid, set it to a valid draft position and note that in the final summary.
 
 ## Implementation Steps
 
-1. Update `src/lib/recommendations.ts`.
-   - Keep `TierDropResult`, `TIER_DROP_MULTIPLIER`, and `MAX_TIER_DROP_BONUS`.
-   - In `calculateTierDropModifier`, derive same-position available rankings.
-   - Determine the best available tier from those same-position rankings.
-   - Return `{ modifier: 0, reason: null }` when `ranking.tier` is not the best available tier for that position.
-   - Preserve the same-position same-tier uniqueness check.
-   - Preserve the existing next same-position lookup after the eligibility checks.
-   - Preserve the existing tier-gap calculation, cap, and reason strings.
-   - Keep input arrays immutable.
+1. Update `src/data/defaultDraft.ts`.
+   - Change `teamCount` from `4` to `12`.
+   - Leave `rounds` as `16`.
+   - Leave `userDraftPosition` unchanged if valid.
+   - Ensure `createDraftTeams(teamCount)` still receives the updated team count.
+   - Ensure `generateSnakeDraftOrder(teamCount, rounds)` still receives the updated team count and rounds.
 
-2. Validate with a quick local script or equivalent manual helper checks.
-   - Lower-tier candidate while a better same-position tier is available: no tier-drop bonus.
-   - Top-tier candidate with another same-position same-tier player still available: no tier-drop bonus.
-   - Top-tier candidate is sole remaining player in best available same-position tier and next same-position player is worse tier: tier-drop bonus applies.
-   - Candidate is sole remaining player in best available same-position tier but no next same-position player exists: no tier-drop bonus.
-   - Tier gap greater than 2 still caps at `+10`.
+2. Validate draft shape with a quick local check.
+   - `defaultDraft.teamCount` is `12`.
+   - `defaultDraft.rounds` is `16`.
+   - `defaultDraft.teams.length` is `12`.
+   - `defaultDraft.picks.length` is `192`.
+   - `defaultDraft.userTeamId` points to an existing team.
 
 3. Run validation.
    - Run `npm run lint`.
    - Run `npm run build`.
 
 4. Manual smoke test.
-   - Load the app and confirm recommendations still render.
-   - Confirm lower-tier players do not receive tier-drop reasons while a better tier at that position remains available.
-   - Draft enough same-position players to leave one player in the best available tier.
-   - Confirm a tier-drop reason appears only for that top-tier cutoff player.
-   - Undo the pick and confirm recommendations recalculate.
+   - Load the app.
+   - Confirm the draft status says a 12-team draft.
+   - Draft a player.
+   - Confirm available players update.
+   - Confirm recommendations update.
+   - Undo the pick.
+   - Confirm the player returns to the available pool.
 
 ## Acceptance Criteria
 
-- Base ranking score remains `1000 - overallRank`.
-- Roster need modifier remains active.
-- Tier-drop modifier does not apply to a player outside the best currently available tier for their position.
-- Tier-drop modifier does not apply while another same-position player in the candidate's tier is still available.
-- Tier-drop modifier applies when the candidate is the sole remaining player in the best available same-position tier and the next same-position player is in a worse tier.
-- Tier-drop bonus remains capped at `+10`.
-- Existing tier-drop reason text remains unchanged.
-- No tier-drop reason appears when no tier-drop bonus applies.
-- Recommendations still return 5 items by default.
-- Recommendations still sort by score descending.
-- Existing ranking, ADP, and roster need reasons still appear.
-- Existing draft, undo, search, and available-player behavior still work.
+- The default draft uses 12 teams.
+- The default draft uses 16 rounds.
+- The generated team list contains 12 teams.
+- The generated pick list contains 192 picks.
+- The user's default team exists in the generated team list.
+- Draft status displays the 12-team draft correctly.
+- Manual draft entry still works.
+- Undo still works.
+- Available players still update after draft and undo.
+- User roster still updates for user picks.
+- Recommendations still render and update.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-This slice intentionally does not predict whether a player will be gone by the user's next pick. That requires a draft timing or opponent pick model that does not exist yet.
+This slice intentionally keeps draft setup static. A full setup flow would be useful later, but it is not required before using the tool personally.
 
 The useful mental model for this slice:
 
 ```txt
-"This is the final available player in the best currently available tier for this position"
+"Make the default draft match the real league shape"
 ```
 
 not:
 
 ```txt
-"This is the final available player in any lower tier"
+"Build draft setup"
 ```
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this only tightens tier-drop eligibility.
-- Concrete enough for implementation: yes, the top-tier and same-tier eligibility checks are explicit.
-- Avoids unnecessary architecture changes: yes, all logic stays inside the pure recommendation helper.
-- Blast radius reasonable: yes, expected changes are one helper module and this plan doc.
-- Review/revert comfort: yes, the eligibility condition can be reverted without affecting draft state or UI structure.
-- Observable/testable acceptance criteria: yes, scores, reasons, lint, build, and recommendation behavior are directly checkable.
+- Smallest meaningful increment: yes, it changes only the default draft configuration to match MVP settings.
+- Concrete enough for implementation: yes, the exact constants and validation checks are specified.
+- Avoids unnecessary architecture changes: yes, it keeps the static default draft approach.
+- Blast radius reasonable: yes, expected changes are one config/data file and this plan doc.
+- Review/revert comfort: yes, the change is easy to inspect and revert.
+- Observable/testable acceptance criteria: yes, team count, pick count, UI status, draft, undo, and build checks are directly observable.

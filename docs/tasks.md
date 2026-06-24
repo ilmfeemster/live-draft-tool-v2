@@ -89,13 +89,13 @@ Success means a full mock draft can be completed without the app breaking.
 
 Before Vertical Slice 1 is complete:
 
-- [ ] Complete full mock draft
-- [ ] Verify drafted players disappear
-- [ ] Verify roster tracking
-- [ ] Verify recommendation updates
-- [ ] Verify snake draft logic
-- [ ] Verify undo functionality
-- [ ] Verify no duplicate drafted players
+- [x] Complete full mock draft
+- [x] Verify drafted players disappear
+- [x] Verify roster tracking
+- [x] Verify recommendation updates
+- [x] Verify snake draft logic
+- [x] Verify undo functionality
+- [x] Verify no duplicate drafted players
 
 ---
 
