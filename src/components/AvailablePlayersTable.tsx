@@ -8,11 +8,16 @@ type PositionFilter = Position | "ALL";
 const positionFilters: PositionFilter[] = ["ALL", "QB", "RB", "WR", "TE", "DST", "K"];
 
 type AvailablePlayersTableProps = {
+  isDraftComplete: boolean;
   rankings: RankingEntry[];
   onDraftPlayer: (playerId: string) => void;
 };
 
-export function AvailablePlayersTable({ rankings, onDraftPlayer }: AvailablePlayersTableProps) {
+export function AvailablePlayersTable({
+  isDraftComplete,
+  rankings,
+  onDraftPlayer,
+}: AvailablePlayersTableProps) {
   const [selectedPosition, setSelectedPosition] = useState<PositionFilter>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -113,7 +118,8 @@ export function AvailablePlayersTable({ rankings, onDraftPlayer }: AvailablePlay
                     <td className="px-4 py-3">
                       <button
                         type="button"
-                        className="h-8 rounded bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800"
+                        className="h-8 rounded bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500"
+                        disabled={isDraftComplete}
                         onClick={() => onDraftPlayer(entry.player.id)}
                       >
                         Draft

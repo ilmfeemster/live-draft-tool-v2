@@ -3,6 +3,7 @@ import type { Draft, DraftPick } from "@/types/draft";
 type DraftStatusPanelProps = {
   draft: Draft;
   canUndoLastPick: boolean;
+  isDraftComplete: boolean;
   isUserPick: boolean;
   onUndoLastPick: () => void;
 };
@@ -20,6 +21,7 @@ function getCurrentPick(draft: Draft): DraftPick {
 export function DraftStatusPanel({
   draft,
   canUndoLastPick,
+  isDraftComplete,
   isUserPick,
   onUndoLastPick,
 }: DraftStatusPanelProps) {
@@ -55,33 +57,43 @@ export function DraftStatusPanel({
 
       <div
         className={
-          isUserPick
-            ? "rounded border border-emerald-200 bg-emerald-50 p-3"
-            : "rounded border border-zinc-200 p-3"
+          isDraftComplete
+            ? "rounded border border-zinc-200 bg-zinc-50 p-3"
+            : isUserPick
+              ? "rounded border border-emerald-200 bg-emerald-50 p-3"
+              : "rounded border border-zinc-200 p-3"
         }
       >
         <div
           className={
-            isUserPick
-              ? "text-xs uppercase tracking-wide text-emerald-700"
-              : "text-xs uppercase tracking-wide text-zinc-500"
+            isDraftComplete
+              ? "text-xs uppercase tracking-wide text-zinc-500"
+              : isUserPick
+                ? "text-xs uppercase tracking-wide text-emerald-700"
+                : "text-xs uppercase tracking-wide text-zinc-500"
           }
         >
-          On The Clock
+          {isDraftComplete ? "Draft Complete" : "On The Clock"}
         </div>
         <div
           className={
-            isUserPick
-              ? "mt-1 font-semibold text-emerald-950"
-              : "mt-1 font-semibold text-zinc-950"
+            isDraftComplete
+              ? "mt-1 font-semibold text-zinc-950"
+              : isUserPick
+                ? "mt-1 font-semibold text-emerald-950"
+                : "mt-1 font-semibold text-zinc-950"
           }
         >
-          {activeTeam?.name ?? "Unknown Team"}
+          {isDraftComplete ? "All draft slots are filled." : (activeTeam?.name ?? "Unknown Team")}
         </div>
-        <div className={isUserPick ? "mt-1 text-sm text-emerald-800" : "mt-1 text-sm text-zinc-600"}>
-          Draft position {activeTeam?.draftPosition ?? "unknown"}
-        </div>
-        {isUserPick ? (
+        {!isDraftComplete ? (
+          <div
+            className={isUserPick ? "mt-1 text-sm text-emerald-800" : "mt-1 text-sm text-zinc-600"}
+          >
+            Draft position {activeTeam?.draftPosition ?? "unknown"}
+          </div>
+        ) : null}
+        {isUserPick && !isDraftComplete ? (
           <div className="mt-2 text-sm font-semibold text-emerald-800">Your pick</div>
         ) : null}
       </div>

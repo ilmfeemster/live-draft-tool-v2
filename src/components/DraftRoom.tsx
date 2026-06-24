@@ -59,6 +59,10 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
     (pick) => pick.pickNumber === activeDraft.currentPickNumber,
   );
   const isUserPick = currentPick?.teamId === activeDraft.userTeamId;
+  const totalPicks = activeDraft.teamCount * activeDraft.rounds;
+  const isDraftComplete =
+    activeDraft.picks.length === totalPicks &&
+    activeDraft.picks.every((pick) => Boolean(pick.playerId));
   const canUndoLastPick = draftedPlayerIds.size > 0;
 
   function draftPlayer(playerId: string) {
@@ -68,8 +72,9 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
         (pick) => pick.pickNumber === currentDraft.currentPickNumber,
       );
       const isAlreadyDrafted = currentDraft.picks.some((pick) => pick.playerId === playerId);
+      const isDraftComplete = currentDraft.picks.every((pick) => Boolean(pick.playerId));
 
-      if (!currentPick || isAlreadyDrafted) {
+      if (!currentPick || currentPick.playerId || isAlreadyDrafted || isDraftComplete) {
         return currentDraft;
       }
 
@@ -132,16 +137,22 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
     <div className="grid min-h-0 gap-6 xl:grid-cols-[1fr_320px]">
       <div className="flex min-h-0 flex-col gap-6">
         <RecommendationsPanel
+          isDraftComplete={isDraftComplete}
           isUserPick={isUserPick}
           recommendations={recommendations}
           onDraftPlayer={draftPlayer}
         />
-        <AvailablePlayersTable rankings={availableRankings} onDraftPlayer={draftPlayer} />
+        <AvailablePlayersTable
+          isDraftComplete={isDraftComplete}
+          rankings={availableRankings}
+          onDraftPlayer={draftPlayer}
+        />
       </div>
       <div className="flex flex-col gap-6">
         <DraftStatusPanel
           draft={activeDraft}
           canUndoLastPick={canUndoLastPick}
+          isDraftComplete={isDraftComplete}
           isUserPick={isUserPick}
           onUndoLastPick={undoLastPick}
         />

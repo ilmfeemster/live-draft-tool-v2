@@ -1,12 +1,14 @@
 import type { Recommendation } from "@/types/draft";
 
 type RecommendationsPanelProps = {
+  isDraftComplete: boolean;
   isUserPick: boolean;
   recommendations: Recommendation[];
   onDraftPlayer: (playerId: string) => void;
 };
 
 export function RecommendationsPanel({
+  isDraftComplete,
   isUserPick,
   recommendations,
   onDraftPlayer,
@@ -73,7 +75,8 @@ export function RecommendationsPanel({
                 <div className="flex items-start md:justify-end">
                   <button
                     type="button"
-                    className="h-8 rounded bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800"
+                    className="h-8 rounded bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500"
+                    disabled={isDraftComplete}
                     onClick={() => onDraftPlayer(ranking.player.id)}
                   >
                     Draft

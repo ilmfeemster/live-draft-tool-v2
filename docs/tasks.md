@@ -96,6 +96,7 @@ Before Vertical Slice 1 is complete:
 - [x] Verify snake draft logic
 - [x] Verify undo functionality
 - [x] Verify no duplicate drafted players
+- [x] Verify extra picks are blocked after the draft is complete
 
 ---
 
