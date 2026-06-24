@@ -1,165 +1,152 @@
-# Current Slice: Block Drafting After Final Pick
+# Current Slice: Define UserRoster Type
 
 ## Goal
 
-Prevent users from drafting additional players after the final draft slot has been filled.
+Make the user roster data contract explicit in the shared draft types.
 
-The draft should have a clear completed state instead of leaving the final pick active and allowing later clicks to overwrite that last pick.
+The app already tracks and renders the user's roster correctly. This slice turns the current implicit/local roster shape into a shared domain type so roster-aware UI and recommendation logic use the same contract.
 
 ## User-Visible Increment
 
-After the last pick of round 16 is made:
+No behavior or UI should change.
 
-- Draft buttons are disabled in both recommendations and available players.
-- The draft status panel indicates the draft is complete.
-- No additional player can be drafted into the final pick slot.
-- Undo still reopens the final pick and allows drafting to continue from that point.
+This is a small type-safety and maintainability slice that prepares the codebase for future recommendation-engine tuning.
 
 ## Problem
 
-`currentPickNumber` is clamped to the final pick number. After the final pick is filled, the active pick remains the final pick. Because the draft action only checks whether the selected player has already been drafted, clicking another available player can overwrite the final pick instead of being blocked.
+`docs/tasks.md` still has `Define UserRoster type` unchecked.
+
+The roster shape currently exists locally in `UserRosterPanel` as `UserRosterPlayer`, while `DraftRoom` derives the same shape inline and passes it to:
+
+- `UserRosterPanel`
+- `generateTopRecommendations`
+
+That works today, but the roster contract is not part of the shared domain model.
 
 ## Goals
 
-- Add an explicit `isDraftComplete` state derived from existing draft picks.
-- Block `draftPlayer` when the draft is complete or the current pick already has a player.
-- Disable draft buttons when the draft is complete.
-- Show a simple completed state in `DraftStatusPanel`.
-- Preserve undo behavior so undoing the final pick makes the draft editable again.
+- Define `UserRosterPlayer` in `src/types/draft.ts`.
+- Define `UserRoster` in `src/types/draft.ts`.
+- Use the shared type in `DraftRoom`.
+- Use the shared type in `UserRosterPanel`.
+- Use the shared type for recommendation roster input where appropriate.
+- Mark `Define UserRoster type` complete in `docs/tasks.md`.
 
 ## Non-Goals
 
-- Draft recap.
-- Draft grading.
-- Persistence.
-- Confirmation dialogs.
-- New draft state machine.
-- New domain types.
-- Changing snake draft order generation.
-- Changing recommendation scoring.
-- Changing roster logic.
-- Changing ranking data.
+- Roster behavior changes.
+- Slot assignment changes.
+- Recommendation scoring changes.
+- Recommendation reason changes.
+- Draft logic changes.
+- Persistence or database modeling.
+- New files.
+- New dependencies.
+- Renaming existing components.
 
 ## Expected Files
 
+- `src/types/draft.ts`
 - `src/components/DraftRoom.tsx`
-- `src/components/DraftStatusPanel.tsx`
-- `src/components/RecommendationsPanel.tsx`
-- `src/components/AvailablePlayersTable.tsx`
+- `src/components/UserRosterPanel.tsx`
+- `src/lib/recommendations.ts`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing recommendation logic, draft data, draft order helpers, roster UI, seed rankings, or package dependencies.
+Avoid changing draft data, ranking data, draft order helpers, recommendation scoring constants, available-player UI, or draft-status UI.
 
-## Implementation Constraint
+## Type Model
 
-Keep this as a local draft-flow guard and presentational UI update.
+Add these shared types to `src/types/draft.ts`:
 
-Do not add:
+```ts
+export type UserRosterPlayer = {
+  pickNumber: number;
+  name: string;
+  team: string;
+  position: Position;
+};
 
-- Context.
-- Reducers.
-- Global state.
-- API routes.
-- Server actions.
-- Package dependencies.
-- A full draft completion workflow.
-
-## State Model
-
-In `DraftRoom`, derive:
-
-```txt
-totalPicks = activeDraft.teamCount * activeDraft.rounds
-isDraftComplete = activeDraft.picks.every(pick => Boolean(pick.playerId))
+export type UserRoster = {
+  players: UserRosterPlayer[];
+};
 ```
 
-The existing draft order should remain the source of truth for how many picks exist.
+Keep the shape intentionally close to what the UI already uses. Do not add fields until a real consumer needs them.
 
 ## Implementation Steps
 
-1. Update `src/components/DraftRoom.tsx`.
-   - Derive `totalPicks` from `activeDraft.teamCount * activeDraft.rounds`.
-   - Derive `isDraftComplete` from all draft picks having a `playerId`.
-   - In `draftPlayer`, return the current draft without changes when:
-     - `currentPick` is missing.
-     - `currentPick.playerId` already exists.
-     - `isAlreadyDrafted` is true.
-     - all draft picks already have a `playerId`.
-   - Keep `currentPickNumber` clamped to `totalPicks`.
-   - Pass `isDraftComplete` to `DraftStatusPanel`.
-   - Pass `isDraftComplete` to `RecommendationsPanel`.
-   - Pass `isDraftComplete` to `AvailablePlayersTable`.
+1. Update `src/types/draft.ts`.
+   - Add `UserRosterPlayer`.
+   - Add `UserRoster`.
+   - Use the existing `Position` type for `UserRosterPlayer.position`.
 
-2. Update `src/components/DraftStatusPanel.tsx`.
-   - Add an `isDraftComplete` prop.
-   - When `isDraftComplete` is true, show a simple completed state in the on-the-clock card, such as:
-     - heading: `Draft Complete`
-     - body: `All draft slots are filled.`
-   - Do not show `Your pick` when the draft is complete.
-   - Keep current pick, round, user team, and undo button rendering intact.
+2. Update `src/components/UserRosterPanel.tsx`.
+   - Remove the local exported `UserRosterPlayer` type.
+   - Import `Position` and `UserRosterPlayer` from `@/types/draft`.
+   - Keep `UserRosterPanelProps` as `players: UserRosterPlayer[]`.
+   - Do not change slot assignment, counts, overflow bench behavior, or rendering.
 
-3. Update `src/components/RecommendationsPanel.tsx`.
-   - Add an `isDraftComplete` prop.
-   - Disable recommendation draft buttons when `isDraftComplete` is true.
-   - Use the existing disabled button styling pattern from the undo button or a matching local variant.
-   - Do not change recommendation ordering, scores, or reasons.
+3. Update `src/components/DraftRoom.tsx`.
+   - Import `UserRosterPlayer` from `@/types/draft`.
+   - Type the derived `userRosterPlayers` value as `UserRosterPlayer[]`.
+   - Keep the existing derivation logic, sorting, and props unchanged.
 
-4. Update `src/components/AvailablePlayersTable.tsx`.
-   - Add an `isDraftComplete` prop.
-   - Disable available-player draft buttons when `isDraftComplete` is true.
-   - Keep search, position filters, sorting, and table rendering unchanged.
+4. Update `src/lib/recommendations.ts`.
+   - Import `UserRosterPlayer` from `@/types/draft`.
+   - Remove the local `RosterNeedPlayer` type if it becomes redundant.
+   - Type `rosterPlayers` as `UserRosterPlayer[]` or `Pick<UserRosterPlayer, "position">[]` only if a narrower type is cleaner.
+   - Do not change scoring, modifiers, ordering, or reasons.
 
 5. Update `docs/tasks.md`.
-   - Add and mark complete a validation item for blocking extra picks after the draft is complete.
+   - Mark `Define UserRoster type` complete.
 
 6. Validate.
    - Run `npm run lint`.
    - Run `npm run build`.
 
 7. Manual smoke test.
-   - Complete the final pick of round 16.
-   - Confirm draft buttons are disabled after the final pick.
-   - Confirm clicking a draft button after completion cannot overwrite the final pick.
-   - Confirm `Draft Complete` appears in the draft status area.
-   - Undo the final pick.
-   - Confirm draft buttons are enabled again.
-   - Draft a replacement final pick.
-   - Confirm the draft returns to the completed state.
+   - Load the app.
+   - Draft at least one player for the user's team.
+   - Confirm the player appears in `Your Roster`.
+   - Confirm position counts still update.
+   - Confirm recommendations still render and update after picks.
 
 ## Acceptance Criteria
 
-- The final pick cannot be overwritten by clicking another available player.
-- No player can be drafted after every draft slot is filled.
-- Recommendation draft buttons are disabled when the draft is complete.
-- Available-player draft buttons are disabled when the draft is complete.
-- Draft status clearly indicates the completed state.
-- `Your pick` does not display when the draft is complete.
-- Undoing the final pick re-enables drafting.
-- Drafting after undo fills the final pick and returns to the completed state.
-- Drafting before the final pick still advances normally.
-- Recommendation ordering, scores, and reasons are unchanged.
-- Search, filters, and available-player sorting are unchanged.
-- `docs/tasks.md` includes the completed validation item.
+- `UserRosterPlayer` is defined in `src/types/draft.ts`.
+- `UserRoster` is defined in `src/types/draft.ts`.
+- `UserRosterPanel` uses the shared `UserRosterPlayer` type.
+- `DraftRoom` uses the shared `UserRosterPlayer` type for derived roster players.
+- Recommendation roster input uses the shared roster type or an intentional narrow projection of it.
+- Roster slot assignment behavior is unchanged.
+- Roster position counts are unchanged.
+- Recommendation scoring, ordering, and reasons are unchanged.
+- `Define UserRoster type` is marked complete in `docs/tasks.md`.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-This slice fixes a draft-state boundary bug. The important distinction:
+This slice is type-modeling cleanup, not a user-facing feature.
+
+The useful mental model:
 
 ```txt
-final pick active and empty = allow drafting
-final pick active and filled = draft complete; block drafting
+"Name the roster shape the app already has"
 ```
 
-Undo is the escape hatch back into an editable draft state.
+not:
+
+```txt
+"Redesign roster management"
+```
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this only prevents extra picks after the final draft slot.
-- Concrete enough for implementation: yes, the derived boolean, guard conditions, props, disabled buttons, and status text are specified.
-- Avoids unnecessary architecture changes: yes, no new state system or draft state machine is introduced.
-- Blast radius reasonable: yes, expected changes are four components and task docs.
-- Review/revert comfort: yes, the guard and disabled UI can be reviewed independently from recommendation logic.
-- Observable/testable acceptance criteria: yes, final-pick overwrite prevention, disabled buttons, undo recovery, lint, and build are directly checkable.
+- Smallest meaningful increment: yes, this only promotes the existing roster shape into shared types.
+- Concrete enough for implementation: yes, the exact types, files, and usage points are listed.
+- Avoids unnecessary architecture changes: yes, no new state, persistence, or roster abstractions are introduced.
+- Blast radius reasonable: yes, expected changes are four source files and task docs.
+- Review/revert comfort: yes, this is a narrow typing change with no intended behavior change.
+- Observable/testable acceptance criteria: yes, shared type usage, task completion, lint, build, and roster smoke checks are directly verifiable.
