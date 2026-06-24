@@ -3,6 +3,7 @@ import type { Draft, DraftPick } from "@/types/draft";
 type DraftStatusPanelProps = {
   draft: Draft;
   canUndoLastPick: boolean;
+  isUserPick: boolean;
   onUndoLastPick: () => void;
 };
 
@@ -19,12 +20,12 @@ function getCurrentPick(draft: Draft): DraftPick {
 export function DraftStatusPanel({
   draft,
   canUndoLastPick,
+  isUserPick,
   onUndoLastPick,
 }: DraftStatusPanelProps) {
   const currentPick = getCurrentPick(draft);
   const activeTeam = draft.teams.find((team) => team.id === currentPick.teamId);
   const userTeam = draft.teams.find((team) => team.id === draft.userTeamId);
-  const isUserPick = currentPick.teamId === draft.userTeamId;
   const totalPicks = draft.teamCount * draft.rounds;
 
   return (

@@ -1,16 +1,24 @@
 import type { Recommendation } from "@/types/draft";
 
 type RecommendationsPanelProps = {
+  isUserPick: boolean;
   recommendations: Recommendation[];
   onDraftPlayer: (playerId: string) => void;
 };
 
 export function RecommendationsPanel({
+  isUserPick,
   recommendations,
   onDraftPlayer,
 }: RecommendationsPanelProps) {
   return (
-    <section className="rounded-md border border-zinc-200 bg-white p-4">
+    <section
+      className={
+        isUserPick
+          ? "rounded-md border border-emerald-300 bg-emerald-50/40 p-4 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]"
+          : "rounded-md border border-zinc-200 bg-white p-4"
+      }
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-xl font-semibold text-zinc-950">Recommendations</h2>
         <p className="text-sm text-zinc-600">

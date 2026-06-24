@@ -55,6 +55,10 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
     });
   }, [availableRankings, userRosterPlayers]);
 
+  const currentPick = activeDraft.picks.find(
+    (pick) => pick.pickNumber === activeDraft.currentPickNumber,
+  );
+  const isUserPick = currentPick?.teamId === activeDraft.userTeamId;
   const canUndoLastPick = draftedPlayerIds.size > 0;
 
   function draftPlayer(playerId: string) {
@@ -128,6 +132,7 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
     <div className="grid min-h-0 gap-6 xl:grid-cols-[1fr_320px]">
       <div className="flex min-h-0 flex-col gap-6">
         <RecommendationsPanel
+          isUserPick={isUserPick}
           recommendations={recommendations}
           onDraftPlayer={draftPlayer}
         />
@@ -137,6 +142,7 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
         <DraftStatusPanel
           draft={activeDraft}
           canUndoLastPick={canUndoLastPick}
+          isUserPick={isUserPick}
           onUndoLastPick={undoLastPick}
         />
         <UserRosterPanel players={userRosterPlayers} />
