@@ -1,11 +1,4 @@
-import type { Position } from "@/types/draft";
-
-export type UserRosterPlayer = {
-  pickNumber: number;
-  name: string;
-  team: string;
-  position: Position;
-};
+import type { Position, UserRosterPlayer } from "@/types/draft";
 
 type UserRosterPanelProps = {
   players: UserRosterPlayer[];

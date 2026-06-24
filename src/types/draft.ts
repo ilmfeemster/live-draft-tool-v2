@@ -21,6 +21,17 @@ export type Recommendation = {
   reasons: string[];
 };
 
+export type UserRosterPlayer = {
+  pickNumber: number;
+  name: string;
+  team: string;
+  position: Position;
+};
+
+export type UserRoster = {
+  players: UserRosterPlayer[];
+};
+
 export type Team = {
   id: string;
   name: string;

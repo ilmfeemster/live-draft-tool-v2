@@ -32,7 +32,7 @@ Success means a full mock draft can be completed without the app breaking.
 - [x] Define DraftPick type
 - [x] Define Draft type
 - [x] Define Team type
-- [ ] Define UserRoster type
+- [x] Define UserRoster type
 - [x] Define Recommendation type
 
 ### Rankings System

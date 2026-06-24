@@ -6,7 +6,7 @@ import { DraftStatusPanel } from "@/components/DraftStatusPanel";
 import { RecommendationsPanel } from "@/components/RecommendationsPanel";
 import { UserRosterPanel } from "@/components/UserRosterPanel";
 import { generateTopRecommendations } from "@/lib/recommendations";
-import type { Draft, RankingEntry } from "@/types/draft";
+import type { Draft, RankingEntry, UserRosterPlayer } from "@/types/draft";
 
 type DraftRoomProps = {
   draft: Draft;
@@ -28,7 +28,7 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
     return rankings.filter((entry) => !draftedPlayerIds.has(entry.player.id));
   }, [draftedPlayerIds, rankings]);
 
-  const userRosterPlayers = useMemo(() => {
+  const userRosterPlayers = useMemo<UserRosterPlayer[]>(() => {
     return activeDraft.picks
       .filter((pick) => pick.teamId === activeDraft.userTeamId && pick.playerId)
       .map((pick) => {

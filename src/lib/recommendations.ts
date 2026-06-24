@@ -1,4 +1,4 @@
-import type { Position, RankingEntry, Recommendation } from "@/types/draft";
+import type { Position, RankingEntry, Recommendation, UserRosterPlayer } from "@/types/draft";
 
 const DEFAULT_RECOMMENDATION_LIMIT = 5;
 const DIRECT_STARTER_NEED_BONUS = 15;
@@ -10,9 +10,7 @@ const SCARCITY_MIN_NEARBY_OPTIONS = 2;
 const SCARCITY_BONUS = 5;
 const flexPositions: Position[] = ["RB", "WR", "TE"];
 
-type RosterNeedPlayer = {
-  position: Position;
-};
+type RosterNeedPlayer = Pick<UserRosterPlayer, "position">;
 
 type GenerateTopRecommendationsOptions = {
   limit?: number;
