@@ -1,60 +1,62 @@
-# Current Slice: Real Draft Defaults
+# Current Slice: Light Positional Scarcity Modifier
 
 ## Goal
 
-Prepare the app for practical draft use by making the default draft match the documented MVP league settings.
+Add a light positional scarcity modifier to the existing recommendation engine.
 
-The project docs define a 12-team redraft snake league with 16 roster spots. The app currently seeds a 4-team draft, which is useful for fast testing but no longer matches the intended MVP usage.
+This should make recommendations aware when there are few nearby available players at the same position, without trying to fully tune the recommendation engine before the MVP is usable.
 
 ## User-Visible Increment
 
-When the app loads, the draft status and snake order should reflect a 12-team, 16-round draft instead of a 4-team test draft.
+The `Recommendations` panel should continue to show top recommendations, but some recommendations may now include a small scarcity reason chip.
 
-The user should still be able to:
+Example reason:
 
-- Draft players manually.
-- Undo picks.
-- See available players update.
-- See their roster update.
-- See recommendations update.
+- `Limited nearby RB options`
 
 ## Goals
 
-- Change the default draft from 4 teams to 12 teams.
-- Keep the draft at 16 rounds.
-- Keep the current static default draft approach.
-- Keep the current user draft position as a simple constant for now.
-- Preserve existing snake draft generation behavior.
-- Preserve existing draft, undo, roster, available-player, and recommendation behavior.
-- Keep the change small enough to review and revert comfortably.
+- Add a small positional scarcity modifier to recommendation scoring.
+- Keep the modifier intentionally light.
+- Use only current available rankings.
+- Keep base ranking score unchanged.
+- Keep roster need modifier unchanged.
+- Keep tier-drop modifier unchanged.
+- Add scarcity reasons through the existing recommendation reason chips.
+- Keep recommendations deterministic.
+- Keep all recommendation logic pure and independent of React rendering.
+- Avoid trying to fully tune recommendation behavior in this slice.
 
 ## Non-Goals
 
-- Draft setup form.
-- Runtime draft-position selection.
-- Runtime team-count selection.
-- Runtime rankings import.
+- Pick-distance or "will this player fall to me" prediction.
+- Opponent roster modeling.
+- Simulation.
+- ADP-based scoring changes.
+- Roster need changes.
+- Tier-drop changes.
+- Recommendation UI redesign.
+- Separate scarcity warning component.
+- Draft setup changes.
 - Persistence.
 - Database work.
-- Recommendation scoring changes.
-- UI redesign.
-- New state management.
 - New dependencies.
+- Global state.
 
 ## Expected Files
 
-- `src/data/defaultDraft.ts`
+- `src/lib/recommendations.ts`
+- `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing recommendation logic, draft order helpers, UI components, seed rankings, or task docs unless implementation reveals a direct compatibility issue.
+Avoid changing `DraftRoom`, `RecommendationsPanel`, seed data, draft types, available-player UI, or roster UI unless implementation reveals a direct compatibility issue.
 
 ## Implementation Constraint
 
-Keep this as a static configuration update.
+Keep the recommendation helper pure.
 
 Do not add:
 
-- Forms.
 - Context.
 - Reducers.
 - Global state.
@@ -63,85 +65,162 @@ Do not add:
 - Package dependencies.
 - New UI components.
 
-## Draft Defaults
+## Scarcity Model
 
-Use the documented MVP defaults:
+Use current available rankings only.
+
+For a candidate recommendation:
+
+1. Ignore `K` and `DST` for scarcity in this slice.
+2. Look at available rankings after the candidate within a small overall-rank window.
+3. Count later available players with the same `player.position` inside that window.
+4. If the count is low, add a small scarcity bonus.
+5. Otherwise, add no scarcity bonus.
+
+Recommended constants:
 
 ```txt
-teamCount = 12
-rounds = 16
+SCARCITY_LOOKAHEAD_RANKS = 24
+SCARCITY_MIN_NEARBY_OPTIONS = 2
+SCARCITY_BONUS = 5
 ```
 
-Keep the existing `userDraftPosition` constant for this slice.
+Meaning:
 
-If the existing `userDraftPosition` is within the 12-team range, leave it unchanged. If implementation reveals it is invalid, set it to a valid draft position and note that in the final summary.
+- Look 24 overall-rank spots after the candidate.
+- If fewer than 2 later same-position players are available in that window, apply `+5`.
+- If 2 or more later same-position players are available in that window, apply `+0`.
+
+This is intentionally modest. It should nudge recommendations when a position is thinning out nearby, not override player quality.
+
+## Modifier Rules
+
+Keep existing score components:
+
+```txt
+recommendation score =
+base ranking score
++ roster need modifier
++ tier-drop modifier
++ scarcity modifier
+```
+
+The scarcity modifier should be either:
+
+```txt
++5
+```
+
+or:
+
+```txt
++0
+```
+
+Do not stack multiple scarcity bonuses.
+
+Examples:
+
+- Candidate `RB` at overall rank 40, fewer than 2 later available `RB`s through rank 64: `+5`
+- Candidate `WR` at overall rank 40, 2 or more later available `WR`s through rank 64: `+0`
+- Candidate `QB` at overall rank 80, fewer than 2 later available `QB`s through rank 104: `+5`
+- Candidate `K` at any rank: `+0`
+- Candidate `DST` at any rank: `+0`
+
+## Explanation Rules
+
+Recommendations should keep existing reasons:
+
+- Overall rank reason.
+- ADP rank reason when available.
+- Roster need reason when applicable.
+- Tier-drop reason when applicable.
+
+Add a scarcity reason only when the scarcity modifier applies:
+
+- `Limited nearby <POSITION> options`
+
+Do not show a scarcity reason when the modifier is `0`.
 
 ## Implementation Steps
 
-1. Update `src/data/defaultDraft.ts`.
-   - Change `teamCount` from `4` to `12`.
-   - Leave `rounds` as `16`.
-   - Leave `userDraftPosition` unchanged if valid.
-   - Ensure `createDraftTeams(teamCount)` still receives the updated team count.
-   - Ensure `generateSnakeDraftOrder(teamCount, rounds)` still receives the updated team count and rounds.
+1. Update `src/lib/recommendations.ts`.
+   - Add a `ScarcityResult` local type.
+   - Add `SCARCITY_LOOKAHEAD_RANKS`, `SCARCITY_MIN_NEARBY_OPTIONS`, and `SCARCITY_BONUS` constants.
+   - Add `calculateScarcityModifier(ranking, availableRankings)`.
+   - Return no scarcity bonus for `K` and `DST`.
+   - Count later same-position available players where:
+     - `candidate.overallRank > ranking.overallRank`
+     - `candidate.overallRank <= ranking.overallRank + SCARCITY_LOOKAHEAD_RANKS`
+   - Return `+5` and the scarcity reason when the later same-position count is less than `SCARCITY_MIN_NEARBY_OPTIONS`.
+   - Add the scarcity modifier to total score.
+   - Add the scarcity reason to recommendation reasons.
+   - Keep base ranking, roster need, and tier-drop scoring unchanged.
+   - Keep input arrays immutable.
 
-2. Validate draft shape with a quick local check.
-   - `defaultDraft.teamCount` is `12`.
-   - `defaultDraft.rounds` is `16`.
-   - `defaultDraft.teams.length` is `12`.
-   - `defaultDraft.picks.length` is `192`.
-   - `defaultDraft.userTeamId` points to an existing team.
+2. Update `docs/tasks.md`.
+   - Mark `Add scarcity modifier` complete.
+   - Mark `Display scarcity warnings` complete because scarcity reasons appear in the existing recommendation panel.
 
-3. Run validation.
+3. Validate with a quick local script or equivalent helper checks.
+   - `K` and `DST` receive no scarcity bonus.
+   - A position with fewer than 2 nearby later options receives `+5`.
+   - A position with 2 or more nearby later options receives `+0`.
+   - Scarcity reason appears only when the modifier applies.
+   - Recommendations still return 5 items by default.
+   - Recommendations still sort by score descending.
+
+4. Run validation.
    - Run `npm run lint`.
    - Run `npm run build`.
 
-4. Manual smoke test.
+5. Manual smoke test.
    - Load the app.
-   - Confirm the draft status says a 12-team draft.
+   - Confirm recommendations still render.
+   - Confirm scarcity reason chips appear only where applicable.
    - Draft a player.
-   - Confirm available players update.
-   - Confirm recommendations update.
+   - Confirm recommendations recalculate.
    - Undo the pick.
-   - Confirm the player returns to the available pool.
+   - Confirm recommendations recalculate again.
 
 ## Acceptance Criteria
 
-- The default draft uses 12 teams.
-- The default draft uses 16 rounds.
-- The generated team list contains 12 teams.
-- The generated pick list contains 192 picks.
-- The user's default team exists in the generated team list.
-- Draft status displays the 12-team draft correctly.
-- Manual draft entry still works.
-- Undo still works.
-- Available players still update after draft and undo.
-- User roster still updates for user picks.
-- Recommendations still render and update.
+- Base ranking score remains `1000 - overallRank`.
+- Roster need modifier remains active.
+- Tier-drop modifier remains active.
+- Scarcity modifier is `+5` at most.
+- Scarcity modifier does not apply to `K` or `DST`.
+- Scarcity modifier applies when fewer than 2 later same-position players are available within 24 overall-rank spots.
+- No scarcity reason appears when no scarcity bonus applies.
+- Scarcity reasons appear in the existing recommendation panel when applicable.
+- Recommendations still return 5 items by default.
+- Recommendations still sort by score descending.
+- Existing ranking, ADP, roster need, and tier-drop reasons still appear.
+- Existing draft, undo, search, roster, and available-player behavior still work.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-This slice intentionally keeps draft setup static. A full setup flow would be useful later, but it is not required before using the tool personally.
+This slice intentionally avoids heavy recommendation tuning. The modifier is small because the recommendation engine will be dialed in after the MVP is usable.
 
 The useful mental model for this slice:
 
 ```txt
-"Make the default draft match the real league shape"
+"Nearby options at this position are getting thin"
 ```
 
 not:
 
 ```txt
-"Build draft setup"
+"This position is globally more valuable"
 ```
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it changes only the default draft configuration to match MVP settings.
-- Concrete enough for implementation: yes, the exact constants and validation checks are specified.
-- Avoids unnecessary architecture changes: yes, it keeps the static default draft approach.
-- Blast radius reasonable: yes, expected changes are one config/data file and this plan doc.
-- Review/revert comfort: yes, the change is easy to inspect and revert.
-- Observable/testable acceptance criteria: yes, team count, pick count, UI status, draft, undo, and build checks are directly observable.
+- Smallest meaningful increment: yes, this adds only a light scarcity scoring signal and reason chip.
+- Concrete enough for implementation: yes, constants, counting window, exclusions, score, and reason text are explicit.
+- Avoids unnecessary architecture changes: yes, all logic stays inside the pure recommendation helper.
+- Blast radius reasonable: yes, expected changes are one helper module and task docs.
+- Review/revert comfort: yes, the modifier can be removed without affecting draft state or UI structure.
+- Observable/testable acceptance criteria: yes, scores, reasons, recommendation order, lint, and build are directly checkable.

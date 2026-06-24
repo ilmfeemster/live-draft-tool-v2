@@ -64,7 +64,7 @@ Success means a full mock draft can be completed without the app breaking.
 - [x] Add player to roster
 - [x] Display roster slots
 - [x] Display positional counts
-- [ ] Detect overfilled positions
+- [x] Detect overfilled positions
 
 ### Recommendation Engine V1
 
