@@ -81,7 +81,7 @@ Success means a full mock draft can be completed without the app breaking.
 - [x] Display recommendation reasons
 - [x] Display tier warnings
 - [x] Display scarcity warnings
-- [ ] Highlight user pick
+- [x] Highlight user pick
 
 ---
 

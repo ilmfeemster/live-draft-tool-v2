@@ -24,6 +24,7 @@ export function DraftStatusPanel({
   const currentPick = getCurrentPick(draft);
   const activeTeam = draft.teams.find((team) => team.id === currentPick.teamId);
   const userTeam = draft.teams.find((team) => team.id === draft.userTeamId);
+  const isUserPick = currentPick.teamId === draft.userTeamId;
   const totalPicks = draft.teamCount * draft.rounds;
 
   return (
@@ -51,12 +52,37 @@ export function DraftStatusPanel({
         </div>
       </div>
 
-      <div className="rounded border border-zinc-200 p-3">
-        <div className="text-xs uppercase tracking-wide text-zinc-500">On The Clock</div>
-        <div className="mt-1 font-semibold text-zinc-950">{activeTeam?.name ?? "Unknown Team"}</div>
-        <div className="mt-1 text-sm text-zinc-600">
+      <div
+        className={
+          isUserPick
+            ? "rounded border border-emerald-200 bg-emerald-50 p-3"
+            : "rounded border border-zinc-200 p-3"
+        }
+      >
+        <div
+          className={
+            isUserPick
+              ? "text-xs uppercase tracking-wide text-emerald-700"
+              : "text-xs uppercase tracking-wide text-zinc-500"
+          }
+        >
+          On The Clock
+        </div>
+        <div
+          className={
+            isUserPick
+              ? "mt-1 font-semibold text-emerald-950"
+              : "mt-1 font-semibold text-zinc-950"
+          }
+        >
+          {activeTeam?.name ?? "Unknown Team"}
+        </div>
+        <div className={isUserPick ? "mt-1 text-sm text-emerald-800" : "mt-1 text-sm text-zinc-600"}>
           Draft position {activeTeam?.draftPosition ?? "unknown"}
         </div>
+        {isUserPick ? (
+          <div className="mt-2 text-sm font-semibold text-emerald-800">Your pick</div>
+        ) : null}
       </div>
 
       <div className="rounded border border-emerald-200 bg-emerald-50 p-3">
