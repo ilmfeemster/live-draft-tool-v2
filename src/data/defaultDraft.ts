@@ -1,7 +1,7 @@
 import type { Draft } from "@/types/draft";
 import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 
-const teamCount = 4;
+const teamCount = 12;
 const rounds = 16;
 const userDraftPosition = 2;
 
