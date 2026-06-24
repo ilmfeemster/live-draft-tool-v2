@@ -5,6 +5,9 @@ const DIRECT_STARTER_NEED_BONUS = 15;
 const FLEX_NEED_BONUS = 5;
 const TIER_DROP_MULTIPLIER = 5;
 const MAX_TIER_DROP_BONUS = 10;
+const SCARCITY_LOOKAHEAD_RANKS = 24;
+const SCARCITY_MIN_NEARBY_OPTIONS = 2;
+const SCARCITY_BONUS = 5;
 const flexPositions: Position[] = ["RB", "WR", "TE"];
 
 type RosterNeedPlayer = {
@@ -22,6 +25,11 @@ type RosterNeedResult = {
 };
 
 type TierDropResult = {
+  modifier: number;
+  reason: string | null;
+};
+
+type ScarcityResult = {
   modifier: number;
   reason: string | null;
 };
@@ -136,10 +144,39 @@ export function calculateTierDropModifier(
   return { modifier, reason };
 }
 
+export function calculateScarcityModifier(
+  ranking: RankingEntry,
+  availableRankings: RankingEntry[],
+): ScarcityResult {
+  const position = ranking.player.position;
+
+  if (position === "K" || position === "DST") {
+    return { modifier: 0, reason: null };
+  }
+
+  const nearbySamePositionCount = availableRankings.filter((candidate) => {
+    return (
+      candidate.player.position === position &&
+      candidate.overallRank > ranking.overallRank &&
+      candidate.overallRank <= ranking.overallRank + SCARCITY_LOOKAHEAD_RANKS
+    );
+  }).length;
+
+  if (nearbySamePositionCount >= SCARCITY_MIN_NEARBY_OPTIONS) {
+    return { modifier: 0, reason: null };
+  }
+
+  return {
+    modifier: SCARCITY_BONUS,
+    reason: `Limited nearby ${position} options`,
+  };
+}
+
 function buildRecommendationReasons(
   ranking: RankingEntry,
   rosterNeedResult: RosterNeedResult,
   tierDropResult: TierDropResult,
+  scarcityResult: ScarcityResult,
 ) {
   const reasons = [`Ranked #${ranking.overallRank} overall`];
 
@@ -153,6 +190,10 @@ function buildRecommendationReasons(
 
   if (tierDropResult.reason) {
     reasons.push(tierDropResult.reason);
+  }
+
+  if (scarcityResult.reason) {
+    reasons.push(scarcityResult.reason);
   }
 
   return reasons;
@@ -175,11 +216,21 @@ export function generateTopRecommendations(
       const rankingScore = calculateRankingScore(ranking);
       const rosterNeedResult = calculateRosterNeedModifier(ranking, rosterPlayers ?? []);
       const tierDropResult = calculateTierDropModifier(ranking, rankings);
+      const scarcityResult = calculateScarcityModifier(ranking, rankings);
 
       return {
         ranking,
-        score: rankingScore + rosterNeedResult.modifier + tierDropResult.modifier,
-        reasons: buildRecommendationReasons(ranking, rosterNeedResult, tierDropResult),
+        score:
+          rankingScore +
+          rosterNeedResult.modifier +
+          tierDropResult.modifier +
+          scarcityResult.modifier,
+        reasons: buildRecommendationReasons(
+          ranking,
+          rosterNeedResult,
+          tierDropResult,
+          scarcityResult,
+        ),
       };
     })
     .sort((a, b) => {
