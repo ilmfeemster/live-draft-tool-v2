@@ -1,59 +1,51 @@
-# Current Slice: Light Positional Scarcity Modifier
+# Current Slice: Highlight User Pick
 
 ## Goal
 
-Add a light positional scarcity modifier to the existing recommendation engine.
+Make it obvious when the user's team is currently on the clock.
 
-This should make recommendations aware when there are few nearby available players at the same position, without trying to fully tune the recommendation engine before the MVP is usable.
+The app already shows the active drafting team and the user's team, but it does not visually distinguish the moment when those are the same team. During a live draft, that moment needs to be immediately scannable.
 
 ## User-Visible Increment
 
-The `Recommendations` panel should continue to show top recommendations, but some recommendations may now include a small scarcity reason chip.
+When the active drafting team is the user's team, the `Draft Status` panel should clearly show that it is the user's pick.
 
-Example reason:
+Example visible text:
 
-- `Limited nearby RB options`
+- `Your pick`
 
 ## Goals
 
-- Add a small positional scarcity modifier to recommendation scoring.
-- Keep the modifier intentionally light.
-- Use only current available rankings.
-- Keep base ranking score unchanged.
-- Keep roster need modifier unchanged.
-- Keep tier-drop modifier unchanged.
-- Add scarcity reasons through the existing recommendation reason chips.
-- Keep recommendations deterministic.
-- Keep all recommendation logic pure and independent of React rendering.
-- Avoid trying to fully tune recommendation behavior in this slice.
+- Highlight the on-the-clock card when the active team is the user's team.
+- Add a short, explicit `Your pick` label only when the user is on the clock.
+- Preserve the existing current pick, round, active team, user team, and undo behavior.
+- Keep the change local to the draft status UI.
+- Keep the styling simple and consistent with the existing emerald user-team styling.
 
 ## Non-Goals
 
-- Pick-distance or "will this player fall to me" prediction.
-- Opponent roster modeling.
-- Simulation.
-- ADP-based scoring changes.
-- Roster need changes.
-- Tier-drop changes.
-- Recommendation UI redesign.
-- Separate scarcity warning component.
-- Draft setup changes.
-- Persistence.
-- Database work.
+- Recommendation scoring changes.
+- Recommendation reason changes.
+- Draft logic changes.
+- Snake order changes.
+- Roster logic changes.
+- New global state.
+- Draft setup flow.
+- Notifications, sounds, modals, or browser alerts.
+- Keyboard shortcuts.
 - New dependencies.
-- Global state.
 
 ## Expected Files
 
-- `src/lib/recommendations.ts`
+- `src/components/DraftStatusPanel.tsx`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing `DraftRoom`, `RecommendationsPanel`, seed data, draft types, available-player UI, or roster UI unless implementation reveals a direct compatibility issue.
+Avoid changing recommendation logic, draft data, draft order helpers, roster UI, available-player UI, or seed rankings unless implementation reveals a direct compatibility issue.
 
 ## Implementation Constraint
 
-Keep the recommendation helper pure.
+Keep this as a presentational UI change.
 
 Do not add:
 
@@ -65,162 +57,84 @@ Do not add:
 - Package dependencies.
 - New UI components.
 
-## Scarcity Model
+## UI Model
 
-Use current available rankings only.
-
-For a candidate recommendation:
-
-1. Ignore `K` and `DST` for scarcity in this slice.
-2. Look at available rankings after the candidate within a small overall-rank window.
-3. Count later available players with the same `player.position` inside that window.
-4. If the count is low, add a small scarcity bonus.
-5. Otherwise, add no scarcity bonus.
-
-Recommended constants:
+Use existing draft data inside `DraftStatusPanel`:
 
 ```txt
-SCARCITY_LOOKAHEAD_RANKS = 24
-SCARCITY_MIN_NEARBY_OPTIONS = 2
-SCARCITY_BONUS = 5
+isUserPick = currentPick.teamId === draft.userTeamId
 ```
 
-Meaning:
+When `isUserPick` is `true`:
 
-- Look 24 overall-rank spots after the candidate.
-- If fewer than 2 later same-position players are available in that window, apply `+5`.
-- If 2 or more later same-position players are available in that window, apply `+0`.
+- Change the `On The Clock` card border/background/text color to match the existing emerald user-team emphasis.
+- Show a small `Your pick` label in that card.
 
-This is intentionally modest. It should nudge recommendations when a position is thinning out nearby, not override player quality.
+When `isUserPick` is `false`:
 
-## Modifier Rules
-
-Keep existing score components:
-
-```txt
-recommendation score =
-base ranking score
-+ roster need modifier
-+ tier-drop modifier
-+ scarcity modifier
-```
-
-The scarcity modifier should be either:
-
-```txt
-+5
-```
-
-or:
-
-```txt
-+0
-```
-
-Do not stack multiple scarcity bonuses.
-
-Examples:
-
-- Candidate `RB` at overall rank 40, fewer than 2 later available `RB`s through rank 64: `+5`
-- Candidate `WR` at overall rank 40, 2 or more later available `WR`s through rank 64: `+0`
-- Candidate `QB` at overall rank 80, fewer than 2 later available `QB`s through rank 104: `+5`
-- Candidate `K` at any rank: `+0`
-- Candidate `DST` at any rank: `+0`
-
-## Explanation Rules
-
-Recommendations should keep existing reasons:
-
-- Overall rank reason.
-- ADP rank reason when available.
-- Roster need reason when applicable.
-- Tier-drop reason when applicable.
-
-Add a scarcity reason only when the scarcity modifier applies:
-
-- `Limited nearby <POSITION> options`
-
-Do not show a scarcity reason when the modifier is `0`.
+- Preserve the current neutral `On The Clock` card styling.
+- Do not show the `Your pick` label.
 
 ## Implementation Steps
 
-1. Update `src/lib/recommendations.ts`.
-   - Add a `ScarcityResult` local type.
-   - Add `SCARCITY_LOOKAHEAD_RANKS`, `SCARCITY_MIN_NEARBY_OPTIONS`, and `SCARCITY_BONUS` constants.
-   - Add `calculateScarcityModifier(ranking, availableRankings)`.
-   - Return no scarcity bonus for `K` and `DST`.
-   - Count later same-position available players where:
-     - `candidate.overallRank > ranking.overallRank`
-     - `candidate.overallRank <= ranking.overallRank + SCARCITY_LOOKAHEAD_RANKS`
-   - Return `+5` and the scarcity reason when the later same-position count is less than `SCARCITY_MIN_NEARBY_OPTIONS`.
-   - Add the scarcity modifier to total score.
-   - Add the scarcity reason to recommendation reasons.
-   - Keep base ranking, roster need, and tier-drop scoring unchanged.
-   - Keep input arrays immutable.
+1. Update `src/components/DraftStatusPanel.tsx`.
+   - Add an `isUserPick` boolean after `currentPick`, `activeTeam`, and `userTeam` are derived.
+   - Use `isUserPick` to conditionally set the `On The Clock` card classes.
+   - Render `Your pick` inside the `On The Clock` card only when `isUserPick` is true.
+   - Keep existing active team name and draft position text.
+   - Keep the existing `Your Team` card.
+   - Keep the undo button unchanged.
 
 2. Update `docs/tasks.md`.
-   - Mark `Add scarcity modifier` complete.
-   - Mark `Display scarcity warnings` complete because scarcity reasons appear in the existing recommendation panel.
+   - Mark `Highlight user pick` complete.
 
-3. Validate with a quick local script or equivalent helper checks.
-   - `K` and `DST` receive no scarcity bonus.
-   - A position with fewer than 2 nearby later options receives `+5`.
-   - A position with 2 or more nearby later options receives `+0`.
-   - Scarcity reason appears only when the modifier applies.
-   - Recommendations still return 5 items by default.
-   - Recommendations still sort by score descending.
-
-4. Run validation.
+3. Validate.
    - Run `npm run lint`.
    - Run `npm run build`.
 
-5. Manual smoke test.
+4. Manual smoke test.
    - Load the app.
-   - Confirm recommendations still render.
-   - Confirm scarcity reason chips appear only where applicable.
-   - Draft a player.
-   - Confirm recommendations recalculate.
-   - Undo the pick.
-   - Confirm recommendations recalculate again.
+   - Confirm the `Draft Status` panel still renders.
+   - Advance picks until the active team is the user's team.
+   - Confirm the `On The Clock` card changes to the highlighted style.
+   - Confirm `Your pick` appears only on the user's pick.
+   - Undo picks and confirm the highlight updates correctly.
 
 ## Acceptance Criteria
 
-- Base ranking score remains `1000 - overallRank`.
-- Roster need modifier remains active.
-- Tier-drop modifier remains active.
-- Scarcity modifier is `+5` at most.
-- Scarcity modifier does not apply to `K` or `DST`.
-- Scarcity modifier applies when fewer than 2 later same-position players are available within 24 overall-rank spots.
-- No scarcity reason appears when no scarcity bonus applies.
-- Scarcity reasons appear in the existing recommendation panel when applicable.
-- Recommendations still return 5 items by default.
-- Recommendations still sort by score descending.
-- Existing ranking, ADP, roster need, and tier-drop reasons still appear.
-- Existing draft, undo, search, roster, and available-player behavior still work.
+- The app clearly indicates when the user's team is on the clock.
+- `Your pick` appears only when `currentPick.teamId === draft.userTeamId`.
+- The active team name still displays correctly.
+- The active team's draft position still displays correctly.
+- The user's team card still displays correctly.
+- Undo still works.
+- Drafting a player still advances the active team.
+- Existing recommendation behavior is unchanged.
+- `Highlight user pick` is marked complete in `docs/tasks.md`.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-This slice intentionally avoids heavy recommendation tuning. The modifier is small because the recommendation engine will be dialed in after the MVP is usable.
+This slice is intentionally small. It improves live-draft usability without adding notifications, new controls, or recommendation logic.
 
 The useful mental model for this slice:
 
 ```txt
-"Nearby options at this position are getting thin"
+"Make my turn unmistakable"
 ```
 
 not:
 
 ```txt
-"This position is globally more valuable"
+"Build a full alert system"
 ```
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this adds only a light scarcity scoring signal and reason chip.
-- Concrete enough for implementation: yes, constants, counting window, exclusions, score, and reason text are explicit.
-- Avoids unnecessary architecture changes: yes, all logic stays inside the pure recommendation helper.
-- Blast radius reasonable: yes, expected changes are one helper module and task docs.
-- Review/revert comfort: yes, the modifier can be removed without affecting draft state or UI structure.
-- Observable/testable acceptance criteria: yes, scores, reasons, recommendation order, lint, and build are directly checkable.
+- Smallest meaningful increment: yes, this only highlights the user's active pick state.
+- Concrete enough for implementation: yes, the boolean, conditional rendering, and target component are specified.
+- Avoids unnecessary architecture changes: yes, it is a local presentational change.
+- Blast radius reasonable: yes, expected changes are one component and task docs.
+- Review/revert comfort: yes, the highlight can be removed without affecting draft state or recommendation logic.
+- Observable/testable acceptance criteria: yes, the highlight, label, undo behavior, lint, and build are directly checkable.
