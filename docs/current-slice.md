@@ -1,14 +1,14 @@
-# Current Slice: Add Draft State Transition Tests
+# Current Slice: Add Draft Invariant Tests
 
 ## Source Task
 
-`docs/test-tasks.md` Task 3: Add Draft State Transition Tests.
+`docs/test-tasks.md` Task 4: Add Draft Invariant Tests.
 
 ## Goal
 
-Move the existing draft-pick and undo state transitions out of `DraftRoom` into pure helpers, then cover those helpers with focused unit tests.
+Add a small pure invariant checker for Phase 1 draft state and cover it with unit tests.
 
-This is a testing slice with a small production extraction so the behavior can be tested without React component tooling.
+This slice should verify that draft states produced by the current manual draft engine remain internally consistent after picks and undo actions.
 
 ## User-Visible Increment
 
@@ -20,213 +20,209 @@ The developer-visible increment is:
 npm test
 ```
 
-now validates manual pick and undo state transitions.
+now validates core draft invariants directly.
 
 ## Problem
 
-Manual pick entry and undo are Phase 1 Draft State Engine behavior, but the transition rules currently live inside `DraftRoom` state setter callbacks.
+`docs/testing.md` defines important draft invariants:
 
-That means the rules are only indirectly validated through manual use. Extracting the existing logic into pure helpers gives the project direct tests for the highest-risk draft state changes while keeping the React component simple.
+- A player exists in exactly one location.
+- Drafted players never appear in the available player pool.
+- Available players never appear on a roster.
+- Total drafted players equals the current pick number minus one.
+- Every drafted player belongs to exactly one team.
+- Undo restores the previous valid draft state.
+- Recommendation results only contain available players.
+
+Task 3 added pure transition helpers and tests for pick/undo behavior, but there is still no reusable way to check draft-state validity. Phase 1 needs direct invariant coverage before adding broader workflow tests.
 
 ## Goals
 
-- Extract the existing draft and undo transition behavior into pure helpers.
-- Update `DraftRoom` to call those helpers.
-- Add exact unit tests for valid draft actions, blocked draft actions, and undo actions.
-- Mark Task 3 complete in `docs/test-tasks.md`.
+- Add a pure invariant checker for draft state and related player lists.
+- Test valid empty, picked, and undone draft states.
+- Test invalid duplicate drafted-player state.
+- Test invalid available/recommendation lists containing drafted players.
+- Mark Task 4 complete in `docs/test-tasks.md`.
 
 ## Non-Goals
 
-- Redesigning draft state management.
-- Changing draft behavior.
-- Changing UI rendering, labels, props, layout, or derived display state.
-- Adding React component tests.
-- Adding browser tests.
-- Adding draft invariant helpers.
-- Changing draft order tests.
-- Changing recommendation behavior.
-- Adding persistence, replay, provider, or integration abstractions.
+- Exhaustive property-based testing.
+- React component tests.
+- Browser tests.
+- Database constraints.
+- Live provider event tests.
+- Full workflow integration tests.
+- Recommendation scoring tests.
+- Roster slot assignment tests.
+- Changing draft transition behavior.
+- Changing UI behavior.
 
 ## Expected Files
 
-- `src/lib/draftState.ts`
-- `src/lib/draftState.test.ts`
-- `src/components/DraftRoom.tsx`
+- `src/lib/draftInvariants.ts`
+- `src/lib/draftInvariants.test.ts`
 - `docs/test-tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing package metadata, Vitest config, seed data, ranking data, available-player UI, roster UI, recommendation UI, or project scope docs.
+Avoid changing `DraftRoom`, UI components, package metadata, Vitest config, seed data, ranking data, recommendation scoring, or existing draft transition helpers unless a test exposes a real bug.
 
 ## Helper API
 
-Create `src/lib/draftState.ts`:
+Create `src/lib/draftInvariants.ts`:
 
 ```ts
-import type { Draft } from "@/types/draft";
+import type { Draft, RankingEntry, UserRosterPlayer } from "@/types/draft";
 
-export function draftPlayerInDraft(draft: Draft, playerId: string): Draft {
-  // existing DraftRoom draft behavior
-}
+export type DraftInvariantViolation =
+  | "duplicate-drafted-player"
+  | "drafted-player-available"
+  | "available-player-on-roster"
+  | "drafted-count-mismatch"
+  | "drafted-player-missing-team"
+  | "recommendation-player-unavailable";
 
-export function undoLastDraftPick(draft: Draft): Draft {
-  // existing DraftRoom undo behavior
-}
+export type DraftInvariantInput = {
+  draft: Draft;
+  availableRankings?: RankingEntry[];
+  rosterPlayers?: UserRosterPlayer[];
+  recommendationRankings?: RankingEntry[];
+};
+
+export function findDraftInvariantViolations(
+  input: DraftInvariantInput,
+): DraftInvariantViolation[];
+
+export function isValidDraftState(input: DraftInvariantInput): boolean;
 ```
 
-Do not introduce classes, reducers, action objects, React hooks, or a broader state-management abstraction.
+Keep the helper intentionally small:
 
-## Behavior To Preserve
+- Return an array of violation strings.
+- Return an empty array for valid state.
+- Do not throw.
+- Do not mutate input.
+- Do not add classes or a validation framework.
 
-### `draftPlayerInDraft`
+## Invariants To Check
 
-- Finds the pick where `pick.pickNumber === draft.currentPickNumber`.
-- Returns the original `draft` object unchanged when:
-  - no current pick exists
-  - the current pick already has a `playerId`
-  - the `playerId` has already been drafted
-  - every pick already has a `playerId`
-- For a valid draft action:
-  - returns a new draft object
-  - does not mutate the input draft
-  - assigns `playerId` to the current pick
-  - advances `currentPickNumber` by one
-  - caps `currentPickNumber` at `draft.teamCount * draft.rounds`
-  - preserves all unrelated pick fields
+### Always Check From `draft`
 
-### `undoLastDraftPick`
+- A drafted player ID may appear in at most one pick.
+  - Violation: `"duplicate-drafted-player"`
+- Drafted player count should equal `draft.currentPickNumber - 1`, except when the draft is complete and `currentPickNumber` is capped at total picks.
+  - Let `totalPicks = draft.teamCount * draft.rounds`.
+  - Expected drafted count is:
 
-- Finds the highest-numbered pick with a `playerId`.
-- Returns the original `draft` object unchanged when no drafted pick exists.
-- For a valid undo action:
-  - returns a new draft object
-  - does not mutate the input draft
-  - clears only the latest drafted pick by setting `playerId` to `undefined`
-  - restores `currentPickNumber` to the undone pick number
-  - preserves earlier drafted picks
+```ts
+Math.min(draft.currentPickNumber - 1, totalPicks)
+```
+
+  - If every pick is filled, expected drafted count is `totalPicks`.
+  - Violation: `"drafted-count-mismatch"`
+- Every drafted pick must have a `teamId`.
+  - Violation: `"drafted-player-missing-team"`
+
+### Check When Optional Lists Are Provided
+
+- `availableRankings` must not contain drafted player IDs.
+  - Violation: `"drafted-player-available"`
+- `rosterPlayers` must not contain player names that still appear in `availableRankings`.
+  - Violation: `"available-player-on-roster"`
+  - This uses name matching because `UserRosterPlayer` currently does not include `playerId`.
+- `recommendationRankings` must not contain players absent from `availableRankings`, when `availableRankings` is provided.
+  - Violation: `"recommendation-player-unavailable"`
 
 ## Implementation Steps
 
-1. Create `src/lib/draftState.ts`.
-   - Import `Draft` as a type from `@/types/draft`.
-   - Move the existing draft logic from `DraftRoom.draftPlayer` into `draftPlayerInDraft`.
-   - Move the existing undo logic from `DraftRoom.undoLastPick` into `undoLastDraftPick`.
-   - Keep blocked-action behavior as reference equality: return the original `draft`.
+1. Create `src/lib/draftInvariants.ts`.
+   - Import `Draft`, `RankingEntry`, and `UserRosterPlayer` as types.
+   - Add the `DraftInvariantViolation` type.
+   - Add the `DraftInvariantInput` type.
+   - Add `findDraftInvariantViolations`.
+   - Add `isValidDraftState`.
 
-2. Update `src/components/DraftRoom.tsx`.
-   - Import `draftPlayerInDraft` and `undoLastDraftPick` from `@/lib/draftState`.
-   - Replace `draftPlayer` with:
-
-```ts
-function draftPlayer(playerId: string) {
-  setActiveDraft((currentDraft) => draftPlayerInDraft(currentDraft, playerId));
-}
-```
-
-   - Replace `undoLastPick` with:
-
-```ts
-function undoLastPick() {
-  setActiveDraft((currentDraft) => undoLastDraftPick(currentDraft));
-}
-```
-
-   - Do not change the rest of `DraftRoom`.
-
-3. Create `src/lib/draftState.test.ts`.
+2. Create `src/lib/draftInvariants.test.ts`.
    - Import `describe`, `expect`, and `it` from `vitest`.
    - Import `createDraftTeams` and `generateSnakeDraftOrder` from `@/lib/draftOrder`.
    - Import `draftPlayerInDraft` and `undoLastDraftPick` from `@/lib/draftState`.
-   - Import `Draft` as a type from `@/types/draft`.
-   - Define a local `createTestDraft(overrides?: Partial<Draft>): Draft` helper.
-   - Default helper shape:
-     - `id: "test-draft"`
-     - `teamCount: 2`
-     - `rounds: 2`
-     - `userTeamId: "team-1"`
-     - `currentPickNumber: 1`
-     - `teams: createDraftTeams(2)`
-     - `picks: generateSnakeDraftOrder(2, 2)`
+   - Import `findDraftInvariantViolations` and `isValidDraftState`.
+   - Import `Draft`, `RankingEntry`, and `UserRosterPlayer` as types.
+   - Define local helpers:
+     - `createTestDraft(overrides?: Partial<Draft>): Draft`
+     - `createRanking(id: string, name?: string): RankingEntry`
 
-4. Add valid draft action tests.
-   - Drafting `"player-1"` into an empty draft:
-     - returns a new draft object
-     - sets pick 1 `playerId` to `"player-1"`
-     - advances `currentPickNumber` from 1 to 2
-     - leaves the original draft's pick 1 `playerId` undefined
-   - Drafting on the final pick:
-     - with `currentPickNumber: 4`
-     - advances/caps `currentPickNumber` at 4
+3. Add valid-state tests.
+   - Empty draft:
+     - `isValidDraftState({ draft })` is `true`.
+     - `findDraftInvariantViolations({ draft })` returns `[]`.
+   - After one valid pick using `draftPlayerInDraft`:
+     - invariant check is valid.
+   - After two picks and one undo using `undoLastDraftPick`:
+     - invariant check is valid.
+     - current pick/drafted count relationship is valid.
 
-5. Add blocked draft action tests.
-   - Duplicate player ID:
-     - start with pick 1 already containing `"player-1"` and `currentPickNumber: 2`
-     - drafting `"player-1"` returns the same draft object
-   - Filled current pick:
-     - current pick already has a player
-     - drafting another player returns the same draft object
-   - Missing current pick:
-     - `currentPickNumber` does not exist in `picks`
-     - drafting returns the same draft object
-   - Complete draft:
-     - every pick has a `playerId`
-     - drafting returns the same draft object
+4. Add invalid duplicate drafted-player test.
+   - Create a draft with the same `playerId` on two picks.
+   - Assert violations contain `"duplicate-drafted-player"`.
 
-6. Add undo tests.
-   - Undo with multiple drafted picks:
-     - pick 1 has `"player-1"`
-     - pick 2 has `"player-2"`
-     - `currentPickNumber` is 3
-     - returns a new draft object
-     - clears only pick 2
-     - keeps pick 1 drafted
-     - sets `currentPickNumber` to 2
-     - leaves the original draft's pick 2 unchanged
-   - Undo on an empty draft:
-     - returns the same draft object
+5. Add invalid drafted-count test.
+   - Create a draft with `currentPickNumber: 3` but only one drafted player.
+   - Assert violations contain `"drafted-count-mismatch"`.
 
-7. Update `docs/test-tasks.md`.
-   - Mark `Task 3: Add Draft State Transition Tests` as complete.
-   - Do not mark Task 4 or later tasks complete.
+6. Add available-player invariant test.
+   - Draft `"player-1"`.
+   - Pass `availableRankings` containing ranking for `"player-1"`.
+   - Assert violations contain `"drafted-player-available"`.
 
-8. Validate.
+7. Add roster/available invariant test.
+   - Pass `availableRankings` containing a ranking named `"Player One"`.
+   - Pass `rosterPlayers` containing `{ name: "Player One", ... }`.
+   - Assert violations contain `"available-player-on-roster"`.
+
+8. Add recommendation availability invariant test.
+   - Pass `availableRankings` with `"player-1"`.
+   - Pass `recommendationRankings` with `"player-2"`.
+   - Assert violations contain `"recommendation-player-unavailable"`.
+
+9. Update `docs/test-tasks.md`.
+   - Mark `Task 4: Add Draft Invariant Tests` as complete.
+   - Do not mark Task 5 or later tasks complete.
+
+10. Validate.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
 
 ## Acceptance Criteria
 
-- `draftPlayerInDraft` exists as a pure helper.
-- `undoLastDraftPick` exists as a pure helper.
-- `DraftRoom` uses both helpers.
-- Valid draft actions return a new draft object.
-- Valid draft actions do not mutate the original draft.
-- Valid draft actions assign the player to the current pick.
-- Valid draft actions advance `currentPickNumber`, capped at the total pick count.
-- Duplicate player IDs are blocked.
-- Filled current picks are blocked.
-- Missing current picks are blocked.
-- Complete drafts block additional picks.
-- Blocked draft actions return the original draft object.
-- Undo clears only the latest drafted pick.
-- Undo restores `currentPickNumber`.
-- Undo on an empty draft returns the original draft object.
-- Production behavior is unchanged except for moving logic into pure helpers.
-- `docs/test-tasks.md` marks only Task 3 newly complete.
+- `findDraftInvariantViolations` exists as a pure helper.
+- `isValidDraftState` exists as a pure helper.
+- Empty draft state is valid.
+- Draft state after valid picks is valid.
+- Draft state after undo is valid.
+- Duplicate drafted player IDs are detected.
+- Drafted count mismatch is detected.
+- Drafted players in available rankings are detected.
+- Available players on roster are detected.
+- Recommendation rankings containing unavailable players are detected.
+- Helpers do not mutate inputs.
+- No UI behavior changes.
+- `docs/test-tasks.md` marks only Task 4 newly complete.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-No browser or manual draft smoke test is required for this slice because the extracted helper should preserve existing behavior and automated tests cover the transition logic.
+No browser or manual draft smoke test is required for this slice because runtime app behavior is not intended to change.
 
-If tests expose a difference between the helper and current `DraftRoom` behavior, preserve the existing behavior unless it is clearly a bug and stop to report the issue.
+If invariant tests reveal an existing invalid state produced by current draft helpers, stop and report it instead of broadening the slice.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it extracts and tests only draft/undo transitions.
-- Concrete enough for implementation: yes, helper names, expected behavior, exact test scenarios, docs update, and validation commands are listed.
-- Avoids unnecessary architecture changes: yes, no reducer, hook, provider, or state-management redesign is introduced.
-- Blast radius reasonable: yes, expected changes are one helper module, one test file, one component import/call-site update, test-task docs, and this slice plan.
-- Review/revert comfort: yes, the extraction is local and preserves current behavior.
-- Observable/testable acceptance criteria: yes, unit tests plus lint/build and the Task 3 checkbox verify the slice.
+- Smallest meaningful increment: yes, it adds invariant checks only for Phase 1 draft state.
+- Concrete enough for implementation: yes, helper names, violation strings, optional inputs, exact tests, docs update, and validation commands are listed.
+- Avoids unnecessary architecture changes: yes, no validation framework, provider abstraction, database constraint, or UI integration is introduced.
+- Blast radius reasonable: yes, expected changes are one helper module, one test file, test-task docs, and this slice plan.
+- Review/revert comfort: yes, the helper is isolated and does not change runtime UI behavior.
+- Observable/testable acceptance criteria: yes, unit tests plus lint/build and the Task 4 checkbox verify the slice.
