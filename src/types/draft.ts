@@ -1,4 +1,6 @@
 export type Position = "QB" | "RB" | "WR" | "TE" | "DST" | "K";
+export type DraftType = "SNAKE";
+export type ScoringFormat = "PPR";
 
 export type Player = {
   id: string;
@@ -54,4 +56,24 @@ export type Draft = {
   currentPickNumber: number;
   teams: Team[];
   picks: DraftPick[];
+};
+
+export type RosterSlot = {
+  id: string;
+  label: string;
+  eligiblePositions: Position[];
+};
+
+export type LeagueSettings = {
+  teamCount: number;
+  rounds: number;
+  draftType: DraftType;
+  scoringFormat: ScoringFormat;
+  rosterSlots: RosterSlot[];
+};
+
+export type DraftWorkspace = {
+  draft: Draft;
+  rankings: RankingEntry[];
+  leagueSettings: LeagueSettings;
 };

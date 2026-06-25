@@ -1,16 +1,15 @@
 import type { Draft } from "@/types/draft";
+import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 
-const teamCount = 12;
-const rounds = 16;
 const userDraftPosition = 2;
 
 export const defaultDraft: Draft = {
   id: "default-draft",
-  teamCount,
-  rounds,
+  teamCount: defaultLeagueSettings.teamCount,
+  rounds: defaultLeagueSettings.rounds,
   userTeamId: `team-${userDraftPosition}`,
   currentPickNumber: 1,
-  teams: createDraftTeams(teamCount),
-  picks: generateSnakeDraftOrder(teamCount, rounds),
+  teams: createDraftTeams(defaultLeagueSettings.teamCount),
+  picks: generateSnakeDraftOrder(defaultLeagueSettings.teamCount, defaultLeagueSettings.rounds),
 };
