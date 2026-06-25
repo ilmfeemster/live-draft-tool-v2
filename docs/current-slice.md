@@ -6,45 +6,46 @@
 
 ## Goal
 
-Validate the draft-state changes that happen when a player is drafted or a pick is undone.
+Move the existing draft-pick and undo state transitions out of `DraftRoom` into pure helpers, then cover those helpers with focused unit tests.
 
-This slice should extract the existing transition behavior from `DraftRoom` into small pure helpers, then test those helpers directly.
+This is a testing slice with a small production extraction so the behavior can be tested without React component tooling.
 
 ## User-Visible Increment
 
 No app UI or runtime behavior should change.
 
-The developer-visible increment is stronger confidence from:
+The developer-visible increment is:
 
 ```txt
 npm test
 ```
 
-covering draft pick and undo state transitions.
+now validates manual pick and undo state transitions.
 
 ## Problem
 
-The app already supports manual pick entry and undo, but the transition logic currently lives inside `DraftRoom` component state setters.
+Manual pick entry and undo are Phase 1 Draft State Engine behavior, but the transition rules currently live inside `DraftRoom` state setter callbacks.
 
-That makes the behavior hard to unit test without React component tooling. Phase 1 testing should prioritize deterministic draft-state business logic, so this slice should move only the smallest transition logic into a pure module.
+That means the rules are only indirectly validated through manual use. Extracting the existing logic into pure helpers gives the project direct tests for the highest-risk draft state changes while keeping the React component simple.
 
 ## Goals
 
-- Add pure draft transition helpers.
-- Keep `DraftRoom` behavior unchanged by calling those helpers from the existing state setters.
-- Add unit tests for drafting and undoing picks.
+- Extract the existing draft and undo transition behavior into pure helpers.
+- Update `DraftRoom` to call those helpers.
+- Add exact unit tests for valid draft actions, blocked draft actions, and undo actions.
 - Mark Task 3 complete in `docs/test-tasks.md`.
 
 ## Non-Goals
 
 - Redesigning draft state management.
-- Introducing React component tests.
+- Changing draft behavior.
+- Changing UI rendering, labels, props, layout, or derived display state.
+- Adding React component tests.
 - Adding browser tests.
-- Changing UI behavior.
-- Changing draft order helpers.
+- Adding draft invariant helpers.
+- Changing draft order tests.
 - Changing recommendation behavior.
-- Adding draft invariant helpers beyond what is needed for transition tests.
-- Adding persistence, replay, or provider abstractions.
+- Adding persistence, replay, provider, or integration abstractions.
 
 ## Expected Files
 
@@ -54,81 +55,134 @@ That makes the behavior hard to unit test without React component tooling. Phase
 - `docs/test-tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing available-player UI, roster UI, recommendation UI, seed data, ranking data, package metadata, or Vitest config.
+Avoid changing package metadata, Vitest config, seed data, ranking data, available-player UI, roster UI, recommendation UI, or project scope docs.
 
 ## Helper API
 
-Create `src/lib/draftState.ts` with these exported functions:
+Create `src/lib/draftState.ts`:
 
 ```ts
-export function draftPlayerInDraft(draft: Draft, playerId: string): Draft;
+import type { Draft } from "@/types/draft";
 
-export function undoLastDraftPick(draft: Draft): Draft;
+export function draftPlayerInDraft(draft: Draft, playerId: string): Draft {
+  // existing DraftRoom draft behavior
+}
+
+export function undoLastDraftPick(draft: Draft): Draft {
+  // existing DraftRoom undo behavior
+}
 ```
 
-Use the existing `Draft` type from `@/types/draft`.
+Do not introduce classes, reducers, action objects, React hooks, or a broader state-management abstraction.
 
-Keep behavior intentionally identical to the current `DraftRoom` logic:
+## Behavior To Preserve
 
-- Return the original `draft` object unchanged when the action is blocked.
-- Draft into the pick matching `draft.currentPickNumber`.
-- Prevent drafting when no current pick exists.
-- Prevent drafting into an already-filled current pick.
-- Prevent drafting duplicate `playerId`s.
-- Prevent drafting after every pick has a `playerId`.
-- Advance `currentPickNumber` by one, capped at `teamCount * rounds`.
-- Undo the highest-numbered drafted pick.
-- Undo restores `currentPickNumber` to the undone pick number.
-- Undo clears that pick by setting `playerId` to `undefined`.
-- Undo on an empty draft returns the original `draft` object unchanged.
+### `draftPlayerInDraft`
+
+- Finds the pick where `pick.pickNumber === draft.currentPickNumber`.
+- Returns the original `draft` object unchanged when:
+  - no current pick exists
+  - the current pick already has a `playerId`
+  - the `playerId` has already been drafted
+  - every pick already has a `playerId`
+- For a valid draft action:
+  - returns a new draft object
+  - does not mutate the input draft
+  - assigns `playerId` to the current pick
+  - advances `currentPickNumber` by one
+  - caps `currentPickNumber` at `draft.teamCount * draft.rounds`
+  - preserves all unrelated pick fields
+
+### `undoLastDraftPick`
+
+- Finds the highest-numbered pick with a `playerId`.
+- Returns the original `draft` object unchanged when no drafted pick exists.
+- For a valid undo action:
+  - returns a new draft object
+  - does not mutate the input draft
+  - clears only the latest drafted pick by setting `playerId` to `undefined`
+  - restores `currentPickNumber` to the undone pick number
+  - preserves earlier drafted picks
 
 ## Implementation Steps
 
 1. Create `src/lib/draftState.ts`.
    - Import `Draft` as a type from `@/types/draft`.
-   - Add `draftPlayerInDraft`.
-   - Add `undoLastDraftPick`.
-   - Copy the current transition behavior from `DraftRoom` without adding new rules.
+   - Move the existing draft logic from `DraftRoom.draftPlayer` into `draftPlayerInDraft`.
+   - Move the existing undo logic from `DraftRoom.undoLastPick` into `undoLastDraftPick`.
+   - Keep blocked-action behavior as reference equality: return the original `draft`.
 
 2. Update `src/components/DraftRoom.tsx`.
    - Import `draftPlayerInDraft` and `undoLastDraftPick` from `@/lib/draftState`.
-   - Replace the body of `draftPlayer` with:
+   - Replace `draftPlayer` with:
 
 ```ts
-setActiveDraft((currentDraft) => draftPlayerInDraft(currentDraft, playerId));
+function draftPlayer(playerId: string) {
+  setActiveDraft((currentDraft) => draftPlayerInDraft(currentDraft, playerId));
+}
 ```
 
-   - Replace the body of `undoLastPick` with:
+   - Replace `undoLastPick` with:
 
 ```ts
-setActiveDraft((currentDraft) => undoLastDraftPick(currentDraft));
+function undoLastPick() {
+  setActiveDraft((currentDraft) => undoLastDraftPick(currentDraft));
+}
 ```
 
-   - Do not change props, derived state, rendering, roster logic, recommendation logic, or UI text.
+   - Do not change the rest of `DraftRoom`.
 
 3. Create `src/lib/draftState.test.ts`.
    - Import `describe`, `expect`, and `it` from `vitest`.
+   - Import `createDraftTeams` and `generateSnakeDraftOrder` from `@/lib/draftOrder`.
    - Import `draftPlayerInDraft` and `undoLastDraftPick` from `@/lib/draftState`.
-   - Import `generateSnakeDraftOrder` and `createDraftTeams` from `@/lib/draftOrder`.
-   - Define a small local `createTestDraft` helper using 2 teams and 2 rounds by default.
-   - Keep test data inline and readable.
+   - Import `Draft` as a type from `@/types/draft`.
+   - Define a local `createTestDraft(overrides?: Partial<Draft>): Draft` helper.
+   - Default helper shape:
+     - `id: "test-draft"`
+     - `teamCount: 2`
+     - `rounds: 2`
+     - `userTeamId: "team-1"`
+     - `currentPickNumber: 1`
+     - `teams: createDraftTeams(2)`
+     - `picks: generateSnakeDraftOrder(2, 2)`
 
-4. Add tests for drafting a player.
-   - Drafting a valid player assigns that player to the current pick.
-   - Drafting a valid player advances `currentPickNumber` by exactly one.
-   - The original draft object is not mutated.
+4. Add valid draft action tests.
+   - Drafting `"player-1"` into an empty draft:
+     - returns a new draft object
+     - sets pick 1 `playerId` to `"player-1"`
+     - advances `currentPickNumber` from 1 to 2
+     - leaves the original draft's pick 1 `playerId` undefined
+   - Drafting on the final pick:
+     - with `currentPickNumber: 4`
+     - advances/caps `currentPickNumber` at 4
 
-5. Add tests for blocked draft actions.
-   - Duplicate `playerId` cannot be assigned to multiple picks.
-   - Drafting is blocked when the current pick already has a player.
-   - Drafting is blocked when `currentPickNumber` does not match any pick.
-   - Drafting is blocked after the draft is complete.
-   - Blocked actions return the original draft object unchanged.
+5. Add blocked draft action tests.
+   - Duplicate player ID:
+     - start with pick 1 already containing `"player-1"` and `currentPickNumber: 2`
+     - drafting `"player-1"` returns the same draft object
+   - Filled current pick:
+     - current pick already has a player
+     - drafting another player returns the same draft object
+   - Missing current pick:
+     - `currentPickNumber` does not exist in `picks`
+     - drafting returns the same draft object
+   - Complete draft:
+     - every pick has a `playerId`
+     - drafting returns the same draft object
 
-6. Add tests for undo.
-   - Undo clears only the latest drafted pick.
-   - Undo restores `currentPickNumber` to the undone pick number.
-   - Undo on an empty draft returns the original draft object unchanged.
+6. Add undo tests.
+   - Undo with multiple drafted picks:
+     - pick 1 has `"player-1"`
+     - pick 2 has `"player-2"`
+     - `currentPickNumber` is 3
+     - returns a new draft object
+     - clears only pick 2
+     - keeps pick 1 drafted
+     - sets `currentPickNumber` to 2
+     - leaves the original draft's pick 2 unchanged
+   - Undo on an empty draft:
+     - returns the same draft object
 
 7. Update `docs/test-tasks.md`.
    - Mark `Task 3: Add Draft State Transition Tests` as complete.
@@ -143,17 +197,19 @@ setActiveDraft((currentDraft) => undoLastDraftPick(currentDraft));
 
 - `draftPlayerInDraft` exists as a pure helper.
 - `undoLastDraftPick` exists as a pure helper.
-- `DraftRoom` uses the pure helpers for draft and undo actions.
-- Valid drafting assigns the player to the current pick.
-- Valid drafting advances `currentPickNumber` by one until the draft is complete.
-- Duplicate player IDs cannot be assigned to multiple picks.
-- Filled current picks cannot be overwritten.
+- `DraftRoom` uses both helpers.
+- Valid draft actions return a new draft object.
+- Valid draft actions do not mutate the original draft.
+- Valid draft actions assign the player to the current pick.
+- Valid draft actions advance `currentPickNumber`, capped at the total pick count.
+- Duplicate player IDs are blocked.
+- Filled current picks are blocked.
 - Missing current picks are blocked.
-- Extra picks are blocked after the final pick.
+- Complete drafts block additional picks.
+- Blocked draft actions return the original draft object.
 - Undo clears only the latest drafted pick.
 - Undo restores `currentPickNumber`.
-- Undo on an empty draft leaves draft state unchanged.
-- Tests verify blocked actions return the original draft object unchanged.
+- Undo on an empty draft returns the original draft object.
 - Production behavior is unchanged except for moving logic into pure helpers.
 - `docs/test-tasks.md` marks only Task 3 newly complete.
 - `npm test` passes.
@@ -164,13 +220,13 @@ setActiveDraft((currentDraft) => undoLastDraftPick(currentDraft));
 
 No browser or manual draft smoke test is required for this slice because the extracted helper should preserve existing behavior and automated tests cover the transition logic.
 
-If validation suggests the UI behavior changed, stop and investigate rather than expanding scope.
+If tests expose a difference between the helper and current `DraftRoom` behavior, preserve the existing behavior unless it is clearly a bug and stop to report the issue.
 
 ## Slice Review
 
 - Smallest meaningful increment: yes, it extracts and tests only draft/undo transitions.
-- Concrete enough for implementation: yes, helper names, behavior, files, tests, docs update, and validation commands are listed.
-- Avoids unnecessary architecture changes: yes, no state-management redesign or provider abstraction is introduced.
-- Blast radius reasonable: yes, expected changes are one helper module, one test file, one component using the helper, test-task docs, and this slice plan.
-- Review/revert comfort: yes, the extraction is local and preserves existing behavior.
+- Concrete enough for implementation: yes, helper names, expected behavior, exact test scenarios, docs update, and validation commands are listed.
+- Avoids unnecessary architecture changes: yes, no reducer, hook, provider, or state-management redesign is introduced.
+- Blast radius reasonable: yes, expected changes are one helper module, one test file, one component import/call-site update, test-task docs, and this slice plan.
+- Review/revert comfort: yes, the extraction is local and preserves current behavior.
 - Observable/testable acceptance criteria: yes, unit tests plus lint/build and the Task 3 checkbox verify the slice.
