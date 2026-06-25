@@ -193,7 +193,7 @@ Acceptance Criteria:
 - Duplicate drafted players are rejected or prevented.
 - Recommendations remain derived from the loaded draft and ranking snapshot.
 
-### [ ] 7. Wire The App To Load A Persisted Draft Workspace
+### [x] 7. Wire The App To Load A Persisted Draft Workspace
 
 Goal:
 
@@ -205,7 +205,7 @@ Scope:
 - [x] Pass typed `DraftWorkspace` data into existing draft UI.
 - [x] Replace direct usage of static `defaultDraft` where persistence is active.
 - [x] Keep current UI behavior usable with MVP default settings.
-- [ ] Persist draft room draft and undo interactions through server actions.
+- [x] Persist draft room draft and undo interactions through server actions.
 
 Non-Goals:
 

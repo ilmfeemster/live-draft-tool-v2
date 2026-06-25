@@ -1,193 +1,220 @@
-# Current Slice: Persist Draft Room Interactions
+# Current Slice: Add Reset Current Draft Control
 
 ## Source Task
 
-`docs/tasks.md` Task 7: Wire The App To Load A Persisted Draft Workspace.
+Manual QA support for Phase 2 persistence.
 
-This slice completes the remaining Task 7 interaction wiring by making the draft room's draft and undo buttons call the existing server actions instead of mutating only local in-memory draft state.
+This slice adds a small reset control for the currently loaded persisted draft. It is not a draft history feature and should not expand into broader draft management.
 
 ## Goal
 
-Persist manual draft and undo interactions from the existing draft room UI while preserving the current user experience as much as possible.
+Allow the current persisted draft to be reset back to an empty pick history from the draft room UI.
 
-The draft room should continue to derive available players, roster, recommendations, and draft status from typed `Draft` and `RankingEntry[]` data. The difference is that successful button actions should replace local draft state with the updated persisted `DraftWorkspace` returned by the server action.
+This is primarily a developer/manual-testing utility: after drafting several picks to test persistence, the user should be able to clear the current draft and repeat the workflow without manually editing the database or creating a full draft history/resume UI first.
 
 ## User-Visible Increment
 
-Manual picks and undo operations should survive browser refresh when the local database is configured.
-
-The user-visible workflow should be:
+The draft status panel should include a reset control that:
 
 ```txt
-open persisted draft room
-draft a player
-see the draft board update
-refresh the page
-see the drafted player still restored
-undo the latest pick
-refresh the page
-see the undo restored
+clears all persisted picks for the current draft
+restores current pick to 1
+restores draft status to NOT_STARTED
+keeps the same draft settings and ranking snapshot
+updates the visible draft room immediately
+survives refresh as an empty draft
 ```
 
 ## Problem
 
-The page now loads its initial state from a persisted `DraftWorkspace`, but `DraftRoom` still handles draft and undo interactions with pure client-side helpers:
+Phase 2 persistence now loads a persisted workspace and persists draft/undo interactions. That makes manual testing more realistic, but it also makes repeated manual testing slower because old picks remain saved.
 
-- `draftPlayerInDraft`
-- `undoLastDraftPick`
-
-That means the first page load is persisted, but new user interactions are not written to pick history yet. The server actions and repository mutations already exist; the client component needs to call them.
+The app needs a safe, explicit way to clear the current draft's pick history while preserving the draft setup and ranking snapshot.
 
 ## Goals
 
-- Wire draft-player clicks to `draftPlayerAction`.
-- Wire undo clicks to `undoLastPickAction`.
-- Replace `activeDraft` with the returned workspace draft when the action succeeds.
-- Keep recommendations, available players, roster, and status derived from current local `activeDraft` and existing rankings.
-- Keep the UI responsive enough for MVP use by tracking pending mutations.
-- Prevent duplicate overlapping draft/undo requests while a mutation is pending.
-- Leave ranking data unchanged in the component because the ranking snapshot does not change during draft/undo mutations.
-- Update `docs/tasks.md` only for Task 7 items directly completed by this slice.
+- Add repository support for resetting one persisted draft's pick history.
+- Add a server action for resetting the current draft.
+- Add a reset button to the draft status panel.
+- Wire the button from `DraftRoom` to the reset server action.
+- Update local draft state from the returned `DraftWorkspace`.
+- Prevent reset while another mutation is pending.
+- Ask for confirmation before resetting, since this is destructive.
+- Keep reset scoped to the current draft record only.
+- Add focused repository and server action tests.
+- Update `docs/tasks.md` only if adding a small manual-QA support item is useful for tracking.
 
 ## Non-Goals
 
-- Adding optimistic UI state.
-- Adding toast notifications or error banners.
-- Adding retry UI.
 - Adding draft history UI.
-- Adding route params or draft selection.
+- Creating a new draft.
+- Deleting draft records.
+- Deleting ranking snapshots.
+- Resetting all drafts.
 - Adding custom league setup UI.
-- Changing recommendation logic.
+- Adding route params or draft selection.
+- Adding account/user support.
+- Adding optimistic UI state.
+- Adding toast notifications or a full error system.
 - Changing draft state transition behavior.
-- Changing repository mutation behavior.
-- Changing server action behavior unless a small guard is required by the client wiring.
-- Changing Prisma schema or migrations.
-- Adding authentication or user/account models.
+- Changing recommendation logic.
+- Changing Prisma schema or migrations unless implementation reveals a blocker.
 - Updating package dependencies.
 - Broad styling changes.
-- Broad documentation rewrites.
 
 ## Expected Files
 
+- `src/lib/draftRepository.ts`
+- `src/lib/draftRepository.test.ts`
+- `src/app/actions/draftActions.ts`
+- `src/app/actions/draftActions.test.ts`
 - `src/components/DraftRoom.tsx`
+- `src/components/DraftStatusPanel.tsx`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Possibly:
+Avoid changing page loading, workspace loader behavior, draft state helpers, recommendation logic, seed ranking data, Prisma schema, project scope, roadmap scope, or unrelated documentation.
 
-- `src/app/actions/draftActions.ts`, only if the component wiring reveals a tiny server-action shape issue.
+## Proposed API Shape
 
-Avoid changing page loading, repository internals, draft state helpers, recommendation logic, seed ranking data, Prisma schema, project scope, roadmap scope, or unrelated documentation.
+Use names that fit the codebase, but keep the repository and action API close to:
+
+```ts
+async function resetDraftWorkspace(
+  draftId: string,
+): Promise<DraftWorkspace | null>;
+
+export async function resetDraftAction(
+  draftId: string,
+): Promise<DraftWorkspace | null>;
+```
+
+If exposed through `createDraftRepository(db)`, add:
+
+```ts
+resetDraftWorkspace,
+```
 
 ## Expected Behavior
 
-### Draft Player
+### Repository Reset
 
-- When a player is selected from recommendations or the available players table:
-  - If a mutation is already pending, do nothing.
-  - Call `draftPlayerAction(activeDraft.id, playerId)`.
-  - If the action returns a workspace, update local draft state to `workspace.draft`.
-  - If the action returns `null`, leave local draft state unchanged.
-- Do not call `draftPlayerInDraft` in the component for persisted interactions.
-- Existing repository/action behavior should continue to reject duplicate, invalid, missing-player, or complete-draft mutations.
+- Load or mutate only the draft identified by `draftId`.
+- Return `null` if the draft does not exist.
+- Delete all persisted `DraftPick` rows for that draft.
+- Update draft status to `NOT_STARTED`.
+- Return the reloaded typed `DraftWorkspace`.
+- Preserve the existing league settings, ranking snapshot, user team id, and draft id.
+- Hydration should derive current pick `1` from the empty pick history.
 
-### Undo Last Pick
+### Server Action
 
-- When undo is clicked:
-  - If a mutation is already pending, do nothing.
-  - Call `undoLastPickAction(activeDraft.id)`.
-  - If the action returns a workspace, update local draft state to `workspace.draft`.
-  - If the action returns `null`, leave local draft state unchanged.
-- Do not call `undoLastDraftPick` in the component for persisted interactions.
+- Accept a `draftId` string.
+- Return `null` for blank input.
+- Call the repository reset function for valid input.
+- Return the repository result unchanged.
 
-### Pending State
+### UI Reset
 
-- Add one local pending state such as `isMutationPending`.
-- Use it to prevent overlapping requests.
-- Disable draft actions while pending by passing `isDraftComplete || isMutationPending` to existing draft-button disabling paths if practical.
-- Disable undo while pending by setting `canUndoLastPick` to false while pending.
-- Do not add visible loading copy or new UI surfaces in this slice unless required for correctness.
+- Add a reset control to `DraftStatusPanel`, near the existing undo button.
+- The control should be disabled while a mutation is pending.
+- In `DraftRoom`, call `window.confirm` before invoking the reset action.
+- If the user cancels confirmation, do not call the action.
+- If the action returns a workspace, replace local `activeDraft` with `workspace.draft`.
+- If the action returns `null`, leave local draft state unchanged.
+- If the action throws, reset pending state, leave local draft state unchanged, and log the error.
 
-### Error Handling
+## Safety Rules
 
-- If a server action throws, reset pending state and leave local draft state unchanged.
-- It is acceptable to log the error with `console.error` for this slice.
-- Do not add a full user-facing error system in this slice.
+- Reset is destructive, so it must require confirmation.
+- Reset should only clear pick history for the current draft.
+- Do not silently create a new draft as part of reset.
+- Do not change ranking snapshots or league settings.
+- Do not add a static fallback that bypasses persistence.
 
 ## Testing Strategy
 
-Do not add a new React testing dependency for this slice.
+Use existing test patterns.
 
-The persistence behavior is already covered by:
+Repository tests should cover:
 
-- repository mutation tests
-- server action delegation tests
-- workspace loader tests
+- Reset deletes all persisted picks for one draft.
+- Reset updates status to `NOT_STARTED`.
+- Reloaded workspace has current pick `1` and no drafted players.
+- Reset preserves rankings and league settings.
+- Reset returns `null` for a missing draft.
 
-This slice should rely on:
+Server action tests should cover:
 
-- TypeScript/build validation to prove the client/server action wiring compiles.
-- Existing unit tests to guard the persistence behavior behind the actions.
-- Manual runtime validation with a configured local database to prove the click-refresh workflow.
+- Valid reset delegates to the repository.
+- Repository `null` result propagates.
+- Blank draft id returns `null` without calling the repository.
 
-If implementation naturally extracts a small pure helper, add a unit test for that helper. Do not add an abstraction only to make the component easier to test.
+Do not add a React testing dependency for the button wiring. Use TypeScript/build validation plus manual QA for the UI click path.
 
 ## Implementation Steps
 
-1. Update `DraftRoom` imports.
-   - Remove `draftPlayerInDraft` and `undoLastDraftPick` imports.
-   - Import `draftPlayerAction` and `undoLastPickAction`.
+1. Extend repository database interface.
+   - Add the minimal `draftPick.deleteMany` shape needed for deleting all picks by draft id if the existing type is too narrow.
+   - Reuse existing draft update and workspace reload paths where possible.
 
-2. Add mutation pending state.
-   - Add `const [isMutationPending, setIsMutationPending] = useState(false);`.
-   - Keep existing `activeDraft` state.
+2. Implement repository reset.
+   - Add `resetDraftWorkspace(draftId)` to `createDraftRepository`.
+   - Load the workspace first to return `null` for missing drafts.
+   - Delete all draft pick rows for the draft.
+   - Update draft status to `NOT_STARTED`.
+   - Return the reloaded workspace.
+   - Add top-level exported `resetDraftWorkspace`.
 
-3. Wire persisted draft action.
-   - Change `draftPlayer` to an async function.
-   - Guard against `isMutationPending`.
-   - Set pending true before calling the server action.
-   - Call `draftPlayerAction(activeDraft.id, playerId)`.
-   - If a workspace is returned, call `setActiveDraft(workspace.draft)`.
-   - Reset pending in `finally`.
+3. Add repository tests.
+   - Extend the fake DB as needed.
+   - Add reset behavior and missing-draft tests.
+   - Keep assertions focused on observable repository behavior.
 
-4. Wire persisted undo action.
-   - Change `undoLastPick` to an async function.
-   - Guard against `isMutationPending`.
-   - Set pending true before calling the server action.
-   - Call `undoLastPickAction(activeDraft.id)`.
-   - If a workspace is returned, call `setActiveDraft(workspace.draft)`.
-   - Reset pending in `finally`.
+4. Add server action.
+   - Add `resetDraftAction(draftId)` to `src/app/actions/draftActions.ts`.
+   - Add blank input guard.
+   - Delegate to repository reset.
 
-5. Prevent overlapping interactions.
-   - Treat the draft as unavailable for new draft clicks while pending.
-   - Treat undo as unavailable while pending.
-   - Keep derived recommendation/roster logic unchanged.
+5. Add server action tests.
+   - Mock the repository reset export.
+   - Assert delegation, null propagation, and blank-input guard.
 
-6. Update task tracking.
-   - In `docs/tasks.md`, check the Task 7 item for persisting draft room draft and undo interactions through server actions.
-   - If Task 7 scope items are now all complete and validation supports the acceptance criteria, mark Task 7 complete.
-   - Update the Phase 2 validation checklist only for items directly proven by implementation and validation.
-   - Do not check Task 8 or later items.
+6. Wire UI.
+   - Add reset props to `DraftStatusPanel`.
+   - Render a reset button with a destructive-but-contained visual treatment.
+   - Add `resetDraft` handler in `DraftRoom`.
+   - Reuse the existing pending mutation state.
+   - Confirm before calling the reset action.
+   - Replace `activeDraft` from returned workspace.
 
-7. Validate.
+7. Update task tracking.
+   - Add or check a small Phase 2 manual-QA support item in `docs/tasks.md` if appropriate.
+   - Do not check Task 8 or Task 9 items.
+   - Do not update the Phase 2 validation checklist unless the implementation and manual validation directly prove a listed item.
+
+8. Validate.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - With local database configured and migrated, run `npm run dev` and manually verify draft, refresh, undo, refresh.
+   - With local database configured, manually verify draft several picks, reset, refresh, and confirm the draft is empty.
 
 ## Acceptance Criteria
 
-- Draft room draft clicks call `draftPlayerAction`.
-- Draft room undo clicks call `undoLastPickAction`.
-- Successful draft action responses update local draft state from returned `DraftWorkspace`.
-- Successful undo action responses update local draft state from returned `DraftWorkspace`.
-- Draft and undo interactions persist after page refresh when the local database is configured.
-- Duplicate overlapping mutation requests are prevented while an action is pending.
-- Available players, roster, status, and recommendations still derive correctly from loaded draft state.
-- UI components do not import Prisma models or raw database JSON.
-- Existing repository and server action tests remain green.
-- `docs/tasks.md` Task 7 tracking is updated only for completed interaction-wiring work.
-- No draft history UI, custom setup UI, route-based resume flow, optimistic UI, or new package dependency is added.
+- Repository reset function exists.
+- Server action reset function exists.
+- Reset deletes persisted picks for the current draft only.
+- Reset updates draft status to `NOT_STARTED`.
+- Reset returns a reloaded typed `DraftWorkspace`.
+- Reset preserves league settings and ranking snapshot.
+- Missing draft reset returns `null`.
+- Draft status panel includes a reset control.
+- Reset requires user confirmation before calling the server action.
+- Successful reset updates visible draft state immediately.
+- Refresh after reset restores an empty draft.
+- Existing draft and undo interactions still work.
+- Tests cover repository reset and server action delegation.
+- No draft history UI, route-based resume flow, custom setup UI, or package dependency is added.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
@@ -199,12 +226,12 @@ Requires a configured and migrated local database.
 Manual checks:
 
 - Start the app with `npm run dev`.
-- Open the draft room.
-- Draft one player.
-- Refresh the page and confirm the player remains drafted.
-- Undo the pick.
-- Refresh the page and confirm the player is available again and current pick is restored.
-- Draft several picks, refresh, and confirm recommendations and roster still derive from the restored draft state.
+- Draft several players.
+- Refresh and confirm picks remain.
+- Click reset and cancel confirmation; confirm picks remain.
+- Click reset and confirm; confirm the board resets to pick 1.
+- Refresh and confirm the draft remains empty.
+- Draft one new pick after reset and confirm persistence still works.
 
 If the local database is unavailable:
 
@@ -213,9 +240,9 @@ If the local database is unavailable:
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it wires only existing draft/undo interactions to existing server actions and avoids history, routing, or custom setup.
-- Concrete enough for implementation: yes, handler behavior, pending state, task updates, and validation are specified.
-- Avoids unnecessary architecture changes: yes, it uses the existing server actions and repository boundary.
-- Blast radius reasonable: yes, expected source change is one client component plus Task 7 tracking.
-- Review/revert comfort: yes, the slice can be reverted independently to restore client-only draft behavior.
-- Observable/testable acceptance criteria: yes, automated validation proves the wiring compiles and existing persistence tests remain green; manual runtime validation proves refresh persistence.
+- Smallest meaningful increment: yes, it adds one manual-QA control for the current draft only and does not combine history or draft selection.
+- Concrete enough for implementation: yes, repository, action, UI behavior, confirmation, tests, and validation are specified.
+- Avoids unnecessary architecture changes: yes, it reuses the existing repository/action/component path.
+- Blast radius reasonable: yes, more than one layer is touched, but the behavior is narrow and follows established patterns.
+- Review/revert comfort: yes, reset can be removed independently without affecting draft/undo persistence.
+- Observable/testable acceptance criteria: yes, repository/action tests cover persistence behavior and manual QA verifies the button-refresh workflow.

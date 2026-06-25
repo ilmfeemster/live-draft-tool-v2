@@ -5,7 +5,7 @@ import { AvailablePlayersTable } from "@/components/AvailablePlayersTable";
 import { DraftStatusPanel } from "@/components/DraftStatusPanel";
 import { RecommendationsPanel } from "@/components/RecommendationsPanel";
 import { UserRosterPanel } from "@/components/UserRosterPanel";
-import { draftPlayerInDraft, undoLastDraftPick } from "@/lib/draftState";
+import { draftPlayerAction, undoLastPickAction } from "@/app/actions/draftActions";
 import { generateTopRecommendations } from "@/lib/recommendations";
 import type { Draft, RankingEntry, UserRosterPlayer } from "@/types/draft";
 
@@ -16,6 +16,7 @@ type DraftRoomProps = {
 
 export function DraftRoom({ draft, rankings }: DraftRoomProps) {
   const [activeDraft, setActiveDraft] = useState<Draft>(draft);
+  const [isMutationPending, setIsMutationPending] = useState(false);
 
   const draftedPlayerIds = useMemo(() => {
     return new Set(
@@ -64,27 +65,60 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
   const isDraftComplete =
     activeDraft.picks.length === totalPicks &&
     activeDraft.picks.every((pick) => Boolean(pick.playerId));
-  const canUndoLastPick = draftedPlayerIds.size > 0;
+  const canUndoLastPick = draftedPlayerIds.size > 0 && !isMutationPending;
+  const areDraftActionsDisabled = isDraftComplete || isMutationPending;
 
-  function draftPlayer(playerId: string) {
-    setActiveDraft((currentDraft) => draftPlayerInDraft(currentDraft, playerId));
+  async function draftPlayer(playerId: string) {
+    if (isMutationPending) {
+      return;
+    }
+
+    setIsMutationPending(true);
+
+    try {
+      const workspace = await draftPlayerAction(activeDraft.id, playerId);
+
+      if (workspace) {
+        setActiveDraft(workspace.draft);
+      }
+    } catch (error) {
+      console.error("Failed to draft player.", error);
+    } finally {
+      setIsMutationPending(false);
+    }
   }
 
-  function undoLastPick() {
-    setActiveDraft((currentDraft) => undoLastDraftPick(currentDraft));
+  async function undoLastPick() {
+    if (isMutationPending) {
+      return;
+    }
+
+    setIsMutationPending(true);
+
+    try {
+      const workspace = await undoLastPickAction(activeDraft.id);
+
+      if (workspace) {
+        setActiveDraft(workspace.draft);
+      }
+    } catch (error) {
+      console.error("Failed to undo draft pick.", error);
+    } finally {
+      setIsMutationPending(false);
+    }
   }
 
   return (
     <div className="grid min-h-0 gap-6 xl:grid-cols-[1fr_320px]">
       <div className="flex min-h-0 flex-col gap-6">
         <RecommendationsPanel
-          isDraftComplete={isDraftComplete}
+          isDraftComplete={areDraftActionsDisabled}
           isUserPick={isUserPick}
           recommendations={recommendations}
           onDraftPlayer={draftPlayer}
         />
         <AvailablePlayersTable
-          isDraftComplete={isDraftComplete}
+          isDraftComplete={areDraftActionsDisabled}
           rankings={availableRankings}
           onDraftPlayer={draftPlayer}
         />
