@@ -1,152 +1,174 @@
-# Current Slice: Define UserRoster Type
+# Current Slice: Add Recommendation Unit Test Foundation
 
 ## Goal
 
-Make the user roster data contract explicit in the shared draft types.
+Set up the first automated test path and cover the existing recommendation engine with a small, deterministic unit test suite.
 
-The app already tracks and renders the user's roster correctly. This slice turns the current implicit/local roster shape into a shared domain type so roster-aware UI and recommendation logic use the same contract.
+This gives the project a repeatable way to validate high-value business logic before changing recommendation behavior further.
 
 ## User-Visible Increment
 
-No behavior or UI should change.
+No app UI or runtime behavior should change.
 
-This is a small type-safety and maintainability slice that prepares the codebase for future recommendation-engine tuning.
+The developer-visible increment is:
+
+```txt
+npm test
+```
+
+runs recommendation-engine unit tests successfully.
 
 ## Problem
 
-`docs/tasks.md` still has `Define UserRoster type` unchecked.
+`docs/testing.md` says Phase 1 should prioritize unit tests for deterministic business logic, especially recommendation scoring.
 
-The roster shape currently exists locally in `UserRosterPanel` as `UserRosterPlayer`, while `DraftRoom` derives the same shape inline and passes it to:
+The app currently has:
 
-- `UserRosterPanel`
-- `generateTopRecommendations`
+- `npm run lint`
+- `npm run build`
+- Manual validation notes
 
-That works today, but the roster contract is not part of the shared domain model.
+It does not yet have an automated test runner or any unit tests.
+
+## Recommended Approach
+
+Use Vitest for the first test runner.
+
+Reason:
+
+- It is lightweight and TypeScript-friendly.
+- It fits the current Next.js + TypeScript codebase without adding UI testing ceremony.
+- It can test pure functions in `src/lib/recommendations.ts` without browser or React setup.
+
+Tradeoff:
+
+- This adds a dev dependency and package-lock change.
+- It does not cover UI behavior or full draft workflows yet.
+
+This recommendation stops being sufficient once we need component interaction tests, browser workflow tests, or integration tests across draft state and UI. Those should be separate later slices.
 
 ## Goals
 
-- Define `UserRosterPlayer` in `src/types/draft.ts`.
-- Define `UserRoster` in `src/types/draft.ts`.
-- Use the shared type in `DraftRoom`.
-- Use the shared type in `UserRosterPanel`.
-- Use the shared type for recommendation roster input where appropriate.
-- Mark `Define UserRoster type` complete in `docs/tasks.md`.
+- Add a unit test runner.
+- Add an `npm test` script.
+- Add focused unit tests for the recommendation engine.
+- Keep tests close to the business logic they validate.
+- Document the new test command in task tracking.
 
 ## Non-Goals
 
-- Roster behavior changes.
-- Slot assignment changes.
-- Recommendation scoring changes.
-- Recommendation reason changes.
-- Draft logic changes.
-- Persistence or database modeling.
-- New files.
-- New dependencies.
-- Renaming existing components.
+- React component tests.
+- Browser or Playwright tests.
+- End-to-end workflow tests.
+- Coverage thresholds.
+- Snapshot tests.
+- Testing styling or layout.
+- Refactoring recommendation logic.
+- Changing recommendation scores, modifiers, ordering, or reason strings.
+- Adding broad test utilities before duplication exists.
 
 ## Expected Files
 
-- `src/types/draft.ts`
-- `src/components/DraftRoom.tsx`
-- `src/components/UserRosterPanel.tsx`
-- `src/lib/recommendations.ts`
+- `package.json`
+- `package-lock.json`
+- `vitest.config.ts`
+- `src/lib/recommendations.test.ts`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing draft data, ranking data, draft order helpers, recommendation scoring constants, available-player UI, or draft-status UI.
+Avoid changing UI components, seed rankings, draft data, or recommendation implementation unless a test exposes a real bug caused by this slice.
 
-## Type Model
+## Test Scope
 
-Add these shared types to `src/types/draft.ts`:
+Create tests for these existing exported functions from `src/lib/recommendations.ts`:
 
-```ts
-export type UserRosterPlayer = {
-  pickNumber: number;
-  name: string;
-  team: string;
-  position: Position;
-};
+- `calculateRankingScore`
+- `calculateRosterNeedModifier`
+- `calculateTierDropModifier`
+- `calculateScarcityModifier`
+- `generateTopRecommendations`
 
-export type UserRoster = {
-  players: UserRosterPlayer[];
-};
-```
+Use small inline test ranking objects instead of importing the full seed ranking dataset.
 
-Keep the shape intentionally close to what the UI already uses. Do not add fields until a real consumer needs them.
+Do not assert every internal constant directly. Assert behavior that matters:
+
+- Better overall rank produces the expected base score.
+- Empty roster creates direct starter need for an unfilled position.
+- Filled direct starter slots remove the direct starter need bonus.
+- A lone best-tier player receives a tier-drop modifier and reason.
+- Multiple same-tier options do not create a tier-drop modifier.
+- Scarcity applies when too few nearby same-position options remain.
+- Scarcity does not apply for `K` or `DST`.
+- Top recommendations are sorted by score, then overall rank, then player name.
+- Limit handling returns only the requested number of recommendations.
+- Recommendation reasons include ranking, ADP when present, and applicable rule reasons.
 
 ## Implementation Steps
 
-1. Update `src/types/draft.ts`.
-   - Add `UserRosterPlayer`.
-   - Add `UserRoster`.
-   - Use the existing `Position` type for `UserRosterPlayer.position`.
+1. Install Vitest.
+   - Run `npm install --save-dev vitest`.
+   - This should update `package.json` and `package-lock.json`.
+   - Do not add React Testing Library, Playwright, jsdom, or coverage packages in this slice.
 
-2. Update `src/components/UserRosterPanel.tsx`.
-   - Remove the local exported `UserRosterPlayer` type.
-   - Import `Position` and `UserRosterPlayer` from `@/types/draft`.
-   - Keep `UserRosterPanelProps` as `players: UserRosterPlayer[]`.
-   - Do not change slot assignment, counts, overflow bench behavior, or rendering.
+2. Add the test script.
+   - In `package.json`, add:
 
-3. Update `src/components/DraftRoom.tsx`.
-   - Import `UserRosterPlayer` from `@/types/draft`.
-   - Type the derived `userRosterPlayers` value as `UserRosterPlayer[]`.
-   - Keep the existing derivation logic, sorting, and props unchanged.
+```json
+"test": "vitest run"
+```
 
-4. Update `src/lib/recommendations.ts`.
-   - Import `UserRosterPlayer` from `@/types/draft`.
-   - Remove the local `RosterNeedPlayer` type if it becomes redundant.
-   - Type `rosterPlayers` as `UserRosterPlayer[]` or `Pick<UserRosterPlayer, "position">[]` only if a narrower type is cleaner.
-   - Do not change scoring, modifiers, ordering, or reasons.
+   - Keep existing scripts unchanged.
+
+3. Add Vitest config.
+   - Create `vitest.config.ts`.
+   - Use `defineConfig` from `vitest/config`.
+   - Configure the `@` alias to resolve to `src`.
+   - Use the default Node test environment.
+
+4. Add recommendation unit tests.
+   - Create `src/lib/recommendations.test.ts`.
+   - Import `describe`, `expect`, and `it` from `vitest`.
+   - Import the recommendation functions from `./recommendations`.
+   - Define a small helper for creating `RankingEntry` test objects.
+   - Keep test data local and readable.
+   - Prefer behavior-oriented test names.
 
 5. Update `docs/tasks.md`.
-   - Mark `Define UserRoster type` complete.
+   - Add a small `Testing Foundation` section under `Next Tasks` if one does not exist.
+   - Mark these items complete:
+     - Configure unit test runner
+     - Add recommendation engine unit tests
+   - Do not mark future integration, scenario, or UI tests complete.
 
 6. Validate.
+   - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
 
-7. Manual smoke test.
-   - Load the app.
-   - Draft at least one player for the user's team.
-   - Confirm the player appears in `Your Roster`.
-   - Confirm position counts still update.
-   - Confirm recommendations still render and update after picks.
-
 ## Acceptance Criteria
 
-- `UserRosterPlayer` is defined in `src/types/draft.ts`.
-- `UserRoster` is defined in `src/types/draft.ts`.
-- `UserRosterPanel` uses the shared `UserRosterPlayer` type.
-- `DraftRoom` uses the shared `UserRosterPlayer` type for derived roster players.
-- Recommendation roster input uses the shared roster type or an intentional narrow projection of it.
-- Roster slot assignment behavior is unchanged.
-- Roster position counts are unchanged.
-- Recommendation scoring, ordering, and reasons are unchanged.
-- `Define UserRoster type` is marked complete in `docs/tasks.md`.
+- Vitest is installed as a dev dependency.
+- `package.json` includes an `npm test` script.
+- `vitest.config.ts` exists and supports the `@` import alias.
+- `src/lib/recommendations.test.ts` tests the exported recommendation functions listed above.
+- Tests use small inline fixtures, not the full seed ranking dataset.
+- Tests validate behavior without changing recommendation implementation.
+- `docs/tasks.md` records the completed testing foundation work.
+- `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-This slice is type-modeling cleanup, not a user-facing feature.
+No browser smoke test is required for this slice because app behavior is not intended to change.
 
-The useful mental model:
-
-```txt
-"Name the roster shape the app already has"
-```
-
-not:
-
-```txt
-"Redesign roster management"
-```
+If the app UI changes while implementing this slice, that is a signal the scope has drifted.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this only promotes the existing roster shape into shared types.
-- Concrete enough for implementation: yes, the exact types, files, and usage points are listed.
-- Avoids unnecessary architecture changes: yes, no new state, persistence, or roster abstractions are introduced.
-- Blast radius reasonable: yes, expected changes are four source files and task docs.
-- Review/revert comfort: yes, this is a narrow typing change with no intended behavior change.
-- Observable/testable acceptance criteria: yes, shared type usage, task completion, lint, build, and roster smoke checks are directly verifiable.
+- Smallest meaningful increment: yes, it creates the first automated test path and covers one high-value pure logic module.
+- Concrete enough for implementation: yes, the runner, files, functions, scenarios, and validation commands are named.
+- Avoids unnecessary architecture changes: yes, it adds a minimal unit test runner without UI, browser, coverage, or broad utility layers.
+- Blast radius reasonable: yes, expected changes are package metadata, one config file, one test file, task docs, and this slice plan.
+- Review/revert comfort: yes, the slice is isolated from runtime code and can be reverted without changing app behavior.
+- Observable/testable acceptance criteria: yes, `npm test`, lint, build, and the test file contents directly verify the slice.
