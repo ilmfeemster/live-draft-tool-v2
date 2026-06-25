@@ -161,6 +161,16 @@ Avoid investing heavily in testing future capabilities before they become active
 
 ---
 
+# Current Testing Status
+
+Phase 1 testing for the manual draft simulator is complete.
+
+The completed Phase 1 coverage includes draft order helpers, draft state transitions, draft invariants, available-player tracking, user roster derivation, recommendation updates, full small-draft completion, undo after completion, recommendation modifier behavior, recommendation reasons, and the manual full-draft QA checklist.
+
+Next testing work should be selected from the next active product slice. Do not expand into persistence, live provider sync, accounts, or other future phases until that product work becomes active.
+
+---
+
 # Testing Priorities
 
 ## Unit Tests
@@ -401,6 +411,8 @@ Avoid heavy testing of:
 - advanced scenarios
 - live sync
 - platform integration
+
+Status: complete for Phase 1. Future changes to manual draft behavior should add focused regression coverage when they change business logic or user workflow.
 
 ## Recommendation Engine Stage
 

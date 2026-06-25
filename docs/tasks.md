@@ -100,6 +100,14 @@ Before Vertical Slice 1 is complete:
 
 ---
 
+## Testing Status
+
+Phase 1 testing is complete for the current manual draft simulator scope. Automated coverage now includes draft order, draft state transitions, invariants, recommendation updates, small workflow integration, full small-draft completion, undo after completion, and recommendation modifier behavior. Manual QA coverage is captured in `docs/manual-full-draft-qa.md`.
+
+Next testing work should follow the next active product slice rather than expanding future-phase coverage speculatively.
+
+---
+
 ## Backlog
 
 Not required for MVP:

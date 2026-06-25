@@ -2,11 +2,11 @@
 
 ## Current Testing Phase
 
-The project is in Roadmap Phase 1: Draft State Engine.
+The project has completed Roadmap Phase 1 testing for the Draft State Engine/manual draft simulator scope.
 
-Testing work should build confidence that the app can represent and progress a manual snake draft accurately in memory.
+The completed testing work builds confidence that the app can represent and progress a manual snake draft accurately in memory.
 
-Phase 1 testing should focus on:
+Completed Phase 1 testing covers:
 
 - Draft engine logic
 - Draft state transitions
@@ -358,6 +358,44 @@ Strengthen recommendation confidence by testing modifier behavior and recommenda
 - Positional scarcity can move a player ahead of a slightly higher-ranked player.
 - Recommendation reasons expose the active business rationale.
 - `npm test`, `npm run lint`, and `npm run build` pass.
+
+---
+
+## Task 10: Record Phase 1 Testing Completion
+
+Status: [x]
+
+### Goal
+
+Reconcile the testing documentation now that Phase 1 automated and manual QA coverage has reached the completion signal.
+
+### Test Type
+
+- Documentation
+- Planning
+
+### Scope
+
+- Confirm the Phase 1 completion signal in `docs/test-tasks.md` reflects the completed coverage.
+- Update `docs/testing.md` to record the current Phase 1 testing status.
+- Update `docs/tasks.md` if needed to keep validation/completion language aligned with the testing work.
+- Identify the next testing direction at a high level without planning Phase 2 implementation in detail.
+
+### Non-Goals
+
+- Adding new automated tests.
+- Changing production code.
+- Expanding into Phase 2 feature work.
+- Rewriting the testing strategy.
+- Creating a large roadmap.
+
+### Acceptance Criteria
+
+- Testing docs clearly say Phase 1 testing is complete or identify the remaining blocker.
+- Any next testing direction is framed as future work, not active implementation.
+- No source files are changed.
+- No test task checkboxes other than Task 10 are changed.
+- `npm test`, `npm run lint`, and `npm run build` pass if validation is run.
 
 ---
 
