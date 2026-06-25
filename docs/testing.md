@@ -320,6 +320,93 @@ Avoid:
 
 ---
 
+# Testing Maturity
+
+Testing depth should match the current maturity of the system.
+
+Do not build the full testing suite before the product logic requires it.
+
+## Manual Draft Simulator Stage
+
+When the app is mainly a manual draft simulator/dev tool, testing should stay basic.
+
+Focus on:
+
+- Draft can start
+- Picks can be entered
+- Draft order advances correctly
+- Drafted players become unavailable
+- User roster updates
+- Undo works
+- Basic recommendations update after picks
+- A full mock draft can be completed manually
+
+Testing level:
+
+- Unit tests for draft engine logic
+- Basic integration tests for draft workflow
+- Manual QA checklist for full draft completion
+
+Avoid heavy testing of:
+
+- UI polish
+- edge-case recommendation behavior
+- advanced scenarios
+- live sync
+- platform integration
+
+## Recommendation Engine Stage
+
+When recommendation logic becomes a major product focus, increase testing depth.
+
+Add:
+
+- Recommendation scoring tests
+- Modifier tests
+- Recommendation ordering tests
+- Scenario tests
+- Regression tests
+- Explanation tests
+
+Each meaningful recommendation rule should usually have tests for:
+
+- when it applies
+- when it does not apply
+- how it affects ordering
+- what reason or warning it produces
+
+## Strategy / Insight Stage
+
+When the product starts giving strategic draft advice, scenario testing becomes more important.
+
+Add tests for:
+
+- roster construction detection
+- positional run warnings
+- tier-drop warnings
+- future-pick planning
+- strategy profile detection
+- recommendation confidence
+
+At this stage, realistic draft scenarios matter more than isolated unit tests.
+
+## Live Integration Stage
+
+When live draft integration begins, testing should prove that live providers produce the same internal draft state as the manual simulator.
+
+Add tests for:
+
+- provider event normalization
+- duplicate events
+- delayed events
+- missing events
+- reconnect behavior
+- player ID mapping
+
+The recommendation engine should behave the same regardless of whether draft events come from manual entry or a live provider.
+
+---
+
 # Future Testing Expansion
 
 As the project grows, testing may expand to include:
