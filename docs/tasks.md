@@ -201,10 +201,11 @@ Connect the current draft room to a persisted draft workspace without making UI 
 
 Scope:
 
-- Load an existing or newly created persisted draft into the page.
-- Pass typed `DraftWorkspace` data into existing draft UI.
-- Replace direct usage of static `defaultDraft` where persistence is active.
-- Keep current UI behavior usable with MVP default settings.
+- [x] Load an existing or newly created persisted draft into the page.
+- [x] Pass typed `DraftWorkspace` data into existing draft UI.
+- [x] Replace direct usage of static `defaultDraft` where persistence is active.
+- [x] Keep current UI behavior usable with MVP default settings.
+- [ ] Persist draft room draft and undo interactions through server actions.
 
 Non-Goals:
 

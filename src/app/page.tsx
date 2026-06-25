@@ -1,8 +1,11 @@
 import { DraftRoom } from "@/components/DraftRoom";
-import { defaultDraft } from "@/data/defaultDraft";
-import { seedRankings } from "@/data/seedRankings";
+import { loadOrCreateDefaultDraftWorkspace } from "@/lib/draftWorkspaceLoader";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const workspace = await loadOrCreateDefaultDraftWorkspace();
+
   return (
     <main className="flex min-h-screen flex-col bg-zinc-100 text-zinc-950">
       <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-6 py-6">
@@ -22,22 +25,32 @@ export default function Home() {
             <div className="grid grid-cols-3 gap-3 text-sm">
               <div>
                 <div className="text-xs uppercase tracking-wide text-zinc-500">Teams</div>
-                <div className="mt-1 font-semibold text-zinc-950">12</div>
+                <div className="mt-1 font-semibold text-zinc-950">
+                  {workspace.leagueSettings.teamCount}
+                </div>
               </div>
               <div>
                 <div className="text-xs uppercase tracking-wide text-zinc-500">Format</div>
-                <div className="mt-1 font-semibold text-zinc-950">PPR</div>
+                <div className="mt-1 font-semibold text-zinc-950">
+                  {workspace.leagueSettings.scoringFormat}
+                </div>
               </div>
               <div>
                 <div className="text-xs uppercase tracking-wide text-zinc-500">Draft</div>
-                <div className="mt-1 font-semibold text-zinc-950">Snake</div>
+                <div className="mt-1 font-semibold text-zinc-950">
+                  {formatDraftType(workspace.leagueSettings.draftType)}
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <DraftRoom draft={defaultDraft} rankings={seedRankings} />
+        <DraftRoom draft={workspace.draft} rankings={workspace.rankings} />
       </div>
     </main>
   );
+}
+
+function formatDraftType(draftType: string): string {
+  return draftType.toLowerCase().replace(/^\w/, (letter) => letter.toUpperCase());
 }

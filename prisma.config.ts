@@ -5,7 +5,6 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   datasource: {
     url:
-      process.env.DATABASE_URL ??
-      "postgresql://postgres:postgres@localhost:5432/live_draft_tool_v2",
+      process.env.DATABASE_URL
   },
 });
