@@ -1,203 +1,245 @@
-# Current Slice: Add Draft Repository Mapping Helpers
+# Current Slice: Add Draft Repository Query Functions
 
 ## Source Task
 
 `docs/tasks.md` Task 5: Implement Draft Repository Mapping.
 
+This slice completes the remaining unchecked Task 5 scope:
+
+- add repository functions for creating, loading, and listing draft records
+- add repository or integration tests for actual create/load/list behavior
+
 ## Goal
 
-Create pure repository mapping helpers that convert Prisma-shaped draft records into typed domain-facing draft workspaces.
+Add server-side repository functions that persist and load draft workspace source state through Prisma while returning typed domain-facing data.
 
-This slice should prove that database records, league settings JSON, ranking snapshot JSON, and pick history can be mapped into existing app types before adding database queries, server actions, draft mutation persistence, or UI loading.
+This slice should connect the existing persistence pieces:
+
+- Prisma schema
+- league settings JSON mapper
+- ranking snapshot JSON mapper
+- draft repository mapping helper
+- draft hydration helper
+
+without adding server actions, UI wiring, or draft pick mutation persistence.
 
 ## User-Visible Increment
 
 No app UI or runtime behavior should materially change.
 
-The developer-visible increment is:
+The developer-visible increment is a repository module that can:
 
 ```txt
-src/lib/leagueSettingsSnapshot.ts
-src/lib/draftRepositoryMapping.ts
-src/lib/draftRepositoryMapping.test.ts
+create persisted draft source records
+load one draft as DraftWorkspace
+list draft summaries without loading ranking snapshot JSON
 ```
-
-or equivalent files that provide and test the repository mapping boundary.
 
 ## Problem
 
-Phase 2 persistence now has:
+The project now has pure mappers that prove Prisma-shaped records can become `DraftWorkspace`, but no repository functions actually define the database access boundary.
 
-- a Prisma schema for draft source records
-- a pure draft hydration helper
-- a pure ranking snapshot JSON mapper
+Before server actions and UI loading are added, the codebase needs small repository functions that:
 
-The next missing boundary is repository mapping: application code should receive a typed `DraftWorkspace`, not raw Prisma records or JSON blobs.
-
-Before adding actual Prisma queries, server actions, or UI integration, the codebase needs pure mapping helpers that can validate persisted JSON, convert pick rows into hydration input, and return the domain-facing shape used by the current draft room.
+- accept typed domain inputs
+- serialize league settings and rankings into JSON
+- create the related Prisma records
+- load persisted records with the needed relations
+- map loaded records back into typed app-facing data
+- list lightweight draft summaries without pulling full ranking snapshots
 
 ## Goals
 
-- Add a league settings JSON parser/serializer if one does not already exist.
-- Add pure draft repository mapping helpers.
-- Map a Prisma-shaped draft record into `DraftWorkspace`.
-- Parse and validate persisted `leagueSettings` JSON into `LeagueSettings`.
-- Parse and validate persisted ranking snapshot JSON into `RankingEntry[]`.
-- Convert persisted draft pick rows into `DraftPickHistoryEntry[]`.
-- Hydrate the domain `Draft` through `hydrateDraftFromSettings`.
-- Return typed domain-facing data only.
-- Add unit tests for default MVP settings.
-- Add unit tests for a non-default league configuration.
-- Validate mapped drafts with existing draft invariant helpers where practical.
+- Add a Prisma client boundary if one does not already exist.
+- Add `createDraftWorkspace` or equivalent.
+- Add `getDraftWorkspaceById` or equivalent.
+- Add `listDraftSummaries` or equivalent.
+- Keep raw Prisma records and raw JSON behind the repository boundary.
+- Use existing serializers and mappers instead of duplicating conversion logic.
+- Include at least one non-default league configuration in repository tests.
+- Verify loaded drafts remain valid with existing invariant helpers where practical.
+- Update `docs/tasks.md` checkboxes only for Task 5 items directly completed by this slice.
 
 ## Non-Goals
 
-- Adding database query functions.
-- Instantiating or exporting a Prisma client.
-- Creating, loading, listing, updating, or deleting real database records.
-- Running database-backed integration tests.
 - Adding server actions.
-- Persisting draft pick mutations.
+- Persisting draft pick mutations after draft creation.
+- Adding draft/undo mutation repository functions.
+- Wiring UI components or pages to persisted data.
 - Adding draft history UI.
-- Wiring the app page to a persisted workspace.
-- Changing the Prisma schema.
+- Adding authentication or user/account models.
+- Changing the Prisma schema unless implementation reveals a clear blocker.
+- Running a migration against a real database unless local `DATABASE_URL` is already configured and the implementation approach requires it.
 - Changing draft hydration behavior.
-- Changing ranking snapshot mapper behavior unless a bug is found while mapping.
+- Changing ranking snapshot mapper behavior.
+- Changing league settings mapper behavior unless a bug is found.
 - Changing recommendation behavior.
-- Changing UI components.
 - Updating package dependencies.
-- Modifying `docs/tasks.md`.
+- Broad documentation rewrites.
 
 ## Expected Files
 
-- `src/lib/leagueSettingsSnapshot.ts`
-- `src/lib/leagueSettingsSnapshot.test.ts`, if league settings parsing is substantial enough to test independently
-- `src/lib/draftRepositoryMapping.ts`
-- `src/lib/draftRepositoryMapping.test.ts`
-- Possibly `src/types/draft.ts` only if a small shared `DraftSummary` type is needed
+- `src/lib/draftRepository.ts`
+- `src/lib/draftRepository.test.ts` or equivalent repository-focused tests
+- Possibly `src/lib/prisma.ts` for a centralized Prisma client
+- Possibly `src/types/draft.ts` if a small `DraftSummary` type belongs with shared draft types
+- `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing Prisma schema, package dependencies, UI components, server actions, recommendation logic, seed ranking data, project scope, roadmap scope, or task status for this slice.
+Avoid changing UI components, server actions, draft state helpers, recommendation logic, seed ranking data, project scope, roadmap scope, or unrelated documentation.
 
-## Proposed Helper Shape
+## Proposed API Shape
 
 Use names that fit the codebase, but keep the API close to this shape:
 
 ```ts
-type PersistedDraftPickRecord = {
-  pickNumber: number;
-  playerId: string;
-};
-
-type PersistedRankingSnapshotRecord = {
-  rankings: unknown;
-};
-
-type PersistedDraftWorkspaceRecord = {
-  id: string;
-  leagueSettings: unknown;
+type CreateDraftWorkspaceInput = {
+  name?: string;
+  leagueSettings: LeagueSettings;
+  rankings: RankingEntry[];
   userTeamId: string;
-  rankingSnapshot: PersistedRankingSnapshotRecord;
-  picks: PersistedDraftPickRecord[];
 };
 
-function mapDraftRecordToWorkspace(record: PersistedDraftWorkspaceRecord): DraftWorkspace;
-```
-
-Optional summary mapping may be included only if it stays small and does not require loading ranking snapshot JSON:
-
-```ts
-type PersistedDraftSummaryRecord = {
+type DraftSummary = {
   id: string;
   name: string | null;
   status: "NOT_STARTED" | "IN_PROGRESS" | "COMPLETE";
-  leagueSettings: unknown;
-  picks: PersistedDraftPickRecord[];
+  teamCount: number;
+  rounds: number;
+  userTeamId: string;
+  draftedPickCount: number;
   createdAt: Date;
   updatedAt: Date;
 };
 
-function mapDraftRecordToSummary(record: PersistedDraftSummaryRecord): DraftSummary;
+async function createDraftWorkspace(input: CreateDraftWorkspaceInput): Promise<DraftWorkspace>;
+
+async function getDraftWorkspaceById(id: string): Promise<DraftWorkspace | null>;
+
+async function listDraftSummaries(): Promise<DraftSummary[]>;
 ```
 
-Expected behavior:
+If direct Prisma usage makes tests difficult, allow dependency injection while keeping the production default simple:
 
-- `leagueSettings` is parsed from unknown JSON before hydration.
-- `rankingSnapshot.rankings` is parsed with the existing ranking snapshot mapper.
-- `picks` are sorted by `pickNumber` before hydration.
-- Only `pickNumber` and `playerId` flow from persisted pick rows into hydration.
-- Generated draft order, teams, current pick, round, pick-in-round, and active team remain derived from `LeagueSettings`.
-- Invalid league settings fail clearly.
-- Invalid ranking snapshot JSON fails clearly through the existing ranking snapshot parser.
-- Invalid pick history fails clearly through the existing hydration helper.
+```ts
+function createDraftRepository(db = prisma) {
+  return {
+    createDraftWorkspace,
+    getDraftWorkspaceById,
+    listDraftSummaries,
+  };
+}
+```
 
-## League Settings Validation
+## Expected Behavior
 
-If adding a league settings mapper in this slice, validate:
+### Create Draft Workspace
 
-- settings value is an object
-- `teamCount` is a positive integer
-- `rounds` is a positive integer
-- `draftType` is `"SNAKE"`
-- `scoringFormat` is `"PPR"`
-- `rosterSlots` is an array
-- each roster slot has string `id` and `label`
-- each roster slot has a non-empty `eligiblePositions` array
-- each eligible position is one of `"QB"`, `"RB"`, `"WR"`, `"TE"`, `"DST"`, or `"K"`
+- Accept typed `LeagueSettings` and `RankingEntry[]`.
+- Serialize league settings with `serializeLeagueSettingsSnapshot`.
+- Serialize rankings with `serializeRankingSnapshot`.
+- Create a `RankingSnapshot` record.
+- Create a `Draft` record linked to that ranking snapshot.
+- Store no empty future pick rows.
+- Return a hydrated `DraftWorkspace`.
+- Default status should match the Prisma schema default unless an explicit status is needed.
 
-The parser should not silently coerce malformed settings into valid-looking settings.
+### Load Draft Workspace
+
+- Load draft by ID.
+- Include ranking snapshot and made pick rows.
+- Sort made pick rows by `pickNumber`.
+- Return `null` if no draft exists.
+- Use `mapDraftRecordToWorkspace` to return typed app-facing data.
+- Do not expose raw JSON or Prisma records.
+
+### List Draft Summaries
+
+- Return lightweight summaries.
+- Do not include full ranking snapshot JSON.
+- Include enough fields for a future history list:
+  - id
+  - name
+  - status
+  - team count
+  - rounds
+  - user team id
+  - drafted pick count
+  - created/updated timestamps
+- Parse league settings JSON for summary fields.
+- Sort by most recently updated first.
+
+## Testing Strategy
+
+Prefer focused repository tests that do not require a long-lived external database.
+
+Acceptable approaches:
+
+- Use a small fake Prisma-like client to verify repository behavior and record shapes.
+- Use dependency injection around the repository client so tests can exercise create/load/list behavior without a real database.
+- If a local test database is already available and simple to run, an integration test is acceptable, but it is not required for this slice.
+
+Tests should validate observable repository behavior, not Prisma internals.
 
 ## Implementation Steps
 
-1. Add league settings JSON mapping.
-   - Add a pure parser for unknown JSON into `LeagueSettings`.
-   - Add a serializer only if useful for future repository create functions.
-   - Reuse the existing `Position`, `LeagueSettings`, and `RosterSlot` types.
-   - Keep the mapper independent from Prisma imports.
+1. Add a repository module.
+   - Define `CreateDraftWorkspaceInput`.
+   - Define `DraftSummary` locally or in shared types if needed.
+   - Add `createDraftRepository(db = prisma)` or equivalent.
+   - Export production-friendly functions only after the repository can still be tested cleanly.
 
-2. Add `src/lib/draftRepositoryMapping.ts`.
-   - Define local persisted record input types that mirror the Prisma fields needed for mapping.
-   - Import `hydrateDraftFromSettings`.
-   - Import `parseRankingSnapshotJson`.
-   - Import the league settings parser from step 1.
-   - Implement `mapDraftRecordToWorkspace`.
+2. Implement create behavior.
+   - Serialize league settings.
+   - Serialize ranking snapshot.
+   - Create linked ranking snapshot and draft records.
+   - Return the created workspace through existing mapping logic.
+   - Do not create pick rows during draft creation.
 
-3. Map records into domain-facing data.
-   - Parse league settings.
-   - Parse ranking snapshot rankings.
-   - Convert pick rows into pick history entries.
-   - Sort pick history by `pickNumber`.
-   - Hydrate `Draft`.
-   - Return `{ draft, rankings, leagueSettings }`.
+3. Implement load behavior.
+   - Load one draft with ranking snapshot and picks.
+   - Return `null` when absent.
+   - Map the record to `DraftWorkspace`.
+   - Ensure pick ordering is stable before hydration.
 
-4. Add unit tests.
-   - A default MVP-shaped persisted record maps to a valid `DraftWorkspace`.
-   - A partially drafted record overlays pick history and derives current pick.
-   - A non-default league configuration derives team count, pick count, and active pick from settings.
-   - Ranking snapshot JSON is exposed as typed `RankingEntry[]`.
-   - Invalid league settings fail clearly.
-   - Invalid ranking snapshot JSON fails clearly.
-   - Invalid pick history fails clearly.
+4. Implement list summary behavior.
+   - Query drafts without full ranking snapshot JSON.
+   - Include pick count or enough pick data to count made picks.
+   - Parse league settings JSON for team count and rounds.
+   - Return summaries ordered by `updatedAt` descending.
 
-5. Validate.
+5. Add tests.
+   - Creating a default draft stores serialized league settings and ranking snapshot source data.
+   - Creating a non-default draft returns a valid hydrated workspace.
+   - Loading an existing draft returns a typed `DraftWorkspace`.
+   - Loading a missing draft returns `null`.
+   - Listing summaries does not require ranking snapshot JSON.
+   - Listing summaries includes non-default team count and rounds from league settings.
+   - No empty future pick rows are created.
+
+6. Update task tracking.
+   - Update `docs/tasks.md` only for Task 5 checkboxes directly completed by this slice.
+   - Do not check Task 6 or later items.
+
+7. Validate.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
 
 ## Acceptance Criteria
 
-- A pure repository mapping helper exists.
-- Mapping returns a typed `DraftWorkspace`.
-- Raw league settings JSON does not reach app-facing code.
-- Raw ranking snapshot JSON does not reach app-facing code.
-- Pick history is converted into hydration input without storing derived draft-order fields.
-- Hydrated drafts are valid for MVP settings.
-- Hydrated drafts are valid for a non-default league configuration.
-- Tests prove mapping does not assume MVP league size.
-- Invalid league settings fail clearly.
-- Invalid ranking snapshot JSON fails clearly.
-- Invalid pick history fails clearly.
-- No Prisma client query functions, server actions, UI wiring, mutation persistence, package dependency changes, or schema changes are added.
+- Repository functions exist for create, load, and list.
+- Creating a draft stores league settings and ranking snapshot source state.
+- Creating a draft does not store empty future pick rows.
+- Loading a draft returns typed `DraftWorkspace`.
+- Loading a missing draft returns `null`.
+- Listing drafts returns summaries without loading full ranking snapshot JSON.
+- Repository code does not expose raw JSON to app-facing callers.
+- Repository code does not make UI, Draft State Engine, or Recommendation Engine import Prisma types.
+- Tests cover default and non-default league settings.
+- Tests prove list summaries derive team count and rounds from league settings.
+- `docs/tasks.md` Task 5 checkboxes are updated for completed repository work.
+- No server action, UI wiring, or draft mutation persistence is added.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
@@ -210,9 +252,9 @@ If the app is run manually, confirm the draft room still loads normally from the
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this proves the record-to-domain mapping boundary before adding live database access.
-- Concrete enough for implementation: yes, input record shapes, helper behavior, validation rules, tests, and validation commands are specified.
-- Avoids unnecessary architecture changes: yes, it keeps Prisma details below the domain boundary and avoids server actions or UI wiring.
-- Blast radius reasonable: yes, expected changes are limited to mapper modules and tests.
-- Review/revert comfort: yes, the slice is pure data transformation logic with no runtime app behavior dependency.
-- Observable/testable acceptance criteria: yes, helper outputs, thrown validation errors, invariant checks, and validation commands verify the slice.
+- Smallest meaningful increment: yes, this finishes the repository read/create/list boundary before mutation persistence or UI integration.
+- Concrete enough for implementation: yes, APIs, behavior, tests, and validation commands are specified.
+- Avoids unnecessary architecture changes: yes, it follows the existing Prisma and mapper boundaries without adding server actions or UI dependencies.
+- Blast radius reasonable: yes, expected changes are a repository module, focused tests, and task checkbox updates.
+- Review/revert comfort: yes, app runtime behavior remains unchanged and repository behavior is tested at the boundary.
+- Observable/testable acceptance criteria: yes, create/load/list outputs and task checkbox changes are directly verifiable.
