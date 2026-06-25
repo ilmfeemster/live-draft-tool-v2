@@ -1,14 +1,14 @@
-# Current Slice: Add Basic Recommendation Update Tests
+# Current Slice: Add Manual Full-Draft QA Checklist
 
 ## Source Task
 
-`docs/test-tasks.md` Task 5: Add Basic Recommendation Update Tests.
+`docs/test-tasks.md` Task 6: Add Manual Full-Draft QA Checklist.
 
 ## Goal
 
-Validate the Phase 1 requirement that recommendations are derived from the current available player pool and update as draft state changes.
+Create a repeatable manual QA checklist for validating that the Phase 1 manual draft simulator can complete a full MVP draft without breaking core draft behavior.
 
-This slice should test recommendation updates from draft state without turning into deep Recommendation Engine Stage coverage.
+This slice should document the validation workflow only. It should not add automated browser tests or change runtime app behavior.
 
 ## User-Visible Increment
 
@@ -17,174 +17,150 @@ No app UI or runtime behavior should change.
 The developer-visible increment is:
 
 ```txt
-npm test
+docs/manual-full-draft-qa.md
 ```
 
-now validates basic recommendation update behavior after draft picks.
+defines a repeatable checklist another pass can follow to validate a complete 12-team, 16-round mock draft.
 
 ## Problem
 
-The app generates recommendations from `availableRankings`, which are derived by removing drafted player IDs from the rankings list in `DraftRoom`.
+Automated unit tests now cover draft order, draft state transitions, invariants, and basic recommendation updates. Phase 1 still needs a manual validation artifact for the full draft workflow because the MVP success criteria include completing a full live-style mock draft in the app.
 
-Current tests cover draft order, draft transitions, and invariants, but they do not yet prove the Phase 1 recommendation contract:
-
-- drafted players are excluded before recommendations are generated
-- recommendation results respect the configured limit
-- recommendation results change when the available player pool changes
-- basic roster input can influence recommendation ordering
+The checklist should make manual validation consistent enough that pass/fail results can be compared across runs.
 
 ## Goals
 
-- Add focused tests for basic recommendation updates from draft state.
-- Use small inline ranking fixtures.
-- Reuse existing pure helpers where useful.
-- Keep recommendation scoring/modifier coverage shallow and Phase 1-oriented.
-- Mark Task 5 complete in `docs/test-tasks.md`.
+- Add a concise manual QA checklist for a full 12-team, 16-round snake draft.
+- Cover setup, pick entry, available-player removal, user roster tracking, recommendation updates, undo, duplicate prevention, and draft completion.
+- Define evidence to record after the run.
+- Mark Task 6 complete in `docs/test-tasks.md` after the checklist is created.
 
 ## Non-Goals
 
-- Exhaustive recommendation scoring tests.
-- Exhaustive roster need modifier tests.
-- Tier-drop scenario coverage.
-- Scarcity scenario coverage.
-- Recommendation explanation regression suite.
-- Large scenario libraries.
+- Automated browser tests.
 - React component tests.
-- Browser tests.
-- Changing recommendation implementation.
-- Changing draft state helpers.
-- Changing invariant helpers.
+- Playwright setup.
+- New test runner configuration.
+- Production code changes.
+- UI redesign or workflow changes.
+- New draft helpers or abstractions.
+- Exhaustive recommendation strategy validation.
+- Live provider or platform integration validation.
+- Performance or accessibility audits.
 
 ## Expected Files
 
-- `src/lib/recommendations.test.ts`
+- `docs/manual-full-draft-qa.md`
 - `docs/test-tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing `src/lib/recommendations.ts`, `DraftRoom`, UI components, package metadata, Vitest config, seed data, ranking data, draft state helpers, or invariant helpers unless a test exposes a real bug.
+Avoid changing source files, package metadata, Vitest config, seed data, ranking data, or app UI for this slice.
 
-## Test Strategy
+## Checklist Document Shape
 
-Create `src/lib/recommendations.test.ts`.
+Create `docs/manual-full-draft-qa.md` with these sections:
 
-These tests should exercise existing public recommendation behavior through:
+- `# Manual Full-Draft QA Checklist`
+- `## Purpose`
+- `## Preconditions`
+- `## Evidence To Record`
+- `## Checklist`
+- `## Pass/Fail Summary`
+- `## Notes`
 
-- `generateTopRecommendations`
-- `draftPlayerInDraft`
-- small local ranking fixtures
+Keep the checklist practical and short enough to use during development. Prefer checkbox items over long prose.
 
-Do not import the full seed rankings dataset.
+## Required Checklist Coverage
 
-Do not test private constants directly.
+The checklist must include validation for:
 
-## Fixture Shape
-
-Define a local helper:
-
-```ts
-function createRanking(
-  id: string,
-  overallRank: number,
-  position: Position = "RB",
-  name = id,
-): RankingEntry
-```
-
-Default values:
-
-- `team: "TEST"`
-- `adpRank: null`
-- `positionRank: overallRank`
-- `tier: 1`
-
-Use at least these rankings in tests as needed:
-
-- `player-1`, rank 1, RB
-- `player-2`, rank 2, WR
-- `player-3`, rank 3, QB
-- `player-4`, rank 4, TE
-- `player-5`, rank 5, RB
+- starting from a clean local app run
+- opening the draft tool
+- confirming MVP settings are represented: 12 teams, 16 rounds, snake draft
+- entering at least the first several picks manually
+- confirming the active pick advances after each valid pick
+- confirming drafted players disappear from the available player list
+- confirming duplicate picks are blocked or cannot be selected again
+- confirming user-team picks appear on the user roster
+- confirming recommendations update after picks
+- confirming undo restores the previous pick state
+- continuing the draft through the final pick
+- confirming the draft reaches completion without application failure
+- spot-checking final drafted-player count against 192 total picks
 
 ## Implementation Steps
 
-1. Create `src/lib/recommendations.test.ts`.
-   - Import `describe`, `expect`, and `it` from `vitest`.
-   - Import `generateTopRecommendations` from `@/lib/recommendations`.
-   - Import `draftPlayerInDraft` from `@/lib/draftState`.
-   - Import `createDraftTeams` and `generateSnakeDraftOrder` from `@/lib/draftOrder`.
-   - Import `Draft`, `Position`, and `RankingEntry` as types.
-   - Add local `createRanking` and `createTestDraft` helpers.
+1. Create `docs/manual-full-draft-qa.md`.
+   - Add the required sections listed above.
+   - State that the checklist validates the Phase 1 MVP manual draft workflow.
+   - Keep the wording executable by another developer without requiring hidden context.
 
-2. Add a test for excluding drafted players before generating recommendations.
-   - Create rankings for `player-1`, `player-2`, and `player-3`.
-   - Draft `player-1` using `draftPlayerInDraft`.
-   - Build `availableRankings` by filtering rankings whose player IDs are not in drafted picks.
-   - Generate recommendations.
-   - Assert recommendation player IDs do not include `player-1`.
-   - Assert recommendation player IDs include remaining available players.
+2. Add preconditions.
+   - Include running the app locally.
+   - Include using the current seed rankings or current default app data.
+   - Include starting from a fresh page state when possible.
 
-3. Add a test for recommendation limit handling.
-   - Generate recommendations from at least five rankings with `{ limit: 2 }`.
-   - Assert exactly two recommendations are returned.
-   - Assert the returned IDs are the top two expected available rankings.
+3. Add evidence requirements.
+   - Record date of run.
+   - Record commit or branch.
+   - Record browser used.
+   - Record pass/fail result.
+   - Record notes for any failed or unclear step.
 
-4. Add a test for recommendation output changing when the available pool changes.
-   - Generate recommendations before any pick.
-   - Draft the top-ranked player.
-   - Recompute `availableRankings`.
-   - Generate recommendations again.
-   - Assert the first recommendation changes from `player-1` to the next expected available player.
+4. Add checklist steps grouped by workflow.
+   - Setup and initial state.
+   - Early draft picks.
+   - Available-player and duplicate behavior.
+   - User roster behavior.
+   - Recommendation behavior.
+   - Undo behavior.
+   - Full draft completion.
 
-5. Add a test for basic roster input influencing recommendation ordering.
-   - Use two close rankings where an unfilled starter need can change ordering.
-   - Example:
-     - `player-qb`, overall rank 10, QB
-     - `player-rb`, overall rank 20, RB
-   - Call `generateTopRecommendations(rankings, { rosterPlayers: [] })`.
-   - Assert `player-qb` ranks ahead of `player-rb` because both receive starter need but the higher base score still wins.
-   - Then call with rosterPlayers already containing a QB:
-
-```ts
-[{ position: "QB" }]
-```
-
-   - Assert the QB no longer receives starter-need help, and `player-rb` ranks first.
+5. Add pass/fail summary fields.
+   - Overall result.
+   - Blocking issues.
+   - Follow-up task links or notes.
 
 6. Update `docs/test-tasks.md`.
-   - Mark `Task 5: Add Basic Recommendation Update Tests` as complete.
-   - Do not mark Task 6 or later tasks complete.
+   - Mark `Task 6: Add Manual Full-Draft QA Checklist` as complete.
+   - Do not mark Task 7 complete.
 
 7. Validate.
+   - Review the checklist for clarity and completeness.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
 
 ## Acceptance Criteria
 
-- `src/lib/recommendations.test.ts` exists.
-- Tests use small inline fixtures, not seed rankings.
-- Drafted players are excluded before recommendation generation.
-- Recommendation results respect the requested limit.
-- Recommendation results update when the available player pool changes.
-- A simple roster input changes recommendation ordering.
-- Tests do not require React or browser tooling.
-- Recommendation implementation is unchanged unless a real bug is found.
-- `docs/test-tasks.md` marks only Task 5 newly complete.
+- `docs/manual-full-draft-qa.md` exists.
+- Checklist covers the Phase 1 success path from app startup through draft completion.
+- Checklist includes undo validation.
+- Checklist includes duplicate-prevention validation.
+- Checklist includes available-player removal validation.
+- Checklist includes user-roster validation.
+- Checklist includes recommendation-update validation.
+- Checklist includes final draft completion validation.
+- Checklist defines evidence to record for each run.
+- Checklist defines pass/fail summary fields.
+- No production source files are changed.
+- No browser automation or new test dependencies are added.
+- `docs/test-tasks.md` marks only Task 6 newly complete.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-No browser or manual draft smoke test is required for this slice because runtime app behavior is not intended to change.
+This slice creates the checklist; it does not require executing the full manual QA run as part of implementation. A future validation pass can run the checklist and record results.
 
-If tests reveal recommendation behavior that conflicts with the current Phase 1 product expectations, stop and report the mismatch instead of broadening the slice into a recommendation redesign.
+If the checklist reveals ambiguity in the app workflow, document the ambiguity in the checklist notes rather than expanding this slice into UI or product changes.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it covers only basic recommendation update behavior from draft state.
-- Concrete enough for implementation: yes, files, helpers, fixtures, assertions, docs update, and validation commands are listed.
-- Avoids unnecessary architecture changes: yes, no recommendation refactor, scenario framework, or UI testing is introduced.
-- Blast radius reasonable: yes, expected changes are one test file, test-task docs, and this slice plan.
-- Review/revert comfort: yes, the slice is isolated to tests and task tracking unless a genuine bug is found.
-- Observable/testable acceptance criteria: yes, unit tests plus lint/build and the Task 5 checkbox verify the slice.
+- Smallest meaningful increment: yes, it creates only the manual QA artifact required by Task 6.
+- Concrete enough for implementation: yes, file names, sections, checklist coverage, docs update, and validation commands are listed.
+- Avoids unnecessary architecture changes: yes, no source code, app workflow, or test infrastructure changes are planned.
+- Blast radius reasonable: yes, expected changes are one new docs file, task tracking, and this slice plan.
+- Review/revert comfort: yes, documentation-only and isolated.
+- Observable/testable acceptance criteria: yes, checklist presence, required sections, task status, and validation commands verify the slice.
