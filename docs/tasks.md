@@ -164,7 +164,7 @@ Acceptance Criteria:
 - Tests prove loaded drafts are valid for default and non-default settings.
 - No engine code imports Prisma types or parses raw JSON.
 
-### [ ] 6. Persist Manual Draft Pick Mutations
+### [x] 6. Persist Manual Draft Pick Mutations
 
 Goal:
 
@@ -177,7 +177,7 @@ Scope:
 - [x] Persist changed pick history in a transaction.
 - [x] Update draft status consistently with pick history.
 - [x] Add tests for draft, reload, undo, duplicate prevention, and completion status.
-- [ ] Add server-side operations that call the repository mutations.
+- [x] Add server-side operations that call the repository mutations.
 
 Non-Goals:
 
