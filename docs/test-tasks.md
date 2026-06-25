@@ -60,7 +60,7 @@ Add the minimum automated test infrastructure needed to run deterministic busine
 
 ## Task 2: Add Draft Order Unit Tests
 
-Status: [ ]
+Status: [x]
 
 ### Goal
 
