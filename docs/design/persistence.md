@@ -32,6 +32,7 @@ Phase 2 should make drafts durable without changing the product into a fantasy p
 Persistence should support:
 
 - Saving draft setup.
+- Saving league settings as source configuration for each draft.
 - Saving pick progress.
 - Loading an incomplete or complete draft.
 - Restoring the same available player pool after reload.
@@ -39,6 +40,7 @@ Persistence should support:
 - Restoring recommendations from the loaded draft state and ranking snapshot.
 - Listing previous drafts.
 - Preserving draft invariants after save and load.
+- Supporting non-default league configurations without changing persistence code.
 
 ---
 
@@ -55,10 +57,11 @@ Phase 2 should not introduce:
 - Advanced historical analytics.
 - A generic event sourcing system.
 - A full rankings management product.
+- Normalized ranking tables.
 
 ---
 
-## Architecture Decision
+## Architecture Decisions
 
 ### Decision: Use Postgres With Prisma
 
@@ -76,7 +79,7 @@ Tradeoffs:
 
 ### Decision: Keep Persistence Beneath The Draft State Engine
 
-Persistence stores and restores draft state. It does not own draft rules.
+Persistence stores and restores draft source state. It does not own draft rules.
 
 The architecture for Phase 2 should be:
 
@@ -96,8 +99,8 @@ Draft mutations should still flow through draft-domain behavior. The persistence
 
 Examples:
 
-- Drafting a player should use the draft state transition logic, then persist the changed draft.
-- Undo should use the draft state transition logic, then persist the changed draft.
+- Drafting a player should use the draft state transition logic, then persist the changed pick history.
+- Undo should use the draft state transition logic, then persist the changed pick history.
 - Loading a draft should hydrate the domain model, then let existing derivation produce available players, roster, and recommendations.
 
 ### Decision: Store Source State, Not Derived Views
@@ -106,10 +109,9 @@ Persist the state required to reconstruct the draft:
 
 - Draft metadata.
 - League and draft configuration.
-- Teams.
-- Full draft order.
-- Pick assignments.
-- Ranking snapshot.
+- Draft-local teams or enough configuration to derive them.
+- Pick history.
+- Ranking snapshot JSON.
 
 Do not persist derived views in Phase 2:
 
@@ -117,33 +119,71 @@ Do not persist derived views in Phase 2:
 - User roster.
 - Recommendation output.
 - Draft status display data.
+- Draft size or total pick count as hard-coded constants.
 
 Reason:
 
-These are currently deterministic outputs from draft state plus rankings. Persisting them would create multiple sources of truth and increase the chance of stale data.
+These are currently deterministic outputs from draft state, league settings, pick history, and rankings. Persisting derived outputs would create multiple sources of truth and increase the chance of stale data.
 
-### Decision: Persist Full Draft Order
+### Decision: Make Persistence Configuration-Driven
 
-Store every pick slot when a draft is created, including empty future picks.
+No Phase 2 persistence model, API, repository method, seed data, test fixture, or hydration path should hard-code the default MVP league size.
 
-Reason:
-
-The current `Draft` model contains the full `picks` array. Persisting the full order makes hydration straightforward and avoids recomputing historical draft order if draft generation rules change later.
-
-Tradeoffs:
-
-- Slightly more rows at draft creation.
-- Simpler load behavior and easier invariant checks.
-
-### Decision: Use Ranking Snapshots Per Draft
-
-Every draft should reference an immutable ranking snapshot.
+Persist league settings as source configuration for each draft. Derive draft size, team count, round count, pick count, active team, and roster structure from those persisted settings.
 
 Reason:
 
-Recommendations, available players, and roster reconstruction depend on rankings. If the global seed rankings change later, old drafts should still resume with the same player pool and ranking context they started with.
+The current UI may still create drafts using MVP defaults, but persistence should not bake those defaults into storage or loading. Phase 2 is the point where draft state becomes durable, so the durable model should not require later migration just to support non-default league sizes.
 
-The snapshot must include enough player data to reconstruct `RankingEntry[]`:
+Guardrails:
+
+- Do not hard-code 12 teams.
+- Do not hard-code 16 rounds.
+- Do not hard-code roster slots.
+- Do not hard-code user draft position.
+- Do not hard-code draft order length.
+- Do not hard-code total pick count.
+- Do not assume snake draft order except through an explicit persisted draft type or settings value.
+
+### Decision: Rebuild Draft State From Settings, Ranking Snapshot, And Pick History
+
+Hydration should rebuild the domain-facing `Draft` from persisted league settings, ranking snapshot data, and pick history.
+
+The database does not need to persist every empty future draft slot as source data. Instead, the repository should:
+
+- Read persisted league settings.
+- Generate the expected draft order from those settings.
+- Overlay persisted pick history onto the generated order.
+- Derive `currentPickNumber` from the first undrafted pick, unless the draft is complete.
+- Return the hydrated domain `Draft`.
+
+Reason:
+
+This keeps draft size and order configuration-driven. It also avoids storing redundant empty pick slots whose count is already implied by the persisted league settings.
+
+When this recommendation stops being appropriate:
+
+- Draft order generation becomes provider-specific or externally supplied.
+- Imported drafts need to preserve irregular historical pick slots.
+- Replay files or live integrations introduce event order semantics beyond manual pick history.
+
+### Decision: Store Ranking Snapshots As JSON For Phase 2
+
+Store the ranking snapshot as JSON rather than normalized ranking rows.
+
+Reason:
+
+Phase 2 only needs durable save/load and draft hydration. Ranking snapshots are loaded as whole-draft inputs, not queried independently. JSON better preserves the exact ranking state used by a draft, avoids premature schema complexity while the ranking model is still evolving, and defers normalized ranking storage until Phase 5 when rankings become a first-class feature.
+
+Guardrails:
+
+- Raw JSON must not leak into the Draft State Engine.
+- Raw JSON must not leak into the Recommendation Engine.
+- Repository functions must expose typed ranking data, such as `RankingEntry[]`.
+- The rest of the app should depend on a domain-facing type, not the database storage shape.
+- The JSON storage implementation should remain replaceable later without changing engine code.
+
+The snapshot JSON must include enough player data to reconstruct `RankingEntry[]`:
 
 - Player id.
 - Player name.
@@ -156,7 +196,7 @@ The snapshot must include enough player data to reconstruct `RankingEntry[]`:
 
 ### Decision: Do Not Introduce A Global Player Table Yet
 
-For Phase 2, player identity can live inside ranking snapshots.
+For Phase 2, player identity can live inside ranking snapshot JSON.
 
 Reason:
 
@@ -167,6 +207,7 @@ When this recommendation stops being appropriate:
 - Multiple ranking sets share the same player catalog.
 - External providers need cross-source player ID mapping.
 - News, injuries, projections, or player metadata become first-class product data.
+- Phase 5 begins and rankings become a first-class feature.
 
 ### Decision: Use Simple Server-Side Data Access Functions
 
@@ -200,6 +241,38 @@ When this recommendation stops being appropriate:
 
 ---
 
+## Domain-Facing Configuration
+
+Persistence should define or support a typed league configuration shape before writing it to storage.
+
+Suggested shape:
+
+```ts
+type LeagueSettings = {
+  teamCount: number;
+  rounds: number;
+  draftType: "SNAKE";
+  scoringFormat: "PPR";
+  rosterSlots: RosterSlot[];
+};
+
+type RosterSlot = {
+  id: string;
+  label: string;
+  eligiblePositions: Position[];
+};
+```
+
+Notes:
+
+- The exact type can evolve during implementation planning.
+- `teamCount` and `rounds` should come from persisted settings, not constants.
+- Roster structure should come from persisted settings, not UI defaults.
+- The current UI can still create this configuration from MVP defaults.
+- Repository and hydration tests should include at least one non-default configuration.
+
+---
+
 ## Proposed Durable Model
 
 This model describes durable concepts. Exact Prisma syntax should be decided during implementation planning.
@@ -213,12 +286,8 @@ Suggested fields:
 - `id`
 - `name`
 - `status`
-- `teamCount`
-- `rounds`
-- `draftType`
-- `scoringFormat`
+- `leagueSettingsJson`
 - `userTeamId`
-- `currentPickNumber`
 - `rankingSnapshotId`
 - `createdAt`
 - `updatedAt`
@@ -226,13 +295,16 @@ Suggested fields:
 Notes:
 
 - `status` can start simple, such as `IN_PROGRESS` and `COMPLETE`.
-- `draftType` can start as `SNAKE`.
-- `scoringFormat` can start as `PPR`.
-- `currentPickNumber` should be persisted because it is part of the existing domain model. It should be validated against picks during load or mutation.
+- Pick count should be derived from `leagueSettingsJson`, not stored as a hard-coded value.
+- Team count should be read from `leagueSettingsJson`.
+- Rounds should be read from `leagueSettingsJson`.
+- Roster slots should be read from `leagueSettingsJson`.
+- `userTeamId` may remain a draft-local identifier, such as `team-2`.
+- Current pick can be derived from pick history during hydration. If stored for convenience, it must be validated against pick history and settings.
 
 ### DraftTeam
 
-Represents a team inside a draft.
+Represents a team inside a draft when team names or draft-local identity need to be persisted separately from generated defaults.
 
 Suggested fields:
 
@@ -247,28 +319,28 @@ Notes:
 - `teamId` should preserve the domain identifier shape, such as `team-2`.
 - `draftId` plus `teamId` should be unique.
 - No user account relationship should be added in Phase 2.
+- Team count must agree with persisted league settings.
+- If team names remain generated defaults, this table can be deferred and teams can be derived from league settings.
 
 ### DraftPick
 
-Represents one slot in the draft order.
+Represents one drafted player in the pick history.
 
 Suggested fields:
 
 - `id`
 - `draftId`
 - `pickNumber`
-- `round`
-- `pickInRound`
-- `teamId`
 - `playerId`
 - `draftedAt`
 
 Notes:
 
-- `playerId` is nullable until the pick is made.
+- Only made picks need to be persisted.
 - `draftId` plus `pickNumber` should be unique.
-- `draftId` plus `playerId` should prevent duplicate drafted players when `playerId` is present.
-- `teamId` should refer to the draft-local team identifier, not a global team account.
+- `draftId` plus `playerId` should prevent duplicate drafted players.
+- `pickNumber` must be valid for the draft size derived from persisted league settings.
+- `round`, `pickInRound`, and `teamId` should be derived during hydration from persisted settings and pick number.
 
 ### RankingSnapshot
 
@@ -279,35 +351,15 @@ Suggested fields:
 - `id`
 - `name`
 - `source`
+- `rankingsJson`
 - `createdAt`
 
 Notes:
 
 - The snapshot is immutable once a draft uses it.
-- Phase 2 does not need ranking profile management.
-
-### RankingSnapshotEntry
-
-Represents one ranked player inside a ranking snapshot.
-
-Suggested fields:
-
-- `id`
-- `rankingSnapshotId`
-- `playerId`
-- `playerName`
-- `playerTeam`
-- `playerPosition`
-- `overallRank`
-- `adpRank`
-- `positionRank`
-- `tier`
-
-Notes:
-
-- `rankingSnapshotId` plus `playerId` should be unique.
-- `rankingSnapshotId` plus `overallRank` should be unique unless ties are intentionally supported later.
-- This table should be enough to rebuild `RankingEntry[]`.
+- `rankingsJson` stores the full ranking snapshot for Phase 2.
+- Repository code must parse and validate `rankingsJson` into `RankingEntry[]`.
+- Phase 2 does not need ranking profile management or normalized ranking rows.
 
 ---
 
@@ -319,10 +371,13 @@ Loading a draft should produce a workspace object that can feed the current app:
 type DraftWorkspace = {
   draft: Draft;
   rankings: RankingEntry[];
+  leagueSettings: LeagueSettings;
 };
 ```
 
 The persistence layer should map database records into this shape.
+
+The UI and engines should receive typed domain-facing data. They should not receive database JSON blobs.
 
 The UI should continue deriving:
 
@@ -334,27 +389,50 @@ The UI should continue deriving:
 
 ---
 
+## Hydration Flow
+
+Load draft should:
+
+- Query draft metadata, league settings JSON, pick history, and ranking snapshot JSON.
+- Parse and validate league settings into a typed domain-facing configuration.
+- Parse and validate ranking snapshot JSON into `RankingEntry[]`.
+- Generate draft teams from persisted settings, unless persisted team names override generated names.
+- Generate draft order from persisted settings.
+- Overlay pick history onto the generated draft order.
+- Derive `currentPickNumber` from the first undrafted pick, unless the draft is complete.
+- Sort rankings by overall rank.
+- Map the result to `Draft`, `RankingEntry[]`, and `LeagueSettings`.
+- Validate basic draft invariants before returning when practical.
+
+Hydration must not assume the MVP default team count, rounds, roster slots, draft position, draft order length, or total pick count.
+
+---
+
 ## Mutation Flow
 
 ### Create Draft
 
 Create draft should:
 
-- Create or copy a ranking snapshot.
+- Accept typed league settings.
+- Accept typed rankings.
+- Store league settings as the draft's source configuration.
+- Store rankings as immutable snapshot JSON.
 - Create a draft record.
-- Create draft teams.
-- Create the full snake draft order as pick rows.
+- Create draft-local teams only if team names or identities need persistence beyond generated defaults.
 - Return a hydrated `DraftWorkspace`.
+
+The current UI may pass MVP defaults, but the create flow should accept non-default settings.
 
 ### Draft Player
 
 Draft player should:
 
 - Load the draft aggregate.
-- Hydrate the domain `Draft`.
+- Hydrate the domain `Draft` from persisted settings, ranking snapshot, and pick history.
 - Validate that the player exists in the draft ranking snapshot.
 - Apply the existing draft transition.
-- Persist changed pick state and current pick number in a transaction.
+- Persist changed pick history in a transaction.
 - Return the updated `DraftWorkspace` or updated `Draft`.
 
 ### Undo Last Pick
@@ -362,21 +440,18 @@ Draft player should:
 Undo should:
 
 - Load the draft aggregate.
-- Hydrate the domain `Draft`.
+- Hydrate the domain `Draft` from persisted settings, ranking snapshot, and pick history.
 - Apply the existing undo transition.
-- Persist changed pick state and current pick number in a transaction.
+- Persist changed pick history in a transaction.
 - Return the updated `DraftWorkspace` or updated `Draft`.
 
-### Load Draft
+### List Drafts
 
-Load draft should:
+List drafts should:
 
-- Query draft metadata, teams, picks, and ranking snapshot entries.
-- Sort teams by draft position.
-- Sort picks by pick number.
-- Sort rankings by overall rank.
-- Map records to `Draft` and `RankingEntry[]`.
-- Validate basic draft invariants before returning when practical.
+- Return draft summaries.
+- Avoid loading full ranking snapshot JSON unless needed.
+- Derive summary fields from persisted settings and pick history when practical.
 
 ---
 
@@ -384,15 +459,17 @@ Load draft should:
 
 The persistence layer should protect these rules:
 
-- A draft must have exactly `teamCount * rounds` pick rows.
-- Every pick belongs to exactly one draft.
-- Every pick references a draft-local team.
+- League settings must be valid before a draft is created.
+- Team count, rounds, roster slots, draft type, and scoring format must come from persisted settings.
+- A persisted pick number must be within the total pick count derived from league settings.
+- Every persisted pick belongs to exactly one draft.
 - A drafted player cannot appear in more than one pick for the same draft.
-- `currentPickNumber` should match the first undrafted pick, unless the draft is complete.
-- Draft completion should be derived from pick state or synchronized from it.
-- Ranking snapshot entries must not change after drafts reference them.
+- A drafted player must exist in the draft's typed ranking snapshot.
+- `currentPickNumber` should be derived from the first undrafted pick, unless the draft is complete.
+- Draft completion should be derived from pick history or synchronized from it.
+- Ranking snapshot JSON must not change after drafts reference it.
 
-The database should enforce simple structural constraints. Domain and integration tests should enforce behavior-level rules.
+The database should enforce simple structural constraints. Repository validation and integration tests should enforce behavior-level rules.
 
 ---
 
@@ -403,58 +480,23 @@ Phase 2 should add persistence confidence without overbuilding test infrastructu
 Important test coverage areas:
 
 - Mapping database records to `Draft`.
-- Mapping ranking snapshot entries to `RankingEntry[]`.
+- Parsing ranking snapshot JSON into `RankingEntry[]`.
+- Parsing league settings JSON into typed settings.
 - Save and load round trips.
 - Drafting a player and reloading the draft.
 - Undoing a pick and reloading the draft.
 - Duplicate drafted player prevention.
 - Draft invariants after load.
 - Recommendation inputs are the same before and after load.
+- At least one persistence or hydration test using a non-default league configuration.
 
 Database-backed integration tests are valuable here because persistence bugs often live at the boundary between records and domain objects.
+
+Tests should not hard-code the default MVP league size unless the test is explicitly about the default UI-created draft.
 
 ---
 
 ## Alternatives And Open Questions
-
-### Ranking Snapshot Storage Shape
-
-Option A: Normalized `RankingSnapshotEntry` rows.
-
-Pros:
-
-- Easy to query and validate.
-- Aligns with future ranking management.
-- Keeps player fields explicit.
-- Easier to inspect during debugging.
-
-Cons:
-
-- More schema and migration work.
-- More rows per draft snapshot.
-- Slightly more implementation overhead than storing JSON.
-
-Option B: Store the full `RankingEntry[]` snapshot as JSON.
-
-Pros:
-
-- Fastest implementation.
-- Very close to the current app shape.
-- Easy to hydrate back into TypeScript.
-
-Cons:
-
-- Harder to query and validate.
-- Weaker database-level constraints.
-- More likely to need migration when ranking management becomes active.
-
-Recommendation:
-
-Use normalized `RankingSnapshotEntry` rows if Phase 2 is intended to establish the durable foundation for later ranking management. Use JSON only if the immediate priority is the smallest possible persistence slice.
-
-Open question before task planning:
-
-Should Phase 2 optimize for the durable future ranking path, or the fastest possible saved-draft implementation?
 
 ### Database Provider
 
@@ -504,7 +546,7 @@ Pros:
 
 Cons:
 
-- Status can drift from pick state if updates are buggy.
+- Status can drift from pick history if updates are buggy.
 
 Option B: Derive completion from picks every time.
 
@@ -519,7 +561,7 @@ Cons:
 
 Recommendation:
 
-Store a simple `status`, but treat pick state as the source of truth. Update status inside the same transaction as pick changes.
+Store a simple `status`, but treat pick history as the source of truth. Update status inside the same transaction as pick changes.
 
 Open question before task planning:
 
@@ -534,9 +576,9 @@ When tasks are created, they should preserve this sequence of responsibility:
 ```text
 database records
         |
-persistence mappers
+persistence mappers and validators
         |
-domain Draft and RankingEntry objects
+domain Draft, LeagueSettings, and RankingEntry objects
         |
 existing draft and recommendation logic
         |
@@ -545,6 +587,10 @@ UI
 
 Avoid tasks that make React components speak directly to Prisma models.
 
+Avoid tasks that make the Draft State Engine or Recommendation Engine parse raw JSON.
+
 Avoid tasks that persist derived recommendation or roster output.
+
+Avoid tasks that hard-code MVP default league size into repository methods, seed data, fixtures, or hydration paths.
 
 Avoid tasks that introduce users, providers, or replay abstractions as part of Phase 2 persistence.

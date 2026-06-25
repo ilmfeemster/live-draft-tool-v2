@@ -180,6 +180,47 @@ Tradeoffs:
 
 ---
 
+## 2026-06-25
+
+### Phase 2 Ranking Snapshot Storage
+
+Decision:
+
+Store Phase 2 ranking snapshots as JSON rather than normalized ranking rows.
+
+Reason:
+
+Phase 2 only needs durable save/load and draft hydration. Ranking snapshots are loaded as whole-draft inputs, not queried independently. JSON preserves the exact ranking state used by a draft and avoids premature schema complexity while the ranking model is still evolving.
+
+Tradeoffs:
+
+- Raw JSON must stay behind the repository layer.
+- Repository code must expose typed ranking data such as `RankingEntry[]`.
+- The Draft State Engine and Recommendation Engine must not depend on the database storage shape.
+- Normalized ranking rows are deferred until Phase 5, when rankings become a first-class feature.
+
+---
+
+## 2026-06-25
+
+### Phase 2 Dynamic Draft Configuration
+
+Decision:
+
+Phase 2 persistence must be driven by persisted league settings rather than MVP default constants.
+
+Reason:
+
+The current UI can still create drafts using MVP defaults, but storage and hydration should not hard-code 12 teams, 16 rounds, roster slots, draft position, draft order length, or total pick count. Persisting league settings as source configuration keeps save/load durable now and avoids forcing a persistence redesign when custom league sizes or roster configurations become active.
+
+Tradeoffs:
+
+- The persistence layer needs typed settings validation earlier.
+- Hydration must derive draft size, pick count, active team, and roster structure from settings.
+- Tests should include at least one non-default league configuration to prove persistence is not coupled to MVP defaults.
+
+---
+
 ## Template
 
 ### YYYY-MM-DD
