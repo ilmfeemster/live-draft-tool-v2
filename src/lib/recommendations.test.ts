@@ -9,6 +9,7 @@ function createRanking(
   overallRank: number,
   position: Position = "RB",
   name = id,
+  options: Partial<Pick<RankingEntry, "adpRank" | "positionRank" | "tier">> = {},
 ): RankingEntry {
   return {
     player: {
@@ -18,9 +19,9 @@ function createRanking(
       position,
     },
     overallRank,
-    adpRank: null,
-    positionRank: overallRank,
-    tier: 1,
+    adpRank: options.adpRank ?? null,
+    positionRank: options.positionRank ?? overallRank,
+    tier: options.tier ?? 1,
   };
 }
 
@@ -112,5 +113,107 @@ describe("generateTopRecommendations", () => {
 
     expect(emptyRosterPlayerIds).toEqual(["player-qb", "player-rb"]);
     expect(rosterWithQuarterbackPlayerIds).toEqual(["player-rb", "player-qb"]);
+  });
+
+  it("prioritizes an unfilled starter need over a slightly higher-ranked player", () => {
+    const rankings = [
+      createRanking("player-rb", 19, "RB"),
+      createRanking("player-qb-need", 20, "QB"),
+      createRanking("player-rb-depth-1", 25, "RB"),
+      createRanking("player-rb-depth-2", 26, "RB"),
+    ];
+    const recommendations = generateTopRecommendations(rankings, {
+      rosterPlayers: [
+        { position: "RB" },
+        { position: "RB" },
+        { position: "RB" },
+        { position: "WR" },
+        { position: "WR" },
+        { position: "WR" },
+        { position: "TE" },
+      ],
+    });
+
+    expect(recommendations[0].ranking.player.id).toBe("player-qb-need");
+    expect(recommendations[0].reasons).toContain("Fills QB starter need");
+  });
+
+  it("prioritizes a tier-drop player over a slightly higher-ranked player", () => {
+    const rankings = [
+      createRanking("player-wr", 19, "WR"),
+      createRanking("player-rb-tier-drop", 20, "RB"),
+      createRanking("player-wr-depth-1", 21, "WR"),
+      createRanking("player-wr-depth-2", 22, "WR"),
+      createRanking("player-rb-next-tier-1", 25, "RB", "player-rb-next-tier-1", {
+        tier: 2,
+      }),
+      createRanking("player-rb-next-tier-2", 26, "RB", "player-rb-next-tier-2", {
+        tier: 2,
+      }),
+    ];
+    const recommendations = generateTopRecommendations(rankings, {
+      rosterPlayers: [
+        { position: "QB" },
+        { position: "RB" },
+        { position: "RB" },
+        { position: "RB" },
+        { position: "WR" },
+        { position: "WR" },
+        { position: "WR" },
+        { position: "TE" },
+      ],
+    });
+
+    expect(recommendations[0].ranking.player.id).toBe("player-rb-tier-drop");
+    expect(recommendations[0].reasons).toContain("Tier drop after this RB");
+  });
+
+  it("prioritizes a scarce position over a slightly higher-ranked player", () => {
+    const rankings = [
+      createRanking("player-wr", 19, "WR"),
+      createRanking("player-qb-scarce", 20, "QB"),
+      createRanking("player-wr-depth-1", 21, "WR"),
+      createRanking("player-wr-depth-2", 22, "WR"),
+    ];
+    const recommendations = generateTopRecommendations(rankings, {
+      rosterPlayers: [
+        { position: "QB" },
+        { position: "RB" },
+        { position: "RB" },
+        { position: "RB" },
+        { position: "WR" },
+        { position: "WR" },
+        { position: "WR" },
+        { position: "TE" },
+      ],
+    });
+
+    expect(recommendations[0].ranking.player.id).toBe("player-qb-scarce");
+    expect(recommendations[0].reasons).toContain("Limited nearby QB options");
+  });
+
+  it("includes recommendation reasons from ranking, ADP, and active modifiers", () => {
+    const rankings = [
+      createRanking("player-rb", 20, "RB", "player-rb", { adpRank: 18 }),
+      createRanking("player-rb-next-tier-1", 25, "RB", "player-rb-next-tier-1", {
+        tier: 2,
+      }),
+      createRanking("player-rb-next-tier-2", 26, "RB", "player-rb-next-tier-2", {
+        tier: 2,
+      }),
+    ];
+    const [recommendation] = generateTopRecommendations(rankings, {
+      rosterPlayers: [{ position: "QB" }],
+    });
+
+    expect(recommendation.ranking.player.id).toBe("player-rb");
+    expect(recommendation.reasons).toEqual(
+      expect.arrayContaining([
+        "Ranked #20 overall",
+        "ADP rank #18",
+        "Fills RB starter need",
+        "Tier drop after this RB",
+      ]),
+    );
   });
 });

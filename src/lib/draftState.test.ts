@@ -126,4 +126,23 @@ describe("undoLastDraftPick", () => {
 
     expect(undoLastDraftPick(draft)).toBe(draft);
   });
+
+  it("undoes the final pick after a draft is complete", () => {
+    const completedDraft = createTestDraft({
+      currentPickNumber: 4,
+      picks: generateSnakeDraftOrder(2, 2).map((pick) => ({
+        ...pick,
+        playerId: `player-${pick.pickNumber}`,
+      })),
+    });
+    const result = undoLastDraftPick(completedDraft);
+
+    expect(result).not.toBe(completedDraft);
+    expect(result.currentPickNumber).toBe(4);
+    expect(result.picks[0].playerId).toBe("player-1");
+    expect(result.picks[1].playerId).toBe("player-2");
+    expect(result.picks[2].playerId).toBe("player-3");
+    expect(result.picks[3].playerId).toBeUndefined();
+    expect(completedDraft.picks[3].playerId).toBe("player-4");
+  });
 });

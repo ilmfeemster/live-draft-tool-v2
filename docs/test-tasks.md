@@ -253,7 +253,7 @@ Create a repeatable manual QA checklist for validating a complete Phase 1 mock d
 
 ## Task 7: Add Basic Draft Workflow Integration Test
 
-Status: [ ]
+Status: [x]
 
 ### Goal
 
@@ -289,6 +289,78 @@ Validate the interaction between draft state, available players, roster derivati
 
 ---
 
+## Task 8: Add Draft Completion And Undo Hardening Tests
+
+Status: [x]
+
+### Goal
+
+Validate full small-draft completion and undo behavior after a draft has been fully filled.
+
+### Test Type
+
+- Integration
+- Unit
+
+### Scope
+
+- Add a small full-draft completion test that drafts every pick.
+- Confirm the completed draft state remains valid.
+- Confirm all picks are filled exactly once.
+- Confirm no available rankings or recommendations remain when all inline players are drafted.
+- Add undo coverage after a draft is complete.
+
+### Non-Goals
+
+- Full 12-team automated draft.
+- Browser or React component testing.
+- New draft completion production behavior.
+
+### Acceptance Criteria
+
+- A full small draft can be completed in tests.
+- The completed draft is valid.
+- Undo after a completed draft clears the final pick.
+- Undo after completion restores `currentPickNumber` to the final pick.
+- `npm test`, `npm run lint`, and `npm run build` pass.
+
+---
+
+## Task 9: Add Recommendation Modifier Behavior Tests
+
+Status: [x]
+
+### Goal
+
+Strengthen recommendation confidence by testing modifier behavior and recommendation reasons without asserting exact scores.
+
+### Test Type
+
+- Unit
+
+### Scope
+
+- Test roster need modifier behavior through recommendation ordering.
+- Test tier-drop modifier behavior through recommendation ordering.
+- Test positional scarcity modifier behavior through recommendation ordering.
+- Test recommendation reasons include ranking, ADP, and active modifier explanations.
+
+### Non-Goals
+
+- Exact score snapshot testing.
+- Exhaustive recommendation scenario suite.
+- Future-pick planning or advanced strategy tests.
+
+### Acceptance Criteria
+
+- Roster need can move a player ahead of a slightly higher-ranked player.
+- Tier-drop risk can move a player ahead of a slightly higher-ranked player.
+- Positional scarcity can move a player ahead of a slightly higher-ranked player.
+- Recommendation reasons expose the active business rationale.
+- `npm test`, `npm run lint`, and `npm run build` pass.
+
+---
+
 ## Phase 1 Completion Signal
 
 Phase 1 testing is sufficient when:
@@ -298,6 +370,8 @@ Phase 1 testing is sufficient when:
 - Draft state transitions are covered.
 - Core draft invariants are covered.
 - Basic recommendation updates from draft state are covered.
+- Full small-draft completion and undo-after-complete are covered.
+- Recommendation modifier behavior and reasons are covered.
 - A repeatable manual full-draft QA checklist exists.
 - The manual checklist passes for a complete 12-team, 16-round mock draft.
 
