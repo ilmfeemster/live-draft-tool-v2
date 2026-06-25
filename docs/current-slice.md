@@ -1,132 +1,154 @@
-# Current Slice: Configure Unit Test Runner
+# Current Slice: Add Draft Order Unit Tests
 
 ## Source Task
 
-`docs/test-tasks.md` Task 1: Configure Unit Test Runner.
+`docs/test-tasks.md` Task 2: Add Draft Order Unit Tests.
 
 ## Goal
 
-Add the minimum automated test infrastructure needed to run deterministic TypeScript business-logic tests.
+Validate the pure snake draft order helpers that determine round, pick-in-round, draft position, and team assignment.
 
-This slice should make `npm test` real without committing the project to a broad testing stack.
+This slice should turn the existing smoke test into meaningful Draft State Engine coverage without changing production draft logic.
 
 ## User-Visible Increment
 
 No app UI or runtime behavior should change.
 
-The developer-visible increment is:
+The developer-visible increment is stronger confidence from:
 
 ```txt
 npm test
 ```
 
-runs successfully from the command line.
+covering the draft order helper behavior with exact expected outputs.
 
 ## Problem
 
-Phase 1 testing should focus on Draft State Engine confidence, but the project does not yet have an automated test runner.
+Task 1 created the test runner and added a tiny `generateSnakeDraftOrder` smoke test.
 
-Before adding draft order, draft transition, invariant, or workflow tests, the project needs a small test foundation that can import TypeScript source files and path aliases.
+That test proves the runner works, but it does not fully validate the draft order helpers listed in Task 2:
 
-## Recommended Approach
+- `getRoundForPick`
+- `getPickInRound`
+- `getDraftPositionForPick`
+- `generateSnakeDraftOrder`
 
-Use Vitest as the initial unit test runner.
-
-Reason:
-
-- It is lightweight and TypeScript-friendly.
-- It can test pure business logic without browser or React setup.
-- It keeps the first testing slice small and reversible.
-
-Tradeoffs:
-
-- Adds one dev dependency and updates `package-lock.json`.
-- Does not provide browser, React component, or coverage tooling yet.
-
-This recommendation stops being appropriate if the immediate target becomes browser workflows, component interactions, or coverage reporting. Those should remain separate later slices.
+`docs/testing.md` now emphasizes that tests should fail for the right reason and should use specific assertions when behavior is deterministic.
 
 ## Goals
 
-- Install a lightweight TypeScript-friendly unit test runner.
-- Add an `npm test` script.
-- Add test configuration for the existing `@/*` TypeScript path alias.
-- Add one small test that proves the runner can import project source.
-- Mark Task 1 complete in `docs/test-tasks.md`.
+- Expand `src/lib/draftOrder.test.ts` to cover every exported draft order helper.
+- Use exact expected values for deterministic behavior.
+- Include readable small-draft cases.
+- Include one MVP-shape assertion for 12 teams and 16 rounds.
+- Mark Task 2 complete in `docs/test-tasks.md`.
 
 ## Non-Goals
 
-- Draft order test coverage.
-- Draft state transition test coverage.
-- Recommendation scoring test coverage.
-- React component tests.
-- Browser or Playwright tests.
-- Coverage thresholds.
-- CI setup.
-- Snapshot testing.
-- Broad test helper abstractions.
-- Production behavior changes.
+- Draft state transition tests.
+- Manual pick entry tests.
+- Available player tests.
+- Roster tracking tests.
+- Recommendation tests.
+- UI or component tests.
+- Refactoring `src/lib/draftOrder.ts`.
+- Changing draft behavior.
+- Adding new test utilities.
 
 ## Expected Files
 
-- `package.json`
-- `package-lock.json`
-- `vitest.config.ts`
 - `src/lib/draftOrder.test.ts`
 - `docs/test-tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing app components, draft behavior, recommendation behavior, seed data, styling, or roadmap/project scope docs.
+Avoid changing `src/lib/draftOrder.ts` unless a test exposes an actual bug in existing behavior.
+
+Avoid changing package metadata, Vitest config, app components, seed data, recommendation logic, or project scope docs.
 
 ## Implementation Steps
 
-1. Install Vitest.
-   - Run `npm install --save-dev vitest`.
-   - Confirm only test-runner dependency changes are introduced.
-   - Do not add React Testing Library, Playwright, jsdom, coverage packages, or CI packages.
+1. Update imports in `src/lib/draftOrder.test.ts`.
+   - Import:
+     - `generateSnakeDraftOrder`
+     - `getDraftPositionForPick`
+     - `getPickInRound`
+     - `getRoundForPick`
+   - Keep using the `@` alias.
 
-2. Add the test script.
-   - In `package.json`, add:
+2. Add tests for `getRoundForPick`.
+   - Use `teamCount = 4`.
+   - Assert exact round values:
+     - pick 1 -> round 1
+     - pick 4 -> round 1
+     - pick 5 -> round 2
+     - pick 8 -> round 2
+     - pick 9 -> round 3
 
-```json
-"test": "vitest run"
+3. Add tests for `getPickInRound`.
+   - Use `teamCount = 4`.
+   - Assert exact pick-in-round values:
+     - pick 1 -> 1
+     - pick 4 -> 4
+     - pick 5 -> 1
+     - pick 8 -> 4
+     - pick 9 -> 1
+
+4. Add tests for `getDraftPositionForPick`.
+   - Use `teamCount = 4`.
+   - Assert odd-round picks move first to last:
+     - pick 1 -> draft position 1
+     - pick 2 -> draft position 2
+     - pick 3 -> draft position 3
+     - pick 4 -> draft position 4
+   - Assert even-round picks move last to first:
+     - pick 5 -> draft position 4
+     - pick 6 -> draft position 3
+     - pick 7 -> draft position 2
+     - pick 8 -> draft position 1
+
+5. Replace the existing `generateSnakeDraftOrder` smoke test with exact order tests.
+   - For `generateSnakeDraftOrder(4, 2)`, assert the full array equals:
+
+```ts
+[
+  { pickNumber: 1, round: 1, pickInRound: 1, teamId: "team-1" },
+  { pickNumber: 2, round: 1, pickInRound: 2, teamId: "team-2" },
+  { pickNumber: 3, round: 1, pickInRound: 3, teamId: "team-3" },
+  { pickNumber: 4, round: 1, pickInRound: 4, teamId: "team-4" },
+  { pickNumber: 5, round: 2, pickInRound: 1, teamId: "team-4" },
+  { pickNumber: 6, round: 2, pickInRound: 2, teamId: "team-3" },
+  { pickNumber: 7, round: 2, pickInRound: 3, teamId: "team-2" },
+  { pickNumber: 8, round: 2, pickInRound: 4, teamId: "team-1" },
+]
 ```
 
-   - Keep existing scripts unchanged.
+6. Add an MVP-shape test.
+   - For `generateSnakeDraftOrder(12, 16)`, assert:
+     - the generated order has 192 picks
+     - first pick is `{ pickNumber: 1, round: 1, pickInRound: 1, teamId: "team-1" }`
+     - pick 12 is `{ pickNumber: 12, round: 1, pickInRound: 12, teamId: "team-12" }`
+     - pick 13 is `{ pickNumber: 13, round: 2, pickInRound: 1, teamId: "team-12" }`
+     - final pick is `{ pickNumber: 192, round: 16, pickInRound: 12, teamId: "team-1" }`
 
-3. Add Vitest config.
-   - Create `vitest.config.ts`.
-   - Import `defineConfig` from `vitest/config`.
-   - Import `fileURLToPath` from `node:url`.
-   - Configure the `@` alias to resolve to `./src`.
-   - Use the default Node environment.
+7. Update `docs/test-tasks.md`.
+   - Mark `Task 2: Add Draft Order Unit Tests` as complete.
+   - Do not mark Task 3 or later tasks complete.
 
-4. Add the first smoke-style source test.
-   - Create `src/lib/draftOrder.test.ts`.
-   - Import `describe`, `expect`, and `it` from `vitest`.
-   - Import at least one draft order helper through the `@` alias so alias resolution is proven.
-   - Keep assertions intentionally small.
-   - Suggested assertion:
-     - `generateSnakeDraftOrder(2, 2)` returns four picks.
-     - The pick team order is `team-1`, `team-2`, `team-2`, `team-1`.
-
-5. Update `docs/test-tasks.md`.
-   - Mark `Task 1: Configure Unit Test Runner` as complete.
-   - Do not mark Task 2 or later tasks complete.
-
-6. Validate.
+8. Validate.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
 
 ## Acceptance Criteria
 
-- Vitest is installed as a dev dependency.
-- `package.json` includes `test: vitest run`.
-- `vitest.config.ts` exists.
-- Vitest resolves the existing `@/*` alias.
-- `src/lib/draftOrder.test.ts` proves the test runner can import project source.
-- The first test is intentionally small and does not try to cover all draft order behavior.
-- `docs/test-tasks.md` marks only Task 1 complete.
+- `getRoundForPick` has exact unit coverage.
+- `getPickInRound` has exact unit coverage.
+- `getDraftPositionForPick` has exact odd/even round unit coverage.
+- `generateSnakeDraftOrder` has exact small-draft unit coverage.
+- `generateSnakeDraftOrder(12, 16)` is checked for 192 picks and key boundary picks.
+- Tests avoid weak existence-only assertions.
+- Production draft order code is unchanged unless a real bug is found.
+- `docs/test-tasks.md` marks only Task 2 newly complete.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
@@ -135,13 +157,11 @@ Avoid changing app components, draft behavior, recommendation behavior, seed dat
 
 No browser or manual draft smoke test is required for this slice because runtime app behavior is not intended to change.
 
-If UI or draft behavior changes while implementing this slice, the implementation has drifted beyond scope.
-
 ## Slice Review
 
-- Smallest meaningful increment: yes, it only makes automated tests runnable.
-- Concrete enough for implementation: yes, the dependency, script, config, smoke test, docs update, and validation commands are named.
-- Avoids unnecessary architecture changes: yes, no test utilities, React testing, browser testing, CI, or coverage infrastructure are introduced.
-- Blast radius reasonable: yes, expected changes are package metadata, one config file, one tiny test file, test-task docs, and this slice plan.
-- Review/revert comfort: yes, it is isolated from production behavior.
-- Observable/testable acceptance criteria: yes, `npm test`, lint, build, and the Task 1 checkbox verify the slice.
+- Smallest meaningful increment: yes, it covers only pure draft order helpers.
+- Concrete enough for implementation: yes, exact functions, cases, expected values, docs update, and validation commands are listed.
+- Avoids unnecessary architecture changes: yes, no production refactor or new test utility is required.
+- Blast radius reasonable: yes, expected changes are one test file, test-task docs, and this slice plan.
+- Review/revert comfort: yes, the change is isolated to tests and task tracking unless a genuine bug is discovered.
+- Observable/testable acceptance criteria: yes, exact assertions plus `npm test`, lint, build, and the Task 2 checkbox verify the slice.
