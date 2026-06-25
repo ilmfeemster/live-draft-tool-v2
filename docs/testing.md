@@ -320,6 +320,53 @@ Avoid:
 
 ---
 
+## Test Quality Standards
+
+Automated tests should provide meaningful confidence in application behavior.
+
+A test should fail for the right reason. If an incorrect implementation can still satisfy the test, the test is too weak.
+
+Prefer tests that validate:
+
+- Exact outputs when deterministic.
+- Observable business behavior.
+- State transitions.
+- Draft invariants.
+- Recommendation ordering.
+- Recommendation explanations when applicable.
+
+When expected behavior is well-defined, assertions should be specific.
+
+Good:
+
+```ts
+expect(generateSnakeDraftOrder(2, 2)).toEqual(expectedOrder);
+```
+
+Also good:
+
+```ts
+expect(order).toHaveLength(24);
+expect(order[0].teamId).toBe("team-1");
+expect(order[23].round).toBe(12);
+```
+
+Avoid tests that only prove something exists rather than proving it is correct.
+
+Examples of weak assertions include:
+
+```ts
+expect(result).toBeDefined();
+expect(result).toBeTruthy();
+expect(order.length).toBeGreaterThan(0);
+```
+
+unless they are intentionally part of a broader test.
+
+Tests should become more specific as behavior becomes more deterministic.
+
+The goal of every automated test is to detect incorrect behavior, not simply to pass.
+
 # Testing Maturity
 
 Testing depth should match the current maturity of the system.

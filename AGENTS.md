@@ -133,6 +133,14 @@ When implementing a slice:
 - Do not introduce new features or major refactors unless required.
 - If blocked by missing information, contradictions, or failing validation that appears unrelated to the slice, stop and report the issue rather than expanding scope.
 
+Testing expectations:
+
+- Do not weaken tests simply to make them pass.
+- Do not replace meaningful assertions with trivial assertions.
+- Do not modify production code solely to satisfy a test unless the slice explicitly changes behavior.
+- If a test expectation appears incorrect, stop and report the discrepancy rather than silently changing the expectation.
+- Prefer assertions that validate the intended business behavior rather than implementation details.
+
 Lower-model slice rules:
 - Treat `docs/current-slice.md` as the source of truth.
 - Do not infer extra requirements from the app’s future roadmap.
