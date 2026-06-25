@@ -134,7 +134,7 @@ Acceptance Criteria:
 - Pick history stores made picks without requiring empty future pick rows.
 - Existing app tests still pass.
 
-### [ ] 5. Implement Draft Repository Mapping
+### [x] 5. Implement Draft Repository Mapping
 
 Goal:
 
@@ -142,13 +142,13 @@ Create the repository layer that maps database records to typed domain-facing dr
 
 Scope:
 
-- [ ] Add repository functions for creating, loading, and listing draft records.
+- [x] Add repository functions for creating, loading, and listing draft records.
 - [x] Parse league settings JSON into typed settings.
 - [x] Parse ranking snapshot JSON into `RankingEntry[]`.
 - [x] Hydrate `Draft` through the configuration-driven helpers.
 - [x] Keep raw JSON out of UI, Draft State Engine, and Recommendation Engine.
 - [x] Add pure mapping tests using a non-default league configuration.
-- [ ] Add repository or integration tests for actual Prisma-backed create/load/list behavior.
+- [x] Add repository tests for create/load/list behavior.
 
 Non-Goals:
 
@@ -279,7 +279,7 @@ Acceptance Criteria:
 
 Before Phase 2 is complete:
 
-- [ ] Persist draft setup.
+- [x] Persist draft setup.
 - [x] Persist league settings as source configuration.
 - [x] Persist ranking snapshots as JSON.
 - [x] Expose typed `RankingEntry[]` from repository mapping code.

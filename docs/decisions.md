@@ -221,6 +221,46 @@ Tradeoffs:
 
 ---
 
+## 2026-06-25
+
+### Prisma 7 Driver Adapter
+
+Decision:
+
+Use `@prisma/adapter-pg` with `pg` when constructing the Prisma client.
+
+Reason:
+
+The generated Prisma 7 client requires an adapter-backed constructor. The repository layer cannot safely rely on `new PrismaClient()` without explicit options.
+
+Tradeoffs:
+
+- Adds adapter dependencies alongside `@prisma/client` and `prisma`.
+- Keeps the app aligned with Prisma 7's runtime model.
+- Runtime database configuration must be tightened before beta so missing `DATABASE_URL` fails clearly outside local development.
+
+---
+
+## 2026-06-25
+
+### Repository Tests Use Injected Fake Client
+
+Decision:
+
+Repository tests may use an injected Prisma-like fake client for focused create/load/list behavior tests.
+
+Reason:
+
+The repository boundary should be testable without requiring a long-lived external database for every unit test. Fake-client tests verify serialization, query shape, mapping, summary behavior, and domain outputs quickly.
+
+Tradeoffs:
+
+- Fake-client tests do not prove the real database, Prisma client, and migrations work together.
+- Before beta, add real persistence validation through an integration test or documented manual database round trip.
+- Keep fake tests focused on repository behavior and avoid asserting Prisma internals.
+
+---
+
 ## Template
 
 ### YYYY-MM-DD
