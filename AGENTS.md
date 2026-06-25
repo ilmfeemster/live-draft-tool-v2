@@ -143,6 +143,12 @@ Lower-model slice rules:
 - When updating `docs/tasks.md`, only check items directly completed by the current slice.
 - If validation fails, fix only issues caused by this slice.
 
+Implementation integrity:
+
+- Do not satisfy acceptance criteria by bypassing or hardcoding the intended behavior.
+- Do not replace incomplete functionality with placeholder implementations unless the slice explicitly requests a stub.
+- If a requirement cannot be completed correctly within the slice, stop and report the blocker rather than implementing a temporary workaround.
+
 After implementation:
 - Report acceptance criteria status.
 - Summarize files changed.

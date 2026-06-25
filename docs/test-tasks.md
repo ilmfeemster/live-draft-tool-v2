@@ -23,7 +23,7 @@ Avoid planning tests for Phase 2+ work such as persistence, replay systems, live
 
 ## Task 1: Configure Unit Test Runner
 
-Status: [ ]
+Status: [x]
 
 ### Goal
 
