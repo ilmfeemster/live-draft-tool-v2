@@ -23,7 +23,7 @@ Success means a user can create or load a persisted draft, continue entering man
 
 ## Next Tasks
 
-### 1. Define League Settings And Draft Workspace Types
+### [x] 1. Define League Settings And Draft Workspace Types
 
 Goal:
 
@@ -50,7 +50,7 @@ Acceptance Criteria:
 - Existing draft and recommendation code can still consume typed `Draft` and `RankingEntry[]`.
 - No persistence-facing type requires 12 teams, 16 rounds, or fixed roster slots.
 
-### 2. Add Configuration-Driven Draft Hydration Helpers
+### [x] 2. Add Configuration-Driven Draft Hydration Helpers
 
 Goal:
 
@@ -78,7 +78,7 @@ Acceptance Criteria:
 - Active team, round, and pick-in-round are derived from settings and pick history.
 - Tests prove hydration does not assume MVP league size.
 
-### 3. Add Ranking Snapshot JSON Mappers
+### [x] 3. Add Ranking Snapshot JSON Mappers
 
 Goal:
 
@@ -104,7 +104,7 @@ Acceptance Criteria:
 - Invalid snapshot JSON fails before reaching draft or recommendation engines.
 - Tests confirm the mapper preserves player, rank, ADP, position rank, and tier data.
 
-### 4. Configure Prisma And Persistence Schema
+### [x] 4. Configure Prisma And Persistence Schema
 
 Goal:
 
@@ -134,7 +134,7 @@ Acceptance Criteria:
 - Pick history stores made picks without requiring empty future pick rows.
 - Existing app tests still pass.
 
-### 5. Implement Draft Repository Mapping
+### [ ] 5. Implement Draft Repository Mapping
 
 Goal:
 
@@ -142,12 +142,13 @@ Create the repository layer that maps database records to typed domain-facing dr
 
 Scope:
 
-- Add repository functions for creating, loading, and listing draft records.
-- Parse league settings JSON into typed settings.
-- Parse ranking snapshot JSON into `RankingEntry[]`.
-- Hydrate `Draft` through the configuration-driven helpers.
-- Keep Prisma models and raw JSON out of UI, Draft State Engine, and Recommendation Engine.
-- Add repository or integration tests using a non-default league configuration.
+- [ ] Add repository functions for creating, loading, and listing draft records.
+- [x] Parse league settings JSON into typed settings.
+- [x] Parse ranking snapshot JSON into `RankingEntry[]`.
+- [x] Hydrate `Draft` through the configuration-driven helpers.
+- [x] Keep raw JSON out of UI, Draft State Engine, and Recommendation Engine.
+- [x] Add pure mapping tests using a non-default league configuration.
+- [ ] Add repository or integration tests for actual Prisma-backed create/load/list behavior.
 
 Non-Goals:
 
@@ -163,7 +164,7 @@ Acceptance Criteria:
 - Tests prove loaded drafts are valid for default and non-default settings.
 - No engine code imports Prisma types or parses raw JSON.
 
-### 6. Persist Manual Draft Pick Mutations
+### [ ] 6. Persist Manual Draft Pick Mutations
 
 Goal:
 
@@ -191,7 +192,7 @@ Acceptance Criteria:
 - Duplicate drafted players are rejected or prevented.
 - Recommendations remain derived from the loaded draft and ranking snapshot.
 
-### 7. Wire The App To Load A Persisted Draft Workspace
+### [ ] 7. Wire The App To Load A Persisted Draft Workspace
 
 Goal:
 
@@ -217,7 +218,7 @@ Acceptance Criteria:
 - Refreshing the page restores the persisted draft state.
 - UI components do not import Prisma models or raw database JSON.
 
-### 8. Add Draft History And Resume Flow
+### [ ] 8. Add Draft History And Resume Flow
 
 Goal:
 
@@ -244,7 +245,7 @@ Acceptance Criteria:
 - Reopened drafts restore picks, available players, roster, and recommendations.
 - Draft history does not require loading full ranking snapshot JSON for every row.
 
-### 9. Complete Phase 2 Persistence Validation
+### [ ] 9. Complete Phase 2 Persistence Validation
 
 Goal:
 
@@ -279,17 +280,17 @@ Acceptance Criteria:
 Before Phase 2 is complete:
 
 - [ ] Persist draft setup.
-- [ ] Persist league settings as source configuration.
-- [ ] Persist ranking snapshots as JSON.
-- [ ] Expose typed `RankingEntry[]` from repository code.
+- [x] Persist league settings as source configuration.
+- [x] Persist ranking snapshots as JSON.
+- [x] Expose typed `RankingEntry[]` from repository mapping code.
 - [ ] Persist manual pick history.
-- [ ] Hydrate `Draft` from settings, ranking snapshot, and pick history.
+- [x] Hydrate `Draft` from settings, ranking snapshot, and pick history.
 - [ ] Resume an incomplete draft after refresh or restart.
 - [ ] Reopen a draft from draft history.
 - [ ] Verify recommendations remain derived after reload.
-- [ ] Verify no raw ranking JSON reaches the Draft State Engine or Recommendation Engine.
-- [ ] Verify persistence and hydration do not assume MVP league defaults.
-- [ ] Verify at least one non-default league configuration.
+- [x] Verify no raw ranking JSON reaches the Draft State Engine or Recommendation Engine.
+- [x] Verify persistence and hydration do not assume MVP league defaults.
+- [x] Verify at least one non-default league configuration.
 - [ ] Complete a full persisted 12-team draft.
 
 ---
