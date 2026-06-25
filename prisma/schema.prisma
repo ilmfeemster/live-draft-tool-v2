@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum DraftStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETE
+}
+
+model Draft {
+  id                String          @id @default(cuid())
+  name              String?
+  status            DraftStatus     @default(NOT_STARTED)
+  leagueSettings    Json
+  userTeamId        String
+  rankingSnapshotId String
+  rankingSnapshot   RankingSnapshot @relation(fields: [rankingSnapshotId], references: [id])
+  picks             DraftPick[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model RankingSnapshot {
+  id        String   @id @default(cuid())
+  rankings  Json
+  drafts    Draft[]
+  createdAt DateTime @default(now())
+}
+
+model DraftPick {
+  id         String   @id @default(cuid())
+  draftId    String
+  draft      Draft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  pickNumber Int
+  playerId   String
+  createdAt  DateTime @default(now())
+
+  @@unique([draftId, pickNumber])
+  @@index([draftId])
+}
