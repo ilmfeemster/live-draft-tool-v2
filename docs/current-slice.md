@@ -1,238 +1,196 @@
-# Current Slice: Persist Draft And Undo Pick Mutations
+# Current Slice: Add Draft Mutation Server Actions
 
 ## Source Task
 
 `docs/tasks.md` Task 6: Persist Manual Draft Pick Mutations.
 
-This slice implements the persistence behavior behind manual draft and undo operations, but does not wire those operations into the UI yet.
+This slice completes the remaining Task 6 server-side operation step by exposing the repository draft and undo mutations through server actions.
 
 ## Goal
 
-Add repository-level mutation functions that persist manual draft progress while preserving the existing draft state transition behavior.
+Add small server action wrappers for persisted draft and undo operations so the UI can call a stable app-layer API in the next slice.
 
-This slice should prove that a persisted draft can be loaded, mutated through the existing Draft State Engine, saved back to pick history, and reloaded as the same domain-facing `DraftWorkspace`.
+The server actions should delegate to the existing repository mutations and return the same typed `DraftWorkspace | null` result without reimplementing draft rules or persistence behavior.
 
 ## User-Visible Increment
 
 No app UI or runtime behavior should materially change.
 
-The developer-visible increment is repository behavior that can:
+The developer-visible increment is an app-layer API that can:
 
 ```txt
-draft a player into a persisted draft
-reload the draft with the pick restored
-undo the latest persisted pick
-reload the draft with the current pick restored
-reject duplicate or invalid draft mutations without corrupting pick history
+draft a player in a persisted draft workspace
+undo the latest persisted pick in a persisted draft workspace
+return null for missing drafts
+return the updated DraftWorkspace for successful or ignored mutations
 ```
 
 ## Problem
 
-The repository can now create drafts, load a draft workspace, and list draft summaries. However, manual draft progress is still not persisted.
+The repository can now persist draft and undo mutations, but the app has no server-side operation boundary for UI code to call.
 
-The app already has pure draft transition helpers:
-
-- `draftPlayerInDraft`
-- `undoLastDraftPick`
-
-Persistence should not reimplement draft rules. It should load and hydrate the draft, apply those existing transitions, then persist the resulting pick history and status consistently.
+The next UI wiring slice should not import repository details directly into client components. It should call server actions that represent app-level commands.
 
 ## Goals
 
-- Add a repository mutation for drafting a player.
-- Add a repository mutation for undoing the last pick.
-- Load and hydrate the draft before applying each mutation.
-- Validate that drafted players exist in the draft's ranking snapshot.
-- Use existing draft transition helpers for draft and undo behavior.
-- Persist changed pick history in the repository layer.
-- Update draft status consistently with the resulting pick history.
-- Return updated typed `DraftWorkspace` values.
-- Add tests for draft, reload, undo, duplicate prevention, missing draft behavior, and completed-draft status.
-- Update `docs/tasks.md` checkboxes only for Task 6 items directly completed by this slice.
+- Add a server action for drafting a player into a persisted workspace.
+- Add a server action for undoing the latest persisted pick.
+- Keep the server actions thin: validate only basic string inputs if useful, then call repository functions.
+- Return `DraftWorkspace | null` from each action.
+- Preserve repository ownership of persistence and Draft State Engine ownership of draft rules.
+- Add focused tests for action delegation and missing draft behavior.
+- Update `docs/tasks.md` checkboxes only for the Task 6 server-operation item completed by this slice.
 
 ## Non-Goals
 
-- Adding server actions.
-- Wiring UI components or pages to persisted mutation functions.
-- Adding draft history UI.
+- Wiring `DraftRoom` or any UI component to the server actions.
+- Loading a persisted draft into the page.
 - Adding optimistic UI state.
-- Adding browser refresh flow.
+- Adding browser refresh or resume flow.
+- Adding draft history UI.
+- Changing repository mutation behavior.
 - Changing draft state transition behavior.
 - Changing recommendation behavior.
-- Changing ranking snapshot mapper behavior.
-- Changing league settings mapper behavior.
-- Changing the Prisma schema unless implementation reveals a clear blocker.
-- Running a migration against a real database unless local `DATABASE_URL` is already configured and the implementation approach requires it.
+- Changing Prisma schema or migrations.
 - Adding authentication or user/account models.
 - Updating package dependencies.
 - Broad documentation rewrites.
 
 ## Expected Files
 
-- `src/lib/draftRepository.ts`
-- `src/lib/draftRepository.test.ts`
+- `src/app/actions/draftActions.ts`
+- `src/app/actions/draftActions.test.ts`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Possibly:
-
-- `src/lib/draftPersistence.ts` or equivalent only if small helper extraction keeps repository code clearer
-
-Avoid changing UI components, server actions, draft state helpers, recommendation logic, seed ranking data, project scope, roadmap scope, or unrelated documentation.
+Avoid changing UI components, page loading, repository internals, draft state helpers, recommendation logic, seed ranking data, project scope, roadmap scope, or unrelated documentation.
 
 ## Proposed API Shape
 
-Use names that fit the codebase, but keep the repository API close to this shape:
+Use names that fit the codebase, but keep the server action API close to this shape:
 
 ```ts
-async function draftPlayerInWorkspace(
+"use server";
+
+import type { DraftWorkspace } from "@/types/draft";
+import {
+  draftPlayerInWorkspace,
+  undoLastPickInWorkspace,
+} from "@/lib/draftRepository";
+
+export async function draftPlayerAction(
   draftId: string,
   playerId: string,
-): Promise<DraftWorkspace | null>;
+): Promise<DraftWorkspace | null> {
+  return draftPlayerInWorkspace(draftId, playerId);
+}
 
-async function undoLastPickInWorkspace(
+export async function undoLastPickAction(
   draftId: string,
-): Promise<DraftWorkspace | null>;
-```
-
-If the repository is already exposed through `createDraftRepository(db)`, add these methods there as well:
-
-```ts
-function createDraftRepository(db = prisma) {
-  return {
-    createDraftWorkspace,
-    getDraftWorkspaceById,
-    listDraftSummaries,
-    draftPlayerInWorkspace,
-    undoLastPickInWorkspace,
-  };
+): Promise<DraftWorkspace | null> {
+  return undoLastPickInWorkspace(draftId);
 }
 ```
 
+If the implementation adds basic input guards, keep them simple and observable:
+
+- blank `draftId` returns `null`
+- blank `playerId` returns `null`
+- no schema validation library or new dependency
+
 ## Expected Behavior
 
-### Draft Player
+### Draft Player Action
 
-- Load the draft workspace by ID.
-- Return `null` if the draft does not exist.
-- Confirm the player exists in the loaded ranking snapshot.
-- Apply `draftPlayerInDraft(workspace.draft, playerId)`.
-- If the transition returns the original draft unchanged, do not create or delete pick rows.
-- If the transition changes the draft:
-  - persist the new made pick at the current pick position
-  - keep existing earlier pick history
-  - update draft status to `COMPLETE` if every generated pick has a player
-  - otherwise update status to `IN_PROGRESS`
-- Return the reloaded typed `DraftWorkspace`.
+- Accept `draftId` and `playerId` strings.
+- Return `null` if either required input is blank.
+- Call `draftPlayerInWorkspace(draftId, playerId)` for valid inputs.
+- Return the repository result unchanged.
+- Do not inspect rankings, pick history, draft status, or draft completeness in the action.
 
-### Undo Last Pick
+### Undo Last Pick Action
 
-- Load the draft workspace by ID.
-- Return `null` if the draft does not exist.
-- Apply `undoLastDraftPick(workspace.draft)`.
-- If the transition returns the original draft unchanged, do not create or delete pick rows.
-- If the transition changes the draft:
-  - delete the latest persisted pick row
-  - update draft status to `IN_PROGRESS` if picks remain or `NOT_STARTED` if no picks remain
-- Return the reloaded typed `DraftWorkspace`.
+- Accept a `draftId` string.
+- Return `null` if `draftId` is blank.
+- Call `undoLastPickInWorkspace(draftId)` for valid input.
+- Return the repository result unchanged.
+- Do not inspect pick history or draft status in the action.
 
-### Persistence Rules
+### Boundary Rules
 
-- Persist only made picks.
-- Do not store empty future picks.
-- Do not allow duplicate player IDs in persisted pick history.
-- Do not draft players that are missing from the draft's ranking snapshot.
-- Do not advance or persist extra picks after a complete draft.
-- Keep status synchronized with pick history in the same repository operation.
-
-## Transaction Guidance
-
-Use a transaction for multi-step persistence when using the real Prisma client.
-
-For fake-client repository tests, dependency injection may model the same behavior without a real database transaction. Tests should still verify the observable result:
-
-- pick row created or deleted
-- status updated
-- reloaded workspace matches expected draft state
+- Server actions are app-layer command wrappers.
+- Repository functions remain the persistence boundary.
+- Draft State Engine helpers remain the source of draft transition rules.
+- No raw Prisma models or JSON snapshots should be exposed.
+- No UI component should be changed in this slice.
 
 ## Testing Strategy
 
-Use focused repository tests with the existing fake Prisma-like client unless a real test database is already simple to use.
+Use focused unit tests for the server action module.
 
-Tests should validate repository behavior, not Prisma internals.
+Mock the repository exports rather than using a fake database. These tests should prove:
+
+- valid draft action inputs call `draftPlayerInWorkspace` with the same IDs
+- valid undo action inputs call `undoLastPickInWorkspace` with the same draft ID
+- repository return values are returned unchanged
+- missing draft repository results propagate as `null`
+- blank required inputs return `null` without calling the repository
+
+Do not duplicate repository persistence tests here. The repository tests already own draft, reload, undo, duplicate prevention, and completion-status behavior.
 
 ## Implementation Steps
 
-1. Extend repository database interface.
-   - Add the minimal fake/Prisma methods needed for creating and deleting pick rows and updating draft status.
-   - Keep the production default functions lazy through the existing Prisma client boundary.
+1. Add the server action file.
+   - Create `src/app/actions/draftActions.ts`.
+   - Add `"use server"` at the top.
+   - Import the repository mutation functions.
+   - Export `draftPlayerAction` and `undoLastPickAction`.
+   - Add only minimal blank-string guards if used.
 
-2. Implement `draftPlayerInWorkspace`.
-   - Load the workspace.
-   - Validate player exists in loaded rankings.
-   - Apply `draftPlayerInDraft`.
-   - Persist only the newly made pick if the draft changed.
-   - Update status based on the resulting draft.
-   - Return the reloaded workspace.
+2. Add server action tests.
+   - Create `src/app/actions/draftActions.test.ts`.
+   - Mock `@/lib/draftRepository`.
+   - Use a minimal `DraftWorkspace` test object or a small helper to represent returned workspace data.
+   - Assert delegation, unchanged return values, null propagation, and blank-input guards.
 
-3. Implement `undoLastPickInWorkspace`.
-   - Load the workspace.
-   - Apply `undoLastDraftPick`.
-   - Delete the latest persisted pick if the draft changed.
-   - Update status based on remaining pick history.
-   - Return the reloaded workspace.
-
-4. Add tests.
-   - Drafting a player persists the pick.
-   - Reloading after draft restores the pick and current pick.
-   - Drafting a missing player is rejected or ignored without mutating pick history.
-   - Drafting a duplicate player does not create another pick row.
-   - Undo removes the latest persisted pick.
-   - Reloading after undo restores the current pick.
-   - Undo on an empty draft does not mutate pick history.
-   - Completing a small draft updates status to `COMPLETE`.
-   - Undo after completion restores status to `IN_PROGRESS`.
-
-5. Update task tracking.
-   - Update `docs/tasks.md` only for Task 6 checkboxes directly completed by this slice.
+3. Update task tracking.
+   - In `docs/tasks.md`, check the Task 6 item for server-side operations.
+   - If all Task 6 scope items are now checked and the Task 6 acceptance criteria are satisfied by existing repository tests plus this slice, mark Task 6 complete.
    - Do not check Task 7 or later items.
+   - Do not update the Phase 2 validation checklist unless implementation directly proves a listed item end to end.
 
-6. Validate.
+4. Validate.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
 
 ## Acceptance Criteria
 
-- Repository mutation exists for drafting a player.
-- Repository mutation exists for undoing the last pick.
-- Drafting a player persists the pick.
-- Reloading the draft restores the pick and current pick position.
-- Undo removes the latest persisted pick.
-- Reloading after undo restores the current pick.
-- Duplicate drafted players are rejected or prevented.
-- Missing ranking-snapshot players are rejected or prevented.
-- Extra picks after draft completion are blocked.
-- Draft status is updated consistently with pick history.
-- Recommendations remain derivable from the loaded draft and ranking snapshot.
-- Tests cover draft, reload, undo, duplicate prevention, and completion status.
-- `docs/tasks.md` Task 6 checkboxes are updated for completed mutation work.
-- No server action, UI wiring, draft history UI, or browser refresh flow is added.
+- Server action exists for drafting a player.
+- Server action exists for undoing the last pick.
+- Draft action delegates to `draftPlayerInWorkspace`.
+- Undo action delegates to `undoLastPickInWorkspace`.
+- Server actions return repository results unchanged.
+- Missing draft results propagate as `null`.
+- Blank required inputs return `null` without mutating repository state.
+- Tests cover draft action delegation, undo action delegation, null propagation, and blank-input guards.
+- `docs/tasks.md` Task 6 tracking is updated only for completed server-operation work.
+- No UI wiring, persisted page loading, draft history UI, or browser refresh flow is added.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-No browser-based manual test is required for this slice. The app UI should be unchanged.
+No browser-based manual test is required for this slice. The app UI should be unchanged because no component or page should call the new actions yet.
 
 If the app is run manually, confirm the draft room still loads normally from the existing static default draft and seed rankings.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this persists draft and undo mutations behind the repository boundary before server actions or UI wiring.
-- Concrete enough for implementation: yes, APIs, mutation behavior, persistence rules, tests, and validation commands are specified.
-- Avoids unnecessary architecture changes: yes, it reuses the existing Draft State Engine and repository boundary.
-- Blast radius reasonable: yes, expected changes are repository code, repository tests, and task checkbox updates.
-- Review/revert comfort: yes, app runtime UI behavior remains unchanged and mutation behavior is tested at the repository boundary.
-- Observable/testable acceptance criteria: yes, persisted pick rows, statuses, reloaded workspaces, and task checkbox changes are directly verifiable.
+- Smallest meaningful increment: yes, this only exposes the already-tested repository mutations through an app-layer server action boundary.
+- Concrete enough for implementation: yes, files, APIs, behavior, test expectations, and validation commands are specified.
+- Avoids unnecessary architecture changes: yes, it follows the monolith-first Next.js direction and does not add a new service or abstraction.
+- Blast radius reasonable: yes, expected changes are one action module, one test module, and Task 6 tracking.
+- Review/revert comfort: yes, app runtime UI behavior remains unchanged and the slice can be reverted independently.
+- Observable/testable acceptance criteria: yes, delegation, return values, null handling, docs tracking, and validation commands are directly verifiable.
