@@ -1,14 +1,14 @@
-# Current Slice: Add Configuration-Driven Draft Hydration Helpers
+# Current Slice: Add Ranking Snapshot JSON Mappers
 
 ## Source Task
 
-`docs/tasks.md` Task 2: Add Configuration-Driven Draft Hydration Helpers.
+`docs/tasks.md` Task 3: Add Ranking Snapshot JSON Mappers.
 
 ## Goal
 
-Create pure helpers that rebuild a domain `Draft` from league settings and persisted pick history.
+Create pure mapper helpers that serialize and parse ranking snapshots while exposing typed `RankingEntry[]` to application code.
 
-This slice should prove that draft state can be reconstructed from configuration-driven source data before adding Prisma, repositories, server actions, or ranking snapshot JSON storage.
+This slice should prove that persisted ranking snapshot JSON can stay behind a mapper boundary before Prisma, repositories, server actions, or UI loading are introduced.
 
 ## User-Visible Increment
 
@@ -17,35 +17,42 @@ No app UI or runtime behavior should materially change.
 The developer-visible increment is:
 
 ```txt
-src/lib/draftHydration.ts
-src/lib/draftHydration.test.ts
+src/lib/rankingSnapshot.ts
+src/lib/rankingSnapshot.test.ts
 ```
 
-or equivalent files that provide and test pure draft hydration helpers.
+or equivalent files that provide and test ranking snapshot JSON serialization and validation.
 
 ## Problem
 
-Phase 2 persistence should store source state:
+Phase 2 persistence will store ranking snapshots as JSON so a saved draft can keep using the exact rankings it started with, even if future seed rankings change.
 
-- league settings
-- ranking snapshot
-- pick history
+The rest of the app should continue working with typed `RankingEntry[]`. Raw JSON should not leak into the Draft State Engine, Recommendation Engine, UI components, or future repository callers.
 
-The app still needs a domain `Draft` for existing draft state, roster, and recommendation behavior. Before persistence is implemented, the codebase needs a pure conversion path from persisted-style pick history plus `LeagueSettings` into the existing `Draft` shape.
+Before adding Prisma, the codebase needs a small pure mapper boundary that can:
 
-The helper must not assume the MVP defaults. It should derive team count, round count, pick count, active team, round, and pick-in-round from `LeagueSettings`.
+- convert `RankingEntry[]` into repository-storable JSON data
+- parse unknown JSON back into typed `RankingEntry[]`
+- reject malformed snapshot data before it reaches draft or recommendation logic
 
 ## Goals
 
-- Add a pure draft hydration helper.
-- Generate teams from `LeagueSettings.teamCount`.
-- Generate draft order from `LeagueSettings.teamCount`, `LeagueSettings.rounds`, and `LeagueSettings.draftType`.
-- Overlay persisted pick history onto the generated draft order.
-- Derive `currentPickNumber` from the first undrafted pick.
-- Preserve valid completed-draft behavior.
-- Add unit tests for MVP settings.
-- Add unit tests for a non-default league configuration.
-- Validate hydrated drafts with existing draft invariant helpers where practical.
+- Add pure ranking snapshot serialization.
+- Add pure ranking snapshot parsing and validation.
+- Preserve all current `RankingEntry` fields:
+  - `player.id`
+  - `player.name`
+  - `player.team`
+  - `player.position`
+  - `overallRank`
+  - `adpRank`
+  - `positionRank`
+  - `tier`
+- Preserve `adpRank: null` as valid data.
+- Fail clearly for malformed snapshot JSON.
+- Add unit tests for valid snapshots.
+- Add unit tests for malformed snapshots.
+- Keep the mapper independent from Prisma and database-specific types.
 
 ## Non-Goals
 
@@ -53,77 +60,78 @@ The helper must not assume the MVP defaults. It should derive team count, round 
 - Creating database schemas or migrations.
 - Adding repository functions.
 - Adding server actions.
-- Adding ranking snapshot JSON mappers.
-- Loading or validating `RankingEntry[]`.
+- Adding ranking import UI.
+- Adding ranking management UI.
+- Normalizing ranking rows.
+- Changing `seedRankings`.
 - Changing recommendation behavior.
 - Changing UI components.
-- Changing `defaultDraft` behavior unless required by the helper extraction.
+- Parsing CSV files.
+- Updating package dependencies.
 - Modifying `docs/tasks.md`.
 
 ## Expected Files
 
-- `src/lib/draftHydration.ts`
-- `src/lib/draftHydration.test.ts`
-- Possibly `src/types/draft.ts` only if a small persisted pick-history type belongs with shared draft types
+- `src/lib/rankingSnapshot.ts`
+- `src/lib/rankingSnapshot.test.ts`
+- Possibly `src/types/draft.ts` only if a small shared snapshot JSON type is clearly useful
 - `docs/current-slice.md`
 
-Avoid changing Prisma, package dependencies, UI components, recommendation logic, ranking data, project scope, roadmap scope, or task status for this slice.
+Avoid changing Prisma, package dependencies, UI components, recommendation logic, seed ranking data, project scope, roadmap scope, or task status for this slice.
 
 ## Proposed Helper Shape
 
 Use names that fit the codebase, but keep the API close to this shape:
 
 ```ts
-type DraftPickHistoryEntry = {
-  pickNumber: number;
-  playerId: string;
-};
+type RankingSnapshotJson = unknown;
 
-type HydrateDraftInput = {
-  id: string;
-  leagueSettings: LeagueSettings;
-  userTeamId: string;
-  pickHistory?: DraftPickHistoryEntry[];
-};
+function serializeRankingSnapshot(rankings: RankingEntry[]): RankingSnapshotJson;
 
-function hydrateDraftFromSettings(input: HydrateDraftInput): Draft;
+function parseRankingSnapshotJson(snapshot: unknown): RankingEntry[];
 ```
 
 Expected behavior:
 
-- `teams` come from `createDraftTeams(input.leagueSettings.teamCount)`.
-- `picks` start from generated draft order.
-- Each pick-history entry sets `playerId` on the generated pick with the matching `pickNumber`.
-- `currentPickNumber` is the first pick without a `playerId`.
-- If every generated pick has a `playerId`, `currentPickNumber` should remain within the existing `Draft` model's valid range, matching current completed-draft behavior.
-- Unsupported draft types should fail clearly. Since only `"SNAKE"` exists today, this can be an exhaustive check rather than a broad abstraction.
+- Serialization returns JSON-compatible data with the same ranking and player fields.
+- Parsing accepts the serialized shape and returns typed `RankingEntry[]`.
+- Parsing rejects non-array snapshots.
+- Parsing rejects entries missing required ranking or player fields.
+- Parsing rejects invalid field types.
+- Parsing rejects invalid player positions outside the current `Position` union.
+- `adpRank` may be a number or `null`; other ranking number fields must be numbers.
+- The mapper should not silently coerce malformed data into valid-looking rankings.
 
 ## Implementation Steps
 
-1. Add `src/lib/draftHydration.ts`.
-   - Import `LeagueSettings` and `Draft`.
-   - Define local or exported types for pick history and hydration input.
-   - Implement `hydrateDraftFromSettings`.
-   - Use existing `createDraftTeams` and `generateSnakeDraftOrder` helpers.
-   - Avoid hard-coded team counts, rounds, total pick counts, or draft order lengths.
+1. Add `src/lib/rankingSnapshot.ts`.
+   - Import `RankingEntry` and `Position` types.
+   - Define local validation helpers for records, strings, numbers, nullable numbers, and positions.
+   - Implement `serializeRankingSnapshot`.
+   - Implement `parseRankingSnapshotJson`.
+   - Keep the implementation pure and free of Prisma/database imports.
 
-2. Overlay pick history.
-   - Match pick-history entries by `pickNumber`.
-   - Set only `playerId` on generated picks.
-   - Leave `round`, `pickInRound`, and `teamId` derived from generated draft order.
-   - Decide how invalid pick numbers should fail. Prefer a clear thrown error for this slice rather than silently ignoring invalid source data.
+2. Preserve ranking fields during serialization.
+   - Include all current `RankingEntry` fields.
+   - Return fresh plain objects rather than reusing input references.
+   - Do not add storage-only metadata in this slice.
 
-3. Derive current pick.
-   - If there is an undrafted pick, use that pick number.
-   - If all picks are drafted, keep `currentPickNumber` at the final pick number so existing completion logic remains compatible.
-   - Do not store or require a persisted current pick value.
+3. Validate unknown JSON during parsing.
+   - Confirm the snapshot is an array.
+   - Confirm each entry has a valid `player` object.
+   - Confirm player fields are valid strings.
+   - Confirm `player.position` is one of `"QB"`, `"RB"`, `"WR"`, `"TE"`, `"DST"`, or `"K"`.
+   - Confirm ranking fields have valid number/null types.
+   - Throw clear errors that identify the malformed field or entry.
 
 4. Add unit tests.
-   - MVP settings with no pick history creates a valid empty draft.
-   - MVP settings with partial pick history overlays players and derives current pick.
-   - A completed draft remains valid according to existing completion behavior.
-   - A non-default league configuration derives pick count, teams, rounds, active team, and current pick from settings.
-   - Invalid pick history fails clearly.
+   - Valid snapshot round-trips without losing player, rank, ADP, position rank, or tier data.
+   - `adpRank: null` is preserved.
+   - Serialization returns data that can be parsed back into typed rankings.
+   - Non-array snapshots fail clearly.
+   - Missing required player fields fail clearly.
+   - Invalid position values fail clearly.
+   - Invalid rank field types fail clearly.
 
 5. Validate.
    - Run `npm test`.
@@ -132,17 +140,15 @@ Expected behavior:
 
 ## Acceptance Criteria
 
-- A pure hydration helper exists.
-- Hydration returns a valid `Draft` for MVP settings.
-- Hydration returns a valid `Draft` for a non-default league configuration.
-- Pick count is derived from `LeagueSettings`.
-- Team count is derived from `LeagueSettings`.
-- Round and pick-in-round are derived from generated draft order, not persisted pick history.
-- Active team is derived from settings and pick number.
-- Current pick is derived from pick history.
-- Tests prove hydration does not assume MVP league size.
-- Invalid pick history does not silently produce a misleading draft.
-- No Prisma, repository, server action, UI, or ranking snapshot JSON implementation is added.
+- A pure ranking snapshot mapper exists.
+- Repository-facing code can serialize `RankingEntry[]` into JSON-compatible snapshot data.
+- App-facing code can parse unknown snapshot JSON into typed `RankingEntry[]`.
+- The mapper preserves player ID, name, NFL team, position, overall rank, ADP rank, position rank, and tier.
+- `adpRank: null` remains valid and is preserved.
+- Invalid snapshot JSON fails before reaching draft or recommendation engines.
+- Tests prove valid snapshot round trips.
+- Tests prove malformed snapshots are rejected.
+- No Prisma, repository, server action, UI, ranking import, or normalized ranking-row implementation is added.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
@@ -151,13 +157,13 @@ Expected behavior:
 
 No browser-based manual test is required for this slice. The app UI should be unchanged.
 
-If the app is run manually, confirm the draft room still loads normally with the default draft.
+If the app is run manually, confirm the draft room still loads normally with the existing seed rankings.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, this isolates pure hydration before storage and repository work.
-- Concrete enough for implementation: yes, files, helper shape, edge cases, and validation are specified.
-- Avoids unnecessary architecture changes: yes, no database, server action, repository, UI, or ranking JSON work is included.
-- Blast radius reasonable: yes, expected changes are limited to one helper module, one test module, and possibly a small shared type.
-- Review/revert comfort: yes, the slice is pure domain conversion logic with tests.
-- Observable/testable acceptance criteria: yes, helper outputs and validation commands verify the slice.
+- Smallest meaningful increment: yes, this isolates the ranking JSON boundary before database and repository work.
+- Concrete enough for implementation: yes, files, helper shape, malformed cases, and validation commands are specified.
+- Avoids unnecessary architecture changes: yes, no database, server action, repository, UI, or normalized ranking model work is included.
+- Blast radius reasonable: yes, expected changes are limited to one mapper module, one test module, and possibly a small shared type.
+- Review/revert comfort: yes, the slice is pure data transformation logic with tests.
+- Observable/testable acceptance criteria: yes, helper outputs, thrown validation errors, and validation commands verify the slice.
