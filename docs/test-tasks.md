@@ -99,7 +99,7 @@ Validate the pure snake draft order helpers that determine round, pick-in-round,
 
 ## Task 3: Add Draft State Transition Tests
 
-Status: [ ]
+Status: [x]
 
 ### Goal
 

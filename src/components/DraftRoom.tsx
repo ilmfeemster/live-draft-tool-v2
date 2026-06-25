@@ -5,6 +5,7 @@ import { AvailablePlayersTable } from "@/components/AvailablePlayersTable";
 import { DraftStatusPanel } from "@/components/DraftStatusPanel";
 import { RecommendationsPanel } from "@/components/RecommendationsPanel";
 import { UserRosterPanel } from "@/components/UserRosterPanel";
+import { draftPlayerInDraft, undoLastDraftPick } from "@/lib/draftState";
 import { generateTopRecommendations } from "@/lib/recommendations";
 import type { Draft, RankingEntry, UserRosterPlayer } from "@/types/draft";
 
@@ -66,71 +67,11 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
   const canUndoLastPick = draftedPlayerIds.size > 0;
 
   function draftPlayer(playerId: string) {
-    setActiveDraft((currentDraft) => {
-      const totalPicks = currentDraft.teamCount * currentDraft.rounds;
-      const currentPick = currentDraft.picks.find(
-        (pick) => pick.pickNumber === currentDraft.currentPickNumber,
-      );
-      const isAlreadyDrafted = currentDraft.picks.some((pick) => pick.playerId === playerId);
-      const isDraftComplete = currentDraft.picks.every((pick) => Boolean(pick.playerId));
-
-      if (!currentPick || currentPick.playerId || isAlreadyDrafted || isDraftComplete) {
-        return currentDraft;
-      }
-
-      return {
-        ...currentDraft,
-        currentPickNumber: Math.min(currentDraft.currentPickNumber + 1, totalPicks),
-        picks: currentDraft.picks.map((pick) => {
-          if (pick.pickNumber !== currentPick.pickNumber) {
-            return pick;
-          }
-
-          return {
-            ...pick,
-            playerId,
-          };
-        }),
-      };
-    });
+    setActiveDraft((currentDraft) => draftPlayerInDraft(currentDraft, playerId));
   }
 
   function undoLastPick() {
-    setActiveDraft((currentDraft) => {
-      const lastDraftedPick = currentDraft.picks.reduce(
-        (latestPick, pick) => {
-          if (!pick.playerId) {
-            return latestPick;
-          }
-
-          if (!latestPick || pick.pickNumber > latestPick.pickNumber) {
-            return pick;
-          }
-
-          return latestPick;
-        },
-        undefined as Draft["picks"][number] | undefined,
-      );
-
-      if (!lastDraftedPick) {
-        return currentDraft;
-      }
-
-      return {
-        ...currentDraft,
-        currentPickNumber: lastDraftedPick.pickNumber,
-        picks: currentDraft.picks.map((pick) => {
-          if (pick.pickNumber !== lastDraftedPick.pickNumber) {
-            return pick;
-          }
-
-          return {
-            ...pick,
-            playerId: undefined,
-          };
-        }),
-      };
-    });
+    setActiveDraft((currentDraft) => undoLastDraftPick(currentDraft));
   }
 
   return (
