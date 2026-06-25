@@ -1,64 +1,66 @@
-# Current Slice: Load Draft Room From Persisted Workspace
+# Current Slice: Persist Draft Room Interactions
 
 ## Source Task
 
 `docs/tasks.md` Task 7: Wire The App To Load A Persisted Draft Workspace.
 
-This slice starts Task 7 by moving the draft room's initial data source from static `defaultDraft`/`seedRankings` props to a persisted `DraftWorkspace` loaded on the server.
+This slice completes the remaining Task 7 interaction wiring by making the draft room's draft and undo buttons call the existing server actions instead of mutating only local in-memory draft state.
 
 ## Goal
 
-Load a persisted draft workspace for the home page and pass its typed `Draft` and `RankingEntry[]` into the existing `DraftRoom`.
+Persist manual draft and undo interactions from the existing draft room UI while preserving the current user experience as much as possible.
 
-If no persisted draft exists, create one using the existing MVP defaults and seed rankings. This gives the app a durable workspace identity before UI mutation wiring happens.
+The draft room should continue to derive available players, roster, recommendations, and draft status from typed `Draft` and `RankingEntry[]` data. The difference is that successful button actions should replace local draft state with the updated persisted `DraftWorkspace` returned by the server action.
 
 ## User-Visible Increment
 
-The draft room should still look and behave the same on first load.
+Manual picks and undo operations should survive browser refresh when the local database is configured.
 
-The meaningful product increment is that the initial draft room state now comes from a persisted `DraftWorkspace` when the database is available:
+The user-visible workflow should be:
 
 ```txt
-open the draft room
-load the most recently updated persisted draft if one exists
-otherwise create a default persisted draft
-render the existing draft UI from that workspace
+open persisted draft room
+draft a player
+see the draft board update
+refresh the page
+see the drafted player still restored
+undo the latest pick
+refresh the page
+see the undo restored
 ```
 
 ## Problem
 
-The repository can create, list, load, draft, and undo persisted workspaces. Server actions now expose draft and undo mutations. However, the page still renders from static in-memory data:
+The page now loads its initial state from a persisted `DraftWorkspace`, but `DraftRoom` still handles draft and undo interactions with pure client-side helpers:
 
-- `defaultDraft`
-- `seedRankings`
+- `draftPlayerInDraft`
+- `undoLastDraftPick`
 
-That means refresh and restart cannot restore persisted draft setup or pick history yet. Before wiring client-side mutation calls, the page needs a server-side persisted workspace source.
+That means the first page load is persisted, but new user interactions are not written to pick history yet. The server actions and repository mutations already exist; the client component needs to call them.
 
 ## Goals
 
-- Add a small server-side helper that loads the active persisted draft workspace.
-- If at least one draft summary exists, load the most recently updated draft workspace by ID.
-- If no draft exists, create a default persisted draft using:
-  - `defaultLeagueSettings`
-  - `seedRankings`
-  - `team-2` as the MVP user team ID, matching the current default draft position
-- Update `src/app/page.tsx` to render `DraftRoom` from the loaded `DraftWorkspace`.
-- Keep `DraftRoom` props typed as domain data, not Prisma data or raw JSON.
-- Keep existing client-side draft/undo behavior unchanged for this slice.
-- Add focused tests for the workspace-loading helper using a fake repository API.
+- Wire draft-player clicks to `draftPlayerAction`.
+- Wire undo clicks to `undoLastPickAction`.
+- Replace `activeDraft` with the returned workspace draft when the action succeeds.
+- Keep recommendations, available players, roster, and status derived from current local `activeDraft` and existing rankings.
+- Keep the UI responsive enough for MVP use by tracking pending mutations.
+- Prevent duplicate overlapping draft/undo requests while a mutation is pending.
+- Leave ranking data unchanged in the component because the ranking snapshot does not change during draft/undo mutations.
 - Update `docs/tasks.md` only for Task 7 items directly completed by this slice.
 
 ## Non-Goals
 
-- Wiring draft and undo buttons to server actions.
-- Persisting client-side draft actions from the UI.
 - Adding optimistic UI state.
+- Adding toast notifications or error banners.
+- Adding retry UI.
 - Adding draft history UI.
 - Adding route params or draft selection.
 - Adding custom league setup UI.
 - Changing recommendation logic.
 - Changing draft state transition behavior.
 - Changing repository mutation behavior.
+- Changing server action behavior unless a small guard is required by the client wiring.
 - Changing Prisma schema or migrations.
 - Adding authentication or user/account models.
 - Updating package dependencies.
@@ -67,184 +69,153 @@ That means refresh and restart cannot restore persisted draft setup or pick hist
 
 ## Expected Files
 
-- `src/lib/draftWorkspaceLoader.ts`
-- `src/lib/draftWorkspaceLoader.test.ts`
-- `src/app/page.tsx`
+- `src/components/DraftRoom.tsx`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
 Possibly:
 
-- `src/data/defaultDraft.ts`, only if exporting the current MVP user team ID avoids duplicating `"team-2"`
+- `src/app/actions/draftActions.ts`, only if the component wiring reveals a tiny server-action shape issue.
 
-Avoid changing UI components, server actions, repository internals, draft state helpers, recommendation logic, seed ranking data, Prisma schema, project scope, roadmap scope, or unrelated documentation.
-
-## Proposed API Shape
-
-Use names that fit the codebase, but keep the helper close to this shape:
-
-```ts
-import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
-import { seedRankings } from "@/data/seedRankings";
-import {
-  createDraftWorkspace,
-  getDraftWorkspaceById,
-  listDraftSummaries,
-} from "@/lib/draftRepository";
-import type { DraftWorkspace } from "@/types/draft";
-
-type DraftWorkspaceLoaderRepository = {
-  createDraftWorkspace: typeof createDraftWorkspace;
-  getDraftWorkspaceById: typeof getDraftWorkspaceById;
-  listDraftSummaries: typeof listDraftSummaries;
-};
-
-export async function loadOrCreateDefaultDraftWorkspace(
-  repository = {
-    createDraftWorkspace,
-    getDraftWorkspaceById,
-    listDraftSummaries,
-  },
-): Promise<DraftWorkspace> {
-  // implementation described below
-}
-```
-
-The production helper should use the real repository functions by default. Tests should inject a fake repository object.
+Avoid changing page loading, repository internals, draft state helpers, recommendation logic, seed ranking data, Prisma schema, project scope, roadmap scope, or unrelated documentation.
 
 ## Expected Behavior
 
-### Existing Draft
+### Draft Player
 
-- Call `listDraftSummaries()`.
-- If the list contains at least one summary, use the first summary because repository summaries are ordered by `updatedAt desc`.
-- Call `getDraftWorkspaceById(summary.id)`.
-- If a workspace is returned, return it.
-- Do not create a new draft.
+- When a player is selected from recommendations or the available players table:
+  - If a mutation is already pending, do nothing.
+  - Call `draftPlayerAction(activeDraft.id, playerId)`.
+  - If the action returns a workspace, update local draft state to `workspace.draft`.
+  - If the action returns `null`, leave local draft state unchanged.
+- Do not call `draftPlayerInDraft` in the component for persisted interactions.
+- Existing repository/action behavior should continue to reject duplicate, invalid, missing-player, or complete-draft mutations.
 
-### No Existing Draft
+### Undo Last Pick
 
-- If `listDraftSummaries()` returns an empty array, call `createDraftWorkspace()`.
-- Use default MVP source state:
-  - name: `"Default Draft"` or similarly clear MVP default label
-  - league settings: `defaultLeagueSettings`
-  - rankings: `seedRankings`
-  - user team id: `"team-2"`
-- Return the created workspace.
+- When undo is clicked:
+  - If a mutation is already pending, do nothing.
+  - Call `undoLastPickAction(activeDraft.id)`.
+  - If the action returns a workspace, update local draft state to `workspace.draft`.
+  - If the action returns `null`, leave local draft state unchanged.
+- Do not call `undoLastDraftPick` in the component for persisted interactions.
 
-### Stale Summary Fallback
+### Pending State
 
-- If `listDraftSummaries()` returns a summary but `getDraftWorkspaceById(summary.id)` returns `null`, create a default persisted draft.
-- This should be treated as defensive behavior, not a new user-facing recovery UI.
+- Add one local pending state such as `isMutationPending`.
+- Use it to prevent overlapping requests.
+- Disable draft actions while pending by passing `isDraftComplete || isMutationPending` to existing draft-button disabling paths if practical.
+- Disable undo while pending by setting `canUndoLastPick` to false while pending.
+- Do not add visible loading copy or new UI surfaces in this slice unless required for correctness.
 
-### Page Rendering
+### Error Handling
 
-- Make `src/app/page.tsx` an async server component.
-- Call `loadOrCreateDefaultDraftWorkspace()`.
-- Pass `workspace.draft` and `workspace.rankings` to `DraftRoom`.
-- Update the header stats to derive from `workspace.leagueSettings` instead of hard-coded values.
-- Do not import Prisma types or raw JSON into the page.
-- Do not change `DraftRoom` behavior in this slice.
-
-## Database Availability Guidance
-
-This slice may require a local database for manual page rendering because the page will call repository functions on the server.
-
-Do not hide repository errors by silently falling back to static data in the helper. If local database setup is missing, validation may still pass through tests/build, and manual runtime testing should report the database blocker clearly.
-
-If `npm run build` fails because prerendering tries to connect to the database, adjust the page to use dynamic server rendering in the smallest Next.js-supported way, such as:
-
-```ts
-export const dynamic = "force-dynamic";
-```
-
-Do not add a static fallback that bypasses persistence just to make the build pass.
+- If a server action throws, reset pending state and leave local draft state unchanged.
+- It is acceptable to log the error with `console.error` for this slice.
+- Do not add a full user-facing error system in this slice.
 
 ## Testing Strategy
 
-Use focused unit tests for the helper with an injected fake repository.
+Do not add a new React testing dependency for this slice.
 
-Tests should prove:
+The persistence behavior is already covered by:
 
-- Existing latest summary loads by ID.
-- Existing loaded workspace is returned unchanged.
-- No draft summaries creates a default persisted workspace.
-- Stale summary with missing workspace creates a default persisted workspace.
-- Default creation uses `defaultLeagueSettings`, `seedRankings`, and `team-2`.
+- repository mutation tests
+- server action delegation tests
+- workspace loader tests
 
-Do not test Prisma internals. Do not add UI tests for this slice unless the implementation naturally exposes a small pure page helper.
+This slice should rely on:
+
+- TypeScript/build validation to prove the client/server action wiring compiles.
+- Existing unit tests to guard the persistence behavior behind the actions.
+- Manual runtime validation with a configured local database to prove the click-refresh workflow.
+
+If implementation naturally extracts a small pure helper, add a unit test for that helper. Do not add an abstraction only to make the component easier to test.
 
 ## Implementation Steps
 
-1. Add the workspace loader helper.
-   - Create `src/lib/draftWorkspaceLoader.ts`.
-   - Define a small repository dependency type based on the existing repository functions.
-   - Implement `loadOrCreateDefaultDraftWorkspace`.
-   - Keep default draft creation source state explicit and close to the helper.
+1. Update `DraftRoom` imports.
+   - Remove `draftPlayerInDraft` and `undoLastDraftPick` imports.
+   - Import `draftPlayerAction` and `undoLastPickAction`.
 
-2. Add helper tests.
-   - Create `src/lib/draftWorkspaceLoader.test.ts`.
-   - Use a fake repository object with `vi.fn()` functions.
-   - Use a minimal `DraftWorkspace` fixture.
-   - Assert load-existing, create-empty, stale-summary fallback, and default input shape.
+2. Add mutation pending state.
+   - Add `const [isMutationPending, setIsMutationPending] = useState(false);`.
+   - Keep existing `activeDraft` state.
 
-3. Update the home page.
-   - Make `src/app/page.tsx` async.
-   - Import `loadOrCreateDefaultDraftWorkspace`.
-   - Load the workspace on the server.
-   - Replace `defaultDraft` and `seedRankings` imports/usages with `workspace.draft` and `workspace.rankings`.
-   - Derive Teams, Format, and Draft labels from `workspace.leagueSettings`.
-   - Add `export const dynamic = "force-dynamic"` only if needed for build/runtime correctness.
+3. Wire persisted draft action.
+   - Change `draftPlayer` to an async function.
+   - Guard against `isMutationPending`.
+   - Set pending true before calling the server action.
+   - Call `draftPlayerAction(activeDraft.id, playerId)`.
+   - If a workspace is returned, call `setActiveDraft(workspace.draft)`.
+   - Reset pending in `finally`.
 
-4. Update task tracking.
-   - In `docs/tasks.md`, check only Task 7 scope items directly completed by this slice.
-   - Do not mark all of Task 7 complete unless refresh persistence is actually satisfied by the implemented page load path and validation.
+4. Wire persisted undo action.
+   - Change `undoLastPick` to an async function.
+   - Guard against `isMutationPending`.
+   - Set pending true before calling the server action.
+   - Call `undoLastPickAction(activeDraft.id)`.
+   - If a workspace is returned, call `setActiveDraft(workspace.draft)`.
+   - Reset pending in `finally`.
+
+5. Prevent overlapping interactions.
+   - Treat the draft as unavailable for new draft clicks while pending.
+   - Treat undo as unavailable while pending.
+   - Keep derived recommendation/roster logic unchanged.
+
+6. Update task tracking.
+   - In `docs/tasks.md`, check the Task 7 item for persisting draft room draft and undo interactions through server actions.
+   - If Task 7 scope items are now all complete and validation supports the acceptance criteria, mark Task 7 complete.
+   - Update the Phase 2 validation checklist only for items directly proven by implementation and validation.
    - Do not check Task 8 or later items.
-   - Do not update the Phase 2 validation checklist unless implementation directly proves a listed item end to end.
 
-5. Validate.
+7. Validate.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - If a local database is available, run the app manually and confirm first load creates or loads a persisted workspace.
+   - With local database configured and migrated, run `npm run dev` and manually verify draft, refresh, undo, refresh.
 
 ## Acceptance Criteria
 
-- Home page loads a `DraftWorkspace` through a server-side persistence helper.
-- Existing persisted draft summaries load the most recently updated workspace.
-- Empty persistence state creates a default persisted workspace.
-- Stale summary fallback creates a default persisted workspace.
-- `DraftRoom` receives typed `draft` and `rankings` from the loaded workspace.
-- Header stats derive from loaded league settings instead of hard-coded values.
+- Draft room draft clicks call `draftPlayerAction`.
+- Draft room undo clicks call `undoLastPickAction`.
+- Successful draft action responses update local draft state from returned `DraftWorkspace`.
+- Successful undo action responses update local draft state from returned `DraftWorkspace`.
+- Draft and undo interactions persist after page refresh when the local database is configured.
+- Duplicate overlapping mutation requests are prevented while an action is pending.
+- Available players, roster, status, and recommendations still derive correctly from loaded draft state.
 - UI components do not import Prisma models or raw database JSON.
-- Existing in-memory client draft/undo behavior remains unchanged for this slice.
-- Tests cover existing-load, empty-create, stale-summary fallback, and default creation inputs.
-- `docs/tasks.md` Task 7 tracking is updated only for completed load-workspace work.
-- No draft/undo server action wiring, draft history UI, custom setup UI, or route-based resume flow is added.
+- Existing repository and server action tests remain green.
+- `docs/tasks.md` Task 7 tracking is updated only for completed interaction-wiring work.
+- No draft history UI, custom setup UI, route-based resume flow, optimistic UI, or new package dependency is added.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-If a local database is configured and migrated:
+Requires a configured and migrated local database.
 
-- Start the app.
+Manual checks:
+
+- Start the app with `npm run dev`.
 - Open the draft room.
-- Confirm the page renders normally.
-- Confirm a default draft record exists after first load if the database was empty.
-- Refresh the page and confirm the same persisted workspace is loaded.
+- Draft one player.
+- Refresh the page and confirm the player remains drafted.
+- Undo the pick.
+- Refresh the page and confirm the player is available again and current pick is restored.
+- Draft several picks, refresh, and confirm recommendations and roster still derive from the restored draft state.
 
-If no local database is available:
+If the local database is unavailable:
 
-- Report that manual runtime validation is blocked by database availability.
-- Do not replace persistence loading with static fallback behavior.
+- Report manual runtime validation as blocked by database availability.
+- Do not replace persistence behavior with static fallback behavior.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it only changes the page's initial data source to a persisted workspace and does not combine mutation wiring or history UI.
-- Concrete enough for implementation: yes, helper API, page behavior, tests, defaults, fallback behavior, and validation commands are specified.
-- Avoids unnecessary architecture changes: yes, it uses the existing repository boundary and a small server-side helper.
-- Blast radius reasonable: yes, expected changes are one helper, one helper test, the home page, and Task 7 tracking.
-- Review/revert comfort: yes, the slice is focused on initial page data loading and can be reverted independently.
-- Observable/testable acceptance criteria: yes, helper tests prove load/create behavior and page code visibly renders from the loaded workspace.
+- Smallest meaningful increment: yes, it wires only existing draft/undo interactions to existing server actions and avoids history, routing, or custom setup.
+- Concrete enough for implementation: yes, handler behavior, pending state, task updates, and validation are specified.
+- Avoids unnecessary architecture changes: yes, it uses the existing server actions and repository boundary.
+- Blast radius reasonable: yes, expected source change is one client component plus Task 7 tracking.
+- Review/revert comfort: yes, the slice can be reverted independently to restore client-only draft behavior.
+- Observable/testable acceptance criteria: yes, automated validation proves the wiring compiles and existing persistence tests remain green; manual runtime validation proves refresh persistence.
