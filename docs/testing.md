@@ -1,136 +1,183 @@
 # Testing
 
+## Goal
+
+Define the testing strategy for the active project.
+
+This document describes:
+
+- What should be tested.
+- What confidence is required before work is considered complete.
+- How testing effort should be prioritized.
+- How testing work should be planned.
+
+This document defines testing strategy, not implementation tasks.
+
+---
+
 ## Testing Philosophy
 
-The MVP prioritizes confidence and correctness over test quantity.
+The project prioritizes confidence and correctness over test quantity.
 
 Favor tests that validate observable behavior rather than implementation details.
 
-Focus on validating:
+Prioritize testing:
 
-- Core draft workflow
+- Business logic
 - Draft state transitions
 - Recommendation behavior
-- Roster tracking
-- User-facing functionality
+- Data transformations
+- User-facing workflows
 
 Avoid writing tests solely to increase coverage metrics.
 
-Testing should scale with the maturity of the application. Early development should prioritize deterministic business logic and manual validation. As the recommendation engine becomes more sophisticated, increase investment in scenario and regression testing.
+Testing should scale with the maturity and complexity of the application.
 
 ---
 
-## Testing by Phase
+## Testing Documentation Workflow
 
-### Phase 1 — Functional Draft Tracker
+Testing documentation follows the same progressive planning model as development.
 
-Testing should focus on ensuring a complete draft can be completed reliably.
+```text
+testing.md
+        ↓
+test-tasks.md
+        ↓
+current-slice.md
+```
 
-Prioritize:
+Each document adds detail without duplicating the previous level.
 
-- Draft engine unit tests
-- Recommendation scoring unit tests
-- Draft state validation
-- Manual end-to-end workflow testing
-- A small number of integration tests covering the core draft flow
+### testing.md
 
-Do not over-invest in UI tests during Phase 1 unless the UI behavior is essential to completing a draft.
+Defines:
 
-Phase 1 is sufficiently tested when:
+- testing strategy
+- testing priorities
+- acceptance expectations
+- testing principles
 
-- Core draft logic is covered by unit tests.
-- Recommendation scoring logic is covered by unit tests.
-- Manual checklist passes.
-- A complete 12-team draft can be completed while maintaining a valid draft state throughout.
+### test-tasks.md
 
----
+Defines:
 
-### Phase 2 — Intelligent Draft Assistant
+- executable testing work
+- testing milestones
+- task completion status
 
-Testing expands because recommendation behavior becomes the core product value.
+### current-slice.md
 
-Add:
+Defines:
 
-- Scenario tests for realistic draft states
-- Regression tests for recommendation behavior
-- Tests for recommendation explanations
-- Tests covering interactions between recommendation rules
-
-Each new recommendation rule should include at least:
-
-- One test proving when the rule should apply.
-- One test proving when the rule should not apply, when practical.
+- one focused testing implementation slice
 
 ---
 
-### Phase 3 — Live Draft Experience
+## Testing Task Workflow
 
-Testing should focus on validating external integrations without changing core draft behavior.
+If `docs/test-tasks.md` does not exist when planning testing work, create it.
 
-Add:
+When asked to create or update testing tasks:
 
-- Integration tests for live draft syncing
-- Tests for duplicate, delayed, or missing draft events
-- Tests verifying synced picks produce the same draft state as manual picks
-- Manual testing against supported fantasy platforms
+1. Read `docs/testing.md`.
+2. Identify the requested testing area.
+3. Break the work into small, reviewable testing tasks.
+4. Replace or update `docs/test-tasks.md`.
+5. Keep testing tasks independent whenever practical.
 
-The recommendation engine should require minimal changes if the draft state remains consistent.
-
----
-
-### Phase 4 — Advanced Strategy
-
-Testing should focus on strategic correctness.
-
-Add:
-
-- Strategy profile tests
-- Draft archetype recognition tests
-- Future-planning scenario tests
-- Regression tests for strategic recommendations
+Testing tasks should remain implementation-focused rather than strategy-focused.
 
 ---
 
-### Phase 5 — Fantasy Platform
+## Creating Testing Tasks
 
-Expand testing to platform functionality.
+Testing tasks should represent vertical slices of testing work.
 
-Add:
+Each task should have:
 
-- Rankings and projections
-- User settings
-- Data persistence
-- Premium features
-- User accounts
-- Supporting fantasy tools
+```md
+## Task
+
+### Goal
+
+### Test Type
+
+- Unit
+- Integration
+- Scenario
+- Regression
+- Manual QA
+
+### Scope
+
+### Non-Goals
+
+### Acceptance Criteria
+```
+
+Tasks should be:
+
+- independently reviewable
+- independently executable
+- independently reversible
+
+Avoid combining unrelated testing work into a single task.
 
 ---
 
-### Phase 6 — Competitive Intelligence
+## Creating Testing Slices
 
-Add tests for:
+A testing task is not a testing slice.
 
-- Simulations
-- Probability models
-- Opponent modeling
-- Personalized recommendations
-- Confidence scores
-- AI explanation layer
+When creating a testing slice:
 
-AI should explain deterministic recommendation logic rather than replace it.
+- Select a single testing task.
+- Keep the slice narrowly focused.
+- Define exactly what should be tested.
+- Avoid expanding into unrelated production code.
+- Include observable acceptance criteria.
+
+Testing slices should generally modify only the tests required for the selected task.
 
 ---
+
+# Active Testing Scope
+
+Current testing effort should focus on the active project.
+
+Prioritize confidence in:
+
+- Draft setup
+- Manual draft workflow
+- Draft state transitions
+- Available player tracking
+- User roster tracking
+- Recommendation updates
+- Undo functionality
+- Complete draft completion
+
+Avoid investing heavily in testing future capabilities before they become active project work.
+
+---
+
+# Testing Priorities
 
 ## Unit Tests
 
-Test pure business logic whenever possible.
+Unit tests should receive the greatest investment.
 
-### Draft Logic
+Prioritize deterministic business logic.
+
+Examples include:
+
+### Draft Engine
 
 - Snake draft order generation
 - Round calculation
 - Pick number calculation
 - Active team calculation
+- Draft state transitions
 
 ### Recommendation Engine
 
@@ -143,15 +190,87 @@ Test pure business logic whenever possible.
 
 ### Validation
 
-- Ranking import validation
+- Ranking validation
 - Duplicate player prevention
 - Draft state validation
 
 ---
 
-## Draft Invariants
+## Integration Tests
 
-The following conditions should remain true after every draft action:
+Verify interactions between application components.
+
+Examples:
+
+### Rankings
+
+- Import rankings
+- Load rankings into draft state
+
+### Draft Flow
+
+- Draft player
+- Remove player from available pool
+- Advance draft
+- Update recommendations
+
+### Roster Tracking
+
+- Add drafted players
+- Update position counts
+- Update roster needs
+
+---
+
+## Scenario Tests
+
+Scenario tests validate complete draft situations.
+
+Each scenario should define:
+
+- Draft state
+- Available players
+- User roster
+- League settings
+- Expected recommendation ordering
+- Expected recommendation reasoning
+
+Scenario tests become increasingly valuable as recommendation complexity grows.
+
+---
+
+## Regression Tests
+
+Every significant bug fix should include a regression test whenever practical.
+
+Regression tests should verify:
+
+- Previously fixed bugs remain fixed.
+- Recommendation behavior remains stable.
+- Existing scenarios continue producing expected results.
+
+Update expected behavior only when recommendation logic intentionally changes.
+
+---
+
+## Manual QA
+
+Manual testing validates complete user workflows.
+
+Manual testing should confirm:
+
+- Core workflow remains usable.
+- Recommendations appear correctly.
+- Draft state remains valid.
+- Common user interactions behave as expected.
+
+Manual QA complements automated testing rather than replacing it.
+
+---
+
+# Draft Invariants
+
+The following conditions should remain true after every draft action.
 
 - A player exists in exactly one location.
 - Drafted players never appear in the available player pool.
@@ -161,192 +280,57 @@ The following conditions should remain true after every draft action:
 - Undo restores the previous valid draft state.
 - Recommendation results only contain available players.
 
-These invariants should be tested directly where practical and verified through integration and scenario tests.
+Whenever practical, invariants should be validated directly by automated tests.
 
 ---
 
-## Integration Tests
+# Acceptance Criteria
 
-Verify interactions between components and systems.
+A feature should not be considered complete until:
 
-### Rankings
+- Relevant acceptance criteria have been satisfied.
+- Required automated tests pass.
+- Manual validation has been completed when appropriate.
+- Existing regression tests continue passing.
+- New regression tests have been added for significant bug fixes.
 
-- Import rankings
-- Load rankings into state
-- Display rankings correctly
-
-### Draft Flow
-
-- Draft player
-- Remove player from available pool
-- Advance draft state
-- Update draft board
-
-### Roster Tracking
-
-- Add drafted player to roster
-- Update position counts
-- Track roster needs
-
-### Recommendations
-
-- Recalculate after draft picks
-- Update recommendation panel
-- Display recommendation reasons
+Testing depth should remain proportional to feature complexity.
 
 ---
 
-## Scenario Tests
+# Testing Principles
 
-Validate recommendation behavior using complete draft states.
+Always prefer:
 
-Each scenario should define:
+- Deterministic tests
+- Business logic tests
+- Behavior-based assertions
+- Small independent tests
+- Readable test names
+- Stable test data
 
-- Current draft state
-- User roster
-- Available players
-- League settings
-- Expected recommendation ordering
-- Expected recommendation explanations (when applicable)
+Avoid:
 
-Recommended progression:
-
-- Phase 1: 5–10 core recommendation scenarios
-- Phase 2: 20–50 realistic draft scenarios
-- Phase 3+: Expand scenarios as new recommendation systems are introduced
-
-Scenario tests provide regression protection as recommendation logic becomes more sophisticated.
-
----
-
-## Regression Tests
-
-As recommendation logic grows:
-
-- Add a regression test for every significant bug fix.
-- Add tests for every new recommendation rule.
-- Verify existing recommendation scenarios continue to behave as expected.
-- Update expected results only when recommendation behavior intentionally changes.
-
----
-
-## Testing Boundaries
-
-Avoid testing:
-
+- Testing framework internals
 - Styling
-- Framework internals
-- Third-party library behavior
-- Simple getters and setters
 - Temporary implementation details
-- UI layouts that are expected to change frequently
-
-Prefer testing stable business rules and observable application behavior.
-
----
-
-## Manual Test Checklist
-
-Before considering a feature complete:
-
-### Draft Setup
-
-- [ ] Draft can be created
-- [ ] Draft position can be selected
-- [ ] Rankings load successfully
-
-### Draft Tracking
-
-- [ ] Players can be drafted
-- [ ] Draft board updates correctly
-- [ ] Current pick updates correctly
-- [ ] No duplicate drafted players
-
-### Available Players
-
-- [ ] Drafted players disappear
-- [ ] Position filtering works
-- [ ] Rankings remain sorted correctly
-
-### User Roster
-
-- [ ] User picks appear on roster
-- [ ] Position counts update correctly
-- [ ] Overfilled positions are detected
-
-### Recommendations
-
-- [ ] Top 5 recommendations display
-- [ ] Recommendations update after picks
-- [ ] Recommendation explanations appear
-- [ ] Tier warnings appear when expected
-- [ ] Scarcity warnings appear when expected
-
-### Undo
-
-- [ ] Last pick can be undone
-- [ ] Draft state reverts correctly
-- [ ] Player returns to available pool
-- [ ] Recommendations recalculate correctly
+- Brittle UI tests
+- Excessive mocking
+- Tests that duplicate other tests
 
 ---
 
-## Vertical Slice Acceptance Criteria
+# Future Testing Expansion
 
-Vertical Slice 1 is complete when:
+As the project grows, testing may expand to include:
 
-- Rankings can be loaded.
-- A draft can be started.
-- Picks can be entered manually.
-- Drafted players become unavailable.
-- User roster updates correctly.
-- Recommendations update after every pick.
-- Undo functionality works.
-- Draft invariants remain valid after each pick and undo.
-- A complete 12-team draft can be completed while maintaining a valid draft state throughout.
+- Persistence
+- Replay systems
+- Live integrations
+- User accounts
+- Performance
+- Accessibility
+- Monitoring
+- Additional recommendation systems
 
----
-
-## Bug Severity Guidelines
-
-### Critical
-
-Blocks completion of a draft.
-
-Examples:
-
-- Draft cannot continue
-- Draft state becomes invalid
-- Application crashes
-
-### Major
-
-Core functionality works incorrectly.
-
-Examples:
-
-- Incorrect recommendations
-- Broken roster tracking
-- Snake draft order errors
-
-### Minor
-
-Usability issue that does not prevent drafting.
-
-Examples:
-
-- Layout problems
-- Sorting issues
-- Visual inconsistencies
-
----
-
-## Testing Principles
-
-- Test business logic before UI details.
-- Prefer simple, deterministic tests.
-- Prefer behavior tests over implementation-detail tests.
-- Fix bugs before adding complexity.
-- Validate complete workflows frequently.
-- Add regression tests for significant bug fixes.
-- A feature is not complete until it passes its acceptance criteria.
+These areas should be added to the testing strategy only when they become active project work.
