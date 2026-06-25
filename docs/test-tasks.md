@@ -181,7 +181,7 @@ Validate that important draft invariants remain true after picks and undo action
 
 ## Task 5: Add Basic Recommendation Update Tests
 
-Status: [ ]
+Status: [x]
 
 ### Goal
 
