@@ -172,11 +172,12 @@ Persist manual draft progress while preserving existing draft state transition b
 
 Scope:
 
-- Add server-side operations for drafting a player and undoing the last pick.
-- Load and hydrate the draft before applying existing draft transition logic.
-- Persist changed pick history in a transaction.
-- Update draft status consistently with pick history.
-- Add tests for draft, reload, undo, and duplicate prevention.
+- [x] Add repository operations for drafting a player and undoing the last pick.
+- [x] Load and hydrate the draft before applying existing draft transition logic.
+- [x] Persist changed pick history in a transaction.
+- [x] Update draft status consistently with pick history.
+- [x] Add tests for draft, reload, undo, duplicate prevention, and completion status.
+- [ ] Add server-side operations that call the repository mutations.
 
 Non-Goals:
 

@@ -1,4 +1,5 @@
 import type { DraftWorkspace, LeagueSettings, RankingEntry } from "@/types/draft";
+import { draftPlayerInDraft, undoLastDraftPick } from "@/lib/draftState";
 import {
   mapDraftRecordToWorkspace,
   type PersistedDraftWorkspaceRecord,
@@ -32,12 +33,20 @@ export type DraftSummary = {
 type DraftStatus = "NOT_STARTED" | "IN_PROGRESS" | "COMPLETE";
 
 type DraftRepositoryDb = {
+  $transaction?<T>(callback: (tx: DraftRepositoryTransactionDb) => Promise<T>): Promise<T>;
   draft: {
     create(args: DraftCreateArgs): Promise<PersistedDraftWorkspaceRecord>;
     findUnique(args: DraftFindUniqueArgs): Promise<PersistedDraftWorkspaceRecord | null>;
     findMany(args: DraftFindManyArgs): Promise<PersistedDraftSummaryRecord[]>;
+    update(args: DraftUpdateArgs): Promise<unknown>;
+  };
+  draftPick: {
+    create(args: DraftPickCreateArgs): Promise<unknown>;
+    deleteMany(args: DraftPickDeleteManyArgs): Promise<unknown>;
   };
 };
+
+type DraftRepositoryTransactionDb = Omit<DraftRepositoryDb, "$transaction">;
 
 type DraftCreateArgs = {
   data: {
@@ -77,6 +86,30 @@ type DraftFindManyArgs = {
   };
   orderBy: {
     updatedAt: "desc";
+  };
+};
+
+type DraftUpdateArgs = {
+  where: {
+    id: string;
+  };
+  data: {
+    status: DraftStatus;
+  };
+};
+
+type DraftPickCreateArgs = {
+  data: {
+    draftId: string;
+    pickNumber: number;
+    playerId: string;
+  };
+};
+
+type DraftPickDeleteManyArgs = {
+  where: {
+    draftId: string;
+    pickNumber: number;
   };
 };
 
@@ -169,6 +202,109 @@ export function createDraftRepository(db: DraftRepositoryDb) {
 
       return drafts.map(mapDraftRecordToSummary);
     },
+
+    async draftPlayerInWorkspace(
+      draftId: string,
+      playerId: string,
+    ): Promise<DraftWorkspace | null> {
+      return runRepositoryTransaction(db, async (tx) => {
+        const workspace = await getWorkspaceById(tx, draftId);
+
+        if (!workspace) {
+          return null;
+        }
+
+        const playerExistsInSnapshot = workspace.rankings.some((ranking) => {
+          return ranking.player.id === playerId;
+        });
+
+        if (!playerExistsInSnapshot) {
+          return workspace;
+        }
+
+        const nextDraft = draftPlayerInDraft(workspace.draft, playerId);
+
+        if (nextDraft === workspace.draft) {
+          return workspace;
+        }
+
+        const persistedPick = nextDraft.picks.find((pick) => {
+          return pick.pickNumber === workspace.draft.currentPickNumber;
+        });
+
+        if (!persistedPick?.playerId) {
+          return workspace;
+        }
+
+        await tx.draftPick.create({
+          data: {
+            draftId,
+            pickNumber: persistedPick.pickNumber,
+            playerId: persistedPick.playerId,
+          },
+        });
+
+        await tx.draft.update({
+          where: { id: draftId },
+          data: {
+            status: getDraftStatusAfterDraft(nextDraft),
+          },
+        });
+
+        return getWorkspaceById(tx, draftId);
+      });
+    },
+
+    async undoLastPickInWorkspace(draftId: string): Promise<DraftWorkspace | null> {
+      return runRepositoryTransaction(db, async (tx) => {
+        const workspace = await getWorkspaceById(tx, draftId);
+
+        if (!workspace) {
+          return null;
+        }
+
+        const nextDraft = undoLastDraftPick(workspace.draft);
+
+        if (nextDraft === workspace.draft) {
+          return workspace;
+        }
+
+        const latestPersistedPick = workspace.draft.picks.reduce(
+          (latestPick, pick) => {
+            if (!pick.playerId) {
+              return latestPick;
+            }
+
+            if (!latestPick || pick.pickNumber > latestPick.pickNumber) {
+              return pick;
+            }
+
+            return latestPick;
+          },
+          undefined as DraftWorkspace["draft"]["picks"][number] | undefined,
+        );
+
+        if (!latestPersistedPick) {
+          return workspace;
+        }
+
+        await tx.draftPick.deleteMany({
+          where: {
+            draftId,
+            pickNumber: latestPersistedPick.pickNumber,
+          },
+        });
+
+        await tx.draft.update({
+          where: { id: draftId },
+          data: {
+            status: getDraftStatusAfterUndo(nextDraft),
+          },
+        });
+
+        return getWorkspaceById(tx, draftId);
+      });
+    },
   };
 }
 
@@ -191,6 +327,21 @@ export async function listDraftSummaries(): Promise<DraftSummary[]> {
     .listDraftSummaries();
 }
 
+export async function draftPlayerInWorkspace(
+  draftId: string,
+  playerId: string,
+): Promise<DraftWorkspace | null> {
+  return createDraftRepository(getPrismaClient() as unknown as DraftRepositoryDb)
+    .draftPlayerInWorkspace(draftId, playerId);
+}
+
+export async function undoLastPickInWorkspace(
+  draftId: string,
+): Promise<DraftWorkspace | null> {
+  return createDraftRepository(getPrismaClient() as unknown as DraftRepositoryDb)
+    .undoLastPickInWorkspace(draftId);
+}
+
 function mapDraftRecordToSummary(record: PersistedDraftSummaryRecord): DraftSummary {
   const leagueSettings = parseLeagueSettingsSnapshotJson(record.leagueSettings);
 
@@ -205,4 +356,43 @@ function mapDraftRecordToSummary(record: PersistedDraftSummaryRecord): DraftSumm
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+async function getWorkspaceById(
+  db: DraftRepositoryTransactionDb,
+  draftId: string,
+): Promise<DraftWorkspace | null> {
+  const draft = await db.draft.findUnique({
+    where: { id: draftId },
+    include: draftWorkspaceInclude,
+  });
+
+  if (!draft) {
+    return null;
+  }
+
+  return mapDraftRecordToWorkspace(draft);
+}
+
+async function runRepositoryTransaction<T>(
+  db: DraftRepositoryDb,
+  callback: (tx: DraftRepositoryTransactionDb) => Promise<T>,
+): Promise<T> {
+  if (db.$transaction) {
+    return db.$transaction(callback);
+  }
+
+  return callback(db);
+}
+
+function getDraftStatusAfterDraft(draft: DraftWorkspace["draft"]): DraftStatus {
+  return draft.picks.every((pick) => Boolean(pick.playerId))
+    ? "COMPLETE"
+    : "IN_PROGRESS";
+}
+
+function getDraftStatusAfterUndo(draft: DraftWorkspace["draft"]): DraftStatus {
+  return draft.picks.some((pick) => Boolean(pick.playerId))
+    ? "IN_PROGRESS"
+    : "NOT_STARTED";
 }

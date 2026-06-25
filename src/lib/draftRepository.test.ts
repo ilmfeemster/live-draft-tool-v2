@@ -91,6 +91,206 @@ describe("draft repository", () => {
     await expect(repository.getDraftWorkspaceById("missing-draft")).resolves.toBeNull();
   });
 
+  it("drafts a player, persists the pick, and reloads the current pick", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const workspace = await repository.createDraftWorkspace({
+      leagueSettings: createLeagueSettings({ teamCount: 2, rounds: 2 }),
+      rankings: [
+        createRanking("player-1", 1, "WR"),
+        createRanking("player-2", 2, "RB"),
+      ],
+      userTeamId: "team-1",
+    });
+
+    const updatedWorkspace = await repository.draftPlayerInWorkspace(
+      workspace.draft.id,
+      "player-1",
+    );
+    const reloadedWorkspace = await repository.getDraftWorkspaceById(
+      workspace.draft.id,
+    );
+
+    expect(db.drafts[0].picks).toEqual([
+      { pickNumber: 1, playerId: "player-1" },
+    ]);
+    expect(db.drafts[0].status).toBe("IN_PROGRESS");
+    expect(updatedWorkspace?.draft.picks[0].playerId).toBe("player-1");
+    expect(updatedWorkspace?.draft.currentPickNumber).toBe(2);
+    expect(reloadedWorkspace?.draft.picks[0].playerId).toBe("player-1");
+    expect(reloadedWorkspace?.draft.currentPickNumber).toBe(2);
+  });
+
+  it("returns null when drafting into a missing draft", async () => {
+    const repository = createDraftRepository(createFakeDraftDb());
+
+    await expect(
+      repository.draftPlayerInWorkspace("missing-draft", "player-1"),
+    ).resolves.toBeNull();
+  });
+
+  it("does not mutate pick history when drafting a player missing from the ranking snapshot", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const workspace = await repository.createDraftWorkspace({
+      leagueSettings: createLeagueSettings({ teamCount: 2, rounds: 2 }),
+      rankings: [createRanking("player-1", 1, "WR")],
+      userTeamId: "team-1",
+    });
+
+    const updatedWorkspace = await repository.draftPlayerInWorkspace(
+      workspace.draft.id,
+      "missing-player",
+    );
+
+    expect(db.drafts[0].picks).toEqual([]);
+    expect(db.drafts[0].status).toBe("NOT_STARTED");
+    expect(updatedWorkspace?.draft.currentPickNumber).toBe(1);
+  });
+
+  it("does not create another pick row for a duplicate drafted player", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const workspace = await repository.createDraftWorkspace({
+      leagueSettings: createLeagueSettings({ teamCount: 2, rounds: 2 }),
+      rankings: [
+        createRanking("player-1", 1, "WR"),
+        createRanking("player-2", 2, "RB"),
+      ],
+      userTeamId: "team-1",
+    });
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-1");
+
+    const updatedWorkspace = await repository.draftPlayerInWorkspace(
+      workspace.draft.id,
+      "player-1",
+    );
+
+    expect(db.drafts[0].picks).toEqual([
+      { pickNumber: 1, playerId: "player-1" },
+    ]);
+    expect(updatedWorkspace?.draft.currentPickNumber).toBe(2);
+  });
+
+  it("undoes the latest persisted pick and reloads the restored current pick", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const workspace = await repository.createDraftWorkspace({
+      leagueSettings: createLeagueSettings({ teamCount: 2, rounds: 2 }),
+      rankings: [
+        createRanking("player-1", 1, "WR"),
+        createRanking("player-2", 2, "RB"),
+      ],
+      userTeamId: "team-1",
+    });
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-1");
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-2");
+
+    const updatedWorkspace = await repository.undoLastPickInWorkspace(
+      workspace.draft.id,
+    );
+    const reloadedWorkspace = await repository.getDraftWorkspaceById(
+      workspace.draft.id,
+    );
+
+    expect(db.drafts[0].picks).toEqual([
+      { pickNumber: 1, playerId: "player-1" },
+    ]);
+    expect(db.drafts[0].status).toBe("IN_PROGRESS");
+    expect(updatedWorkspace?.draft.currentPickNumber).toBe(2);
+    expect(updatedWorkspace?.draft.picks[1].playerId).toBeUndefined();
+    expect(reloadedWorkspace?.draft.currentPickNumber).toBe(2);
+    expect(reloadedWorkspace?.draft.picks[1].playerId).toBeUndefined();
+  });
+
+  it("returns null when undoing a missing draft", async () => {
+    const repository = createDraftRepository(createFakeDraftDb());
+
+    await expect(
+      repository.undoLastPickInWorkspace("missing-draft"),
+    ).resolves.toBeNull();
+  });
+
+  it("does not mutate pick history when undoing an empty draft", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const workspace = await repository.createDraftWorkspace({
+      leagueSettings: createLeagueSettings({ teamCount: 2, rounds: 2 }),
+      rankings: [createRanking("player-1", 1, "WR")],
+      userTeamId: "team-1",
+    });
+
+    const updatedWorkspace = await repository.undoLastPickInWorkspace(
+      workspace.draft.id,
+    );
+
+    expect(db.drafts[0].picks).toEqual([]);
+    expect(db.drafts[0].status).toBe("NOT_STARTED");
+    expect(updatedWorkspace?.draft.currentPickNumber).toBe(1);
+  });
+
+  it("marks a completed draft complete and blocks extra picks after completion", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const workspace = await repository.createDraftWorkspace({
+      leagueSettings: createLeagueSettings({ teamCount: 2, rounds: 1 }),
+      rankings: [
+        createRanking("player-1", 1, "WR"),
+        createRanking("player-2", 2, "RB"),
+        createRanking("player-3", 3, "QB"),
+      ],
+      userTeamId: "team-1",
+    });
+
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-1");
+    const completedWorkspace = await repository.draftPlayerInWorkspace(
+      workspace.draft.id,
+      "player-2",
+    );
+    const unchangedWorkspace = await repository.draftPlayerInWorkspace(
+      workspace.draft.id,
+      "player-3",
+    );
+
+    expect(db.drafts[0].status).toBe("COMPLETE");
+    expect(db.drafts[0].picks).toEqual([
+      { pickNumber: 1, playerId: "player-1" },
+      { pickNumber: 2, playerId: "player-2" },
+    ]);
+    expect(completedWorkspace?.draft.picks.every((pick) => pick.playerId)).toBe(
+      true,
+    );
+    expect(unchangedWorkspace?.draft.picks.map((pick) => pick.playerId)).toEqual([
+      "player-1",
+      "player-2",
+    ]);
+  });
+
+  it("restores in-progress status when undoing after completion", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const workspace = await repository.createDraftWorkspace({
+      leagueSettings: createLeagueSettings({ teamCount: 2, rounds: 1 }),
+      rankings: [
+        createRanking("player-1", 1, "WR"),
+        createRanking("player-2", 2, "RB"),
+      ],
+      userTeamId: "team-1",
+    });
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-1");
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-2");
+
+    const updatedWorkspace = await repository.undoLastPickInWorkspace(
+      workspace.draft.id,
+    );
+
+    expect(db.drafts[0].status).toBe("IN_PROGRESS");
+    expect(db.drafts[0].picks).toEqual([
+      { pickNumber: 1, playerId: "player-1" },
+    ]);
+    expect(updatedWorkspace?.draft.currentPickNumber).toBe(2);
+  });
+
   it("lists lightweight draft summaries without loading ranking snapshot JSON", async () => {
     const db = createFakeDraftDb();
     const repository = createDraftRepository(db);
@@ -223,6 +423,78 @@ function createFakeDraftDb() {
             createdAt: draft.createdAt,
             updatedAt: draft.updatedAt,
           }));
+      },
+      async update(args: {
+        where: { id: string };
+        data: { status: FakeDraftRecord["status"] };
+      }) {
+        const draft = db.drafts.find((candidate) => {
+          return candidate.id === args.where.id;
+        });
+
+        if (!draft) {
+          throw new Error(`Draft ${args.where.id} was not found.`);
+        }
+
+        draft.status = args.data.status;
+        draft.updatedAt = new Date(draft.updatedAt.getTime() + 1);
+
+        return draft;
+      },
+    },
+    draftPick: {
+      async create(args: {
+        data: {
+          draftId: string;
+          pickNumber: number;
+          playerId: string;
+        };
+      }) {
+        const draft = db.drafts.find((candidate) => {
+          return candidate.id === args.data.draftId;
+        });
+
+        if (!draft) {
+          throw new Error(`Draft ${args.data.draftId} was not found.`);
+        }
+
+        if (
+          draft.picks.some((pick) => {
+            return pick.pickNumber === args.data.pickNumber;
+          })
+        ) {
+          throw new Error(`Pick ${args.data.pickNumber} already exists.`);
+        }
+
+        draft.picks.push({
+          pickNumber: args.data.pickNumber,
+          playerId: args.data.playerId,
+        });
+
+        return args.data;
+      },
+      async deleteMany(args: {
+        where: {
+          draftId: string;
+          pickNumber: number;
+        };
+      }) {
+        const draft = db.drafts.find((candidate) => {
+          return candidate.id === args.where.draftId;
+        });
+
+        if (!draft) {
+          return { count: 0 };
+        }
+
+        const originalPickCount = draft.picks.length;
+        draft.picks = draft.picks.filter((pick) => {
+          return pick.pickNumber !== args.where.pickNumber;
+        });
+
+        return {
+          count: originalPickCount - draft.picks.length,
+        };
       },
     },
   };
