@@ -18,6 +18,71 @@ Reference when needed:
 
 ---
 
+## Documentation Reading Strategy
+
+Do not read every documentation file for every task.
+
+Read only the files needed for the current level of work.
+
+### Direct Implementation Work
+
+If the user asks to implement an existing task or slice, prioritize:
+
+- docs/current-slice.md
+- docs/tasks.md
+- docs/architecture.md, only if the slice touches architecture
+- docs/testing.md, only if validation or tests are involved
+
+`docs/project.md` and `docs/roadmap.md` are not required unless the task is unclear, changes scope, or conflicts with existing task direction.
+
+### Task Planning Work
+
+If the user asks to create, update, or refine tasks, read:
+
+- docs/project.md
+- docs/tasks.md
+- docs/architecture.md
+- docs/testing.md
+
+Read `docs/roadmap.md` only if the task planning requires checking phase scope or long-term direction.
+
+### Project Planning Work
+
+If the user asks to update project scope, promote a roadmap phase, redefine priorities, or plan a new major feature area, read:
+
+- docs/roadmap.md
+- docs/project.md
+- docs/architecture.md
+- docs/decisions.md
+- docs/testing.md
+
+### Roadmap Planning Work
+
+If the user asks to change long-term direction, product phases, major architecture, integrations, monetization, or future product strategy, read:
+
+- docs/roadmap.md
+- docs/project.md
+- docs/architecture.md
+- docs/decisions.md
+
+---
+
+## Roadmap Usage
+
+`docs/roadmap.md` is a long-term planning document, not a default implementation reference.
+
+Use it when:
+
+- Updating `project.md`
+- Promoting a new phase into active scope
+- Resolving whether a feature belongs now or later
+- Evaluating major architecture changes
+- Planning live integrations, accounts, persistence, or product expansion
+
+Do not read or rely on `roadmap.md` for routine implementation slices unless the active work touches phase boundaries or future product direction.
+
+---
+
 ## Documentation Workflow
 
 Documentation is part of development.
