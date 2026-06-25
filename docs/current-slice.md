@@ -1,10 +1,14 @@
-# Current Slice: Add Recommendation Unit Test Foundation
+# Current Slice: Configure Unit Test Runner
+
+## Source Task
+
+`docs/test-tasks.md` Task 1: Configure Unit Test Runner.
 
 ## Goal
 
-Set up the first automated test path and cover the existing recommendation engine with a small, deterministic unit test suite.
+Add the minimum automated test infrastructure needed to run deterministic TypeScript business-logic tests.
 
-This gives the project a repeatable way to validate high-value business logic before changing recommendation behavior further.
+This slice should make `npm test` real without committing the project to a broad testing stack.
 
 ## User-Visible Increment
 
@@ -16,99 +20,69 @@ The developer-visible increment is:
 npm test
 ```
 
-runs recommendation-engine unit tests successfully.
+runs successfully from the command line.
 
 ## Problem
 
-`docs/testing.md` says Phase 1 should prioritize unit tests for deterministic business logic, especially recommendation scoring.
+Phase 1 testing should focus on Draft State Engine confidence, but the project does not yet have an automated test runner.
 
-The app currently has:
-
-- `npm run lint`
-- `npm run build`
-- Manual validation notes
-
-It does not yet have an automated test runner or any unit tests.
+Before adding draft order, draft transition, invariant, or workflow tests, the project needs a small test foundation that can import TypeScript source files and path aliases.
 
 ## Recommended Approach
 
-Use Vitest for the first test runner.
+Use Vitest as the initial unit test runner.
 
 Reason:
 
 - It is lightweight and TypeScript-friendly.
-- It fits the current Next.js + TypeScript codebase without adding UI testing ceremony.
-- It can test pure functions in `src/lib/recommendations.ts` without browser or React setup.
+- It can test pure business logic without browser or React setup.
+- It keeps the first testing slice small and reversible.
 
-Tradeoff:
+Tradeoffs:
 
-- This adds a dev dependency and package-lock change.
-- It does not cover UI behavior or full draft workflows yet.
+- Adds one dev dependency and updates `package-lock.json`.
+- Does not provide browser, React component, or coverage tooling yet.
 
-This recommendation stops being sufficient once we need component interaction tests, browser workflow tests, or integration tests across draft state and UI. Those should be separate later slices.
+This recommendation stops being appropriate if the immediate target becomes browser workflows, component interactions, or coverage reporting. Those should remain separate later slices.
 
 ## Goals
 
-- Add a unit test runner.
+- Install a lightweight TypeScript-friendly unit test runner.
 - Add an `npm test` script.
-- Add focused unit tests for the recommendation engine.
-- Keep tests close to the business logic they validate.
-- Document the new test command in task tracking.
+- Add test configuration for the existing `@/*` TypeScript path alias.
+- Add one small test that proves the runner can import project source.
+- Mark Task 1 complete in `docs/test-tasks.md`.
 
 ## Non-Goals
 
+- Draft order test coverage.
+- Draft state transition test coverage.
+- Recommendation scoring test coverage.
 - React component tests.
 - Browser or Playwright tests.
-- End-to-end workflow tests.
 - Coverage thresholds.
-- Snapshot tests.
-- Testing styling or layout.
-- Refactoring recommendation logic.
-- Changing recommendation scores, modifiers, ordering, or reason strings.
-- Adding broad test utilities before duplication exists.
+- CI setup.
+- Snapshot testing.
+- Broad test helper abstractions.
+- Production behavior changes.
 
 ## Expected Files
 
 - `package.json`
 - `package-lock.json`
 - `vitest.config.ts`
-- `src/lib/recommendations.test.ts`
-- `docs/tasks.md`
+- `src/lib/draftOrder.test.ts`
+- `docs/test-tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing UI components, seed rankings, draft data, or recommendation implementation unless a test exposes a real bug caused by this slice.
-
-## Test Scope
-
-Create tests for these existing exported functions from `src/lib/recommendations.ts`:
-
-- `calculateRankingScore`
-- `calculateRosterNeedModifier`
-- `calculateTierDropModifier`
-- `calculateScarcityModifier`
-- `generateTopRecommendations`
-
-Use small inline test ranking objects instead of importing the full seed ranking dataset.
-
-Do not assert every internal constant directly. Assert behavior that matters:
-
-- Better overall rank produces the expected base score.
-- Empty roster creates direct starter need for an unfilled position.
-- Filled direct starter slots remove the direct starter need bonus.
-- A lone best-tier player receives a tier-drop modifier and reason.
-- Multiple same-tier options do not create a tier-drop modifier.
-- Scarcity applies when too few nearby same-position options remain.
-- Scarcity does not apply for `K` or `DST`.
-- Top recommendations are sorted by score, then overall rank, then player name.
-- Limit handling returns only the requested number of recommendations.
-- Recommendation reasons include ranking, ADP when present, and applicable rule reasons.
+Avoid changing app components, draft behavior, recommendation behavior, seed data, styling, or roadmap/project scope docs.
 
 ## Implementation Steps
 
 1. Install Vitest.
    - Run `npm install --save-dev vitest`.
-   - This should update `package.json` and `package-lock.json`.
-   - Do not add React Testing Library, Playwright, jsdom, or coverage packages in this slice.
+   - Confirm only test-runner dependency changes are introduced.
+   - Do not add React Testing Library, Playwright, jsdom, coverage packages, or CI packages.
 
 2. Add the test script.
    - In `package.json`, add:
@@ -121,24 +95,23 @@ Do not assert every internal constant directly. Assert behavior that matters:
 
 3. Add Vitest config.
    - Create `vitest.config.ts`.
-   - Use `defineConfig` from `vitest/config`.
-   - Configure the `@` alias to resolve to `src`.
-   - Use the default Node test environment.
+   - Import `defineConfig` from `vitest/config`.
+   - Import `fileURLToPath` from `node:url`.
+   - Configure the `@` alias to resolve to `./src`.
+   - Use the default Node environment.
 
-4. Add recommendation unit tests.
-   - Create `src/lib/recommendations.test.ts`.
+4. Add the first smoke-style source test.
+   - Create `src/lib/draftOrder.test.ts`.
    - Import `describe`, `expect`, and `it` from `vitest`.
-   - Import the recommendation functions from `./recommendations`.
-   - Define a small helper for creating `RankingEntry` test objects.
-   - Keep test data local and readable.
-   - Prefer behavior-oriented test names.
+   - Import at least one draft order helper through the `@` alias so alias resolution is proven.
+   - Keep assertions intentionally small.
+   - Suggested assertion:
+     - `generateSnakeDraftOrder(2, 2)` returns four picks.
+     - The pick team order is `team-1`, `team-2`, `team-2`, `team-1`.
 
-5. Update `docs/tasks.md`.
-   - Add a small `Testing Foundation` section under `Next Tasks` if one does not exist.
-   - Mark these items complete:
-     - Configure unit test runner
-     - Add recommendation engine unit tests
-   - Do not mark future integration, scenario, or UI tests complete.
+5. Update `docs/test-tasks.md`.
+   - Mark `Task 1: Configure Unit Test Runner` as complete.
+   - Do not mark Task 2 or later tasks complete.
 
 6. Validate.
    - Run `npm test`.
@@ -148,27 +121,27 @@ Do not assert every internal constant directly. Assert behavior that matters:
 ## Acceptance Criteria
 
 - Vitest is installed as a dev dependency.
-- `package.json` includes an `npm test` script.
-- `vitest.config.ts` exists and supports the `@` import alias.
-- `src/lib/recommendations.test.ts` tests the exported recommendation functions listed above.
-- Tests use small inline fixtures, not the full seed ranking dataset.
-- Tests validate behavior without changing recommendation implementation.
-- `docs/tasks.md` records the completed testing foundation work.
+- `package.json` includes `test: vitest run`.
+- `vitest.config.ts` exists.
+- Vitest resolves the existing `@/*` alias.
+- `src/lib/draftOrder.test.ts` proves the test runner can import project source.
+- The first test is intentionally small and does not try to cover all draft order behavior.
+- `docs/test-tasks.md` marks only Task 1 complete.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-No browser smoke test is required for this slice because app behavior is not intended to change.
+No browser or manual draft smoke test is required for this slice because runtime app behavior is not intended to change.
 
-If the app UI changes while implementing this slice, that is a signal the scope has drifted.
+If UI or draft behavior changes while implementing this slice, the implementation has drifted beyond scope.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it creates the first automated test path and covers one high-value pure logic module.
-- Concrete enough for implementation: yes, the runner, files, functions, scenarios, and validation commands are named.
-- Avoids unnecessary architecture changes: yes, it adds a minimal unit test runner without UI, browser, coverage, or broad utility layers.
-- Blast radius reasonable: yes, expected changes are package metadata, one config file, one test file, task docs, and this slice plan.
-- Review/revert comfort: yes, the slice is isolated from runtime code and can be reverted without changing app behavior.
-- Observable/testable acceptance criteria: yes, `npm test`, lint, build, and the test file contents directly verify the slice.
+- Smallest meaningful increment: yes, it only makes automated tests runnable.
+- Concrete enough for implementation: yes, the dependency, script, config, smoke test, docs update, and validation commands are named.
+- Avoids unnecessary architecture changes: yes, no test utilities, React testing, browser testing, CI, or coverage infrastructure are introduced.
+- Blast radius reasonable: yes, expected changes are package metadata, one config file, one tiny test file, test-task docs, and this slice plan.
+- Review/revert comfort: yes, it is isolated from production behavior.
+- Observable/testable acceptance criteria: yes, `npm test`, lint, build, and the Task 1 checkbox verify the slice.
