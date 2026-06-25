@@ -1,14 +1,14 @@
-# Current Slice: Add Draft Invariant Tests
+# Current Slice: Add Basic Recommendation Update Tests
 
 ## Source Task
 
-`docs/test-tasks.md` Task 4: Add Draft Invariant Tests.
+`docs/test-tasks.md` Task 5: Add Basic Recommendation Update Tests.
 
 ## Goal
 
-Add a small pure invariant checker for Phase 1 draft state and cover it with unit tests.
+Validate the Phase 1 requirement that recommendations are derived from the current available player pool and update as draft state changes.
 
-This slice should verify that draft states produced by the current manual draft engine remain internally consistent after picks and undo actions.
+This slice should test recommendation updates from draft state without turning into deep Recommendation Engine Stage coverage.
 
 ## User-Visible Increment
 
@@ -20,194 +20,156 @@ The developer-visible increment is:
 npm test
 ```
 
-now validates core draft invariants directly.
+now validates basic recommendation update behavior after draft picks.
 
 ## Problem
 
-`docs/testing.md` defines important draft invariants:
+The app generates recommendations from `availableRankings`, which are derived by removing drafted player IDs from the rankings list in `DraftRoom`.
 
-- A player exists in exactly one location.
-- Drafted players never appear in the available player pool.
-- Available players never appear on a roster.
-- Total drafted players equals the current pick number minus one.
-- Every drafted player belongs to exactly one team.
-- Undo restores the previous valid draft state.
-- Recommendation results only contain available players.
+Current tests cover draft order, draft transitions, and invariants, but they do not yet prove the Phase 1 recommendation contract:
 
-Task 3 added pure transition helpers and tests for pick/undo behavior, but there is still no reusable way to check draft-state validity. Phase 1 needs direct invariant coverage before adding broader workflow tests.
+- drafted players are excluded before recommendations are generated
+- recommendation results respect the configured limit
+- recommendation results change when the available player pool changes
+- basic roster input can influence recommendation ordering
 
 ## Goals
 
-- Add a pure invariant checker for draft state and related player lists.
-- Test valid empty, picked, and undone draft states.
-- Test invalid duplicate drafted-player state.
-- Test invalid available/recommendation lists containing drafted players.
-- Mark Task 4 complete in `docs/test-tasks.md`.
+- Add focused tests for basic recommendation updates from draft state.
+- Use small inline ranking fixtures.
+- Reuse existing pure helpers where useful.
+- Keep recommendation scoring/modifier coverage shallow and Phase 1-oriented.
+- Mark Task 5 complete in `docs/test-tasks.md`.
 
 ## Non-Goals
 
-- Exhaustive property-based testing.
+- Exhaustive recommendation scoring tests.
+- Exhaustive roster need modifier tests.
+- Tier-drop scenario coverage.
+- Scarcity scenario coverage.
+- Recommendation explanation regression suite.
+- Large scenario libraries.
 - React component tests.
 - Browser tests.
-- Database constraints.
-- Live provider event tests.
-- Full workflow integration tests.
-- Recommendation scoring tests.
-- Roster slot assignment tests.
-- Changing draft transition behavior.
-- Changing UI behavior.
+- Changing recommendation implementation.
+- Changing draft state helpers.
+- Changing invariant helpers.
 
 ## Expected Files
 
-- `src/lib/draftInvariants.ts`
-- `src/lib/draftInvariants.test.ts`
+- `src/lib/recommendations.test.ts`
 - `docs/test-tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing `DraftRoom`, UI components, package metadata, Vitest config, seed data, ranking data, recommendation scoring, or existing draft transition helpers unless a test exposes a real bug.
+Avoid changing `src/lib/recommendations.ts`, `DraftRoom`, UI components, package metadata, Vitest config, seed data, ranking data, draft state helpers, or invariant helpers unless a test exposes a real bug.
 
-## Helper API
+## Test Strategy
 
-Create `src/lib/draftInvariants.ts`:
+Create `src/lib/recommendations.test.ts`.
 
-```ts
-import type { Draft, RankingEntry, UserRosterPlayer } from "@/types/draft";
+These tests should exercise existing public recommendation behavior through:
 
-export type DraftInvariantViolation =
-  | "duplicate-drafted-player"
-  | "drafted-player-available"
-  | "available-player-on-roster"
-  | "drafted-count-mismatch"
-  | "drafted-player-missing-team"
-  | "recommendation-player-unavailable";
+- `generateTopRecommendations`
+- `draftPlayerInDraft`
+- small local ranking fixtures
 
-export type DraftInvariantInput = {
-  draft: Draft;
-  availableRankings?: RankingEntry[];
-  rosterPlayers?: UserRosterPlayer[];
-  recommendationRankings?: RankingEntry[];
-};
+Do not import the full seed rankings dataset.
 
-export function findDraftInvariantViolations(
-  input: DraftInvariantInput,
-): DraftInvariantViolation[];
+Do not test private constants directly.
 
-export function isValidDraftState(input: DraftInvariantInput): boolean;
-```
+## Fixture Shape
 
-Keep the helper intentionally small:
-
-- Return an array of violation strings.
-- Return an empty array for valid state.
-- Do not throw.
-- Do not mutate input.
-- Do not add classes or a validation framework.
-
-## Invariants To Check
-
-### Always Check From `draft`
-
-- A drafted player ID may appear in at most one pick.
-  - Violation: `"duplicate-drafted-player"`
-- Drafted player count should equal `draft.currentPickNumber - 1`, except when the draft is complete and `currentPickNumber` is capped at total picks.
-  - Let `totalPicks = draft.teamCount * draft.rounds`.
-  - Expected drafted count is:
+Define a local helper:
 
 ```ts
-Math.min(draft.currentPickNumber - 1, totalPicks)
+function createRanking(
+  id: string,
+  overallRank: number,
+  position: Position = "RB",
+  name = id,
+): RankingEntry
 ```
 
-  - If every pick is filled, expected drafted count is `totalPicks`.
-  - Violation: `"drafted-count-mismatch"`
-- Every drafted pick must have a `teamId`.
-  - Violation: `"drafted-player-missing-team"`
+Default values:
 
-### Check When Optional Lists Are Provided
+- `team: "TEST"`
+- `adpRank: null`
+- `positionRank: overallRank`
+- `tier: 1`
 
-- `availableRankings` must not contain drafted player IDs.
-  - Violation: `"drafted-player-available"`
-- `rosterPlayers` must not contain player names that still appear in `availableRankings`.
-  - Violation: `"available-player-on-roster"`
-  - This uses name matching because `UserRosterPlayer` currently does not include `playerId`.
-- `recommendationRankings` must not contain players absent from `availableRankings`, when `availableRankings` is provided.
-  - Violation: `"recommendation-player-unavailable"`
+Use at least these rankings in tests as needed:
+
+- `player-1`, rank 1, RB
+- `player-2`, rank 2, WR
+- `player-3`, rank 3, QB
+- `player-4`, rank 4, TE
+- `player-5`, rank 5, RB
 
 ## Implementation Steps
 
-1. Create `src/lib/draftInvariants.ts`.
-   - Import `Draft`, `RankingEntry`, and `UserRosterPlayer` as types.
-   - Add the `DraftInvariantViolation` type.
-   - Add the `DraftInvariantInput` type.
-   - Add `findDraftInvariantViolations`.
-   - Add `isValidDraftState`.
-
-2. Create `src/lib/draftInvariants.test.ts`.
+1. Create `src/lib/recommendations.test.ts`.
    - Import `describe`, `expect`, and `it` from `vitest`.
+   - Import `generateTopRecommendations` from `@/lib/recommendations`.
+   - Import `draftPlayerInDraft` from `@/lib/draftState`.
    - Import `createDraftTeams` and `generateSnakeDraftOrder` from `@/lib/draftOrder`.
-   - Import `draftPlayerInDraft` and `undoLastDraftPick` from `@/lib/draftState`.
-   - Import `findDraftInvariantViolations` and `isValidDraftState`.
-   - Import `Draft`, `RankingEntry`, and `UserRosterPlayer` as types.
-   - Define local helpers:
-     - `createTestDraft(overrides?: Partial<Draft>): Draft`
-     - `createRanking(id: string, name?: string): RankingEntry`
+   - Import `Draft`, `Position`, and `RankingEntry` as types.
+   - Add local `createRanking` and `createTestDraft` helpers.
 
-3. Add valid-state tests.
-   - Empty draft:
-     - `isValidDraftState({ draft })` is `true`.
-     - `findDraftInvariantViolations({ draft })` returns `[]`.
-   - After one valid pick using `draftPlayerInDraft`:
-     - invariant check is valid.
-   - After two picks and one undo using `undoLastDraftPick`:
-     - invariant check is valid.
-     - current pick/drafted count relationship is valid.
+2. Add a test for excluding drafted players before generating recommendations.
+   - Create rankings for `player-1`, `player-2`, and `player-3`.
+   - Draft `player-1` using `draftPlayerInDraft`.
+   - Build `availableRankings` by filtering rankings whose player IDs are not in drafted picks.
+   - Generate recommendations.
+   - Assert recommendation player IDs do not include `player-1`.
+   - Assert recommendation player IDs include remaining available players.
 
-4. Add invalid duplicate drafted-player test.
-   - Create a draft with the same `playerId` on two picks.
-   - Assert violations contain `"duplicate-drafted-player"`.
+3. Add a test for recommendation limit handling.
+   - Generate recommendations from at least five rankings with `{ limit: 2 }`.
+   - Assert exactly two recommendations are returned.
+   - Assert the returned IDs are the top two expected available rankings.
 
-5. Add invalid drafted-count test.
-   - Create a draft with `currentPickNumber: 3` but only one drafted player.
-   - Assert violations contain `"drafted-count-mismatch"`.
+4. Add a test for recommendation output changing when the available pool changes.
+   - Generate recommendations before any pick.
+   - Draft the top-ranked player.
+   - Recompute `availableRankings`.
+   - Generate recommendations again.
+   - Assert the first recommendation changes from `player-1` to the next expected available player.
 
-6. Add available-player invariant test.
-   - Draft `"player-1"`.
-   - Pass `availableRankings` containing ranking for `"player-1"`.
-   - Assert violations contain `"drafted-player-available"`.
+5. Add a test for basic roster input influencing recommendation ordering.
+   - Use two close rankings where an unfilled starter need can change ordering.
+   - Example:
+     - `player-qb`, overall rank 10, QB
+     - `player-rb`, overall rank 20, RB
+   - Call `generateTopRecommendations(rankings, { rosterPlayers: [] })`.
+   - Assert `player-qb` ranks ahead of `player-rb` because both receive starter need but the higher base score still wins.
+   - Then call with rosterPlayers already containing a QB:
 
-7. Add roster/available invariant test.
-   - Pass `availableRankings` containing a ranking named `"Player One"`.
-   - Pass `rosterPlayers` containing `{ name: "Player One", ... }`.
-   - Assert violations contain `"available-player-on-roster"`.
+```ts
+[{ position: "QB" }]
+```
 
-8. Add recommendation availability invariant test.
-   - Pass `availableRankings` with `"player-1"`.
-   - Pass `recommendationRankings` with `"player-2"`.
-   - Assert violations contain `"recommendation-player-unavailable"`.
+   - Assert the QB no longer receives starter-need help, and `player-rb` ranks first.
 
-9. Update `docs/test-tasks.md`.
-   - Mark `Task 4: Add Draft Invariant Tests` as complete.
-   - Do not mark Task 5 or later tasks complete.
+6. Update `docs/test-tasks.md`.
+   - Mark `Task 5: Add Basic Recommendation Update Tests` as complete.
+   - Do not mark Task 6 or later tasks complete.
 
-10. Validate.
+7. Validate.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
 
 ## Acceptance Criteria
 
-- `findDraftInvariantViolations` exists as a pure helper.
-- `isValidDraftState` exists as a pure helper.
-- Empty draft state is valid.
-- Draft state after valid picks is valid.
-- Draft state after undo is valid.
-- Duplicate drafted player IDs are detected.
-- Drafted count mismatch is detected.
-- Drafted players in available rankings are detected.
-- Available players on roster are detected.
-- Recommendation rankings containing unavailable players are detected.
-- Helpers do not mutate inputs.
-- No UI behavior changes.
-- `docs/test-tasks.md` marks only Task 4 newly complete.
+- `src/lib/recommendations.test.ts` exists.
+- Tests use small inline fixtures, not seed rankings.
+- Drafted players are excluded before recommendation generation.
+- Recommendation results respect the requested limit.
+- Recommendation results update when the available player pool changes.
+- A simple roster input changes recommendation ordering.
+- Tests do not require React or browser tooling.
+- Recommendation implementation is unchanged unless a real bug is found.
+- `docs/test-tasks.md` marks only Task 5 newly complete.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
@@ -216,13 +178,13 @@ Math.min(draft.currentPickNumber - 1, totalPicks)
 
 No browser or manual draft smoke test is required for this slice because runtime app behavior is not intended to change.
 
-If invariant tests reveal an existing invalid state produced by current draft helpers, stop and report it instead of broadening the slice.
+If tests reveal recommendation behavior that conflicts with the current Phase 1 product expectations, stop and report the mismatch instead of broadening the slice into a recommendation redesign.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it adds invariant checks only for Phase 1 draft state.
-- Concrete enough for implementation: yes, helper names, violation strings, optional inputs, exact tests, docs update, and validation commands are listed.
-- Avoids unnecessary architecture changes: yes, no validation framework, provider abstraction, database constraint, or UI integration is introduced.
-- Blast radius reasonable: yes, expected changes are one helper module, one test file, test-task docs, and this slice plan.
-- Review/revert comfort: yes, the helper is isolated and does not change runtime UI behavior.
-- Observable/testable acceptance criteria: yes, unit tests plus lint/build and the Task 4 checkbox verify the slice.
+- Smallest meaningful increment: yes, it covers only basic recommendation update behavior from draft state.
+- Concrete enough for implementation: yes, files, helpers, fixtures, assertions, docs update, and validation commands are listed.
+- Avoids unnecessary architecture changes: yes, no recommendation refactor, scenario framework, or UI testing is introduced.
+- Blast radius reasonable: yes, expected changes are one test file, test-task docs, and this slice plan.
+- Review/revert comfort: yes, the slice is isolated to tests and task tracking unless a genuine bug is found.
+- Observable/testable acceptance criteria: yes, unit tests plus lint/build and the Task 5 checkbox verify the slice.
