@@ -3,8 +3,10 @@ import type { Draft, DraftPick } from "@/types/draft";
 type DraftStatusPanelProps = {
   draft: Draft;
   canUndoLastPick: boolean;
+  isResetDisabled: boolean;
   isDraftComplete: boolean;
   isUserPick: boolean;
+  onResetDraft: () => void;
   onUndoLastPick: () => void;
 };
 
@@ -21,8 +23,10 @@ function getCurrentPick(draft: Draft): DraftPick {
 export function DraftStatusPanel({
   draft,
   canUndoLastPick,
+  isResetDisabled,
   isDraftComplete,
   isUserPick,
+  onResetDraft,
   onUndoLastPick,
 }: DraftStatusPanelProps) {
   const currentPick = getCurrentPick(draft);
@@ -106,14 +110,24 @@ export function DraftStatusPanel({
         </div>
       </div>
 
-      <button
-        type="button"
-        className="h-10 rounded bg-zinc-950 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500"
-        disabled={!canUndoLastPick}
-        onClick={onUndoLastPick}
-      >
-        Undo Last Pick
-      </button>
+      <div className="grid gap-2">
+        <button
+          type="button"
+          className="h-10 rounded bg-zinc-950 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500"
+          disabled={!canUndoLastPick}
+          onClick={onUndoLastPick}
+        >
+          Undo Last Pick
+        </button>
+        <button
+          type="button"
+          className="h-10 rounded border border-red-200 bg-white px-4 text-sm font-medium text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:bg-zinc-50 disabled:text-zinc-400"
+          disabled={isResetDisabled}
+          onClick={onResetDraft}
+        >
+          Reset Current Draft
+        </button>
+      </div>
     </aside>
   );
 }

@@ -220,6 +220,19 @@ Acceptance Criteria:
 - Refreshing the page restores the persisted draft state.
 - UI components do not import Prisma models or raw database JSON.
 
+### [x] Phase 2 Manual QA Support: Reset Current Draft
+
+Goal:
+
+Add a safe, explicit reset control for clearing the current persisted draft's pick history during manual persistence testing.
+
+Scope:
+
+- Clear persisted picks for the current draft only.
+- Preserve draft settings and ranking snapshot.
+- Restore the current draft to pick 1 and `NOT_STARTED`.
+- Require confirmation before resetting.
+
 ### [ ] 8. Add Draft History And Resume Flow
 
 Goal:

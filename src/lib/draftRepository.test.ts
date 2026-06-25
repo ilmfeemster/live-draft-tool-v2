@@ -291,6 +291,61 @@ describe("draft repository", () => {
     expect(updatedWorkspace?.draft.currentPickNumber).toBe(2);
   });
 
+  it("resets one draft pick history and reloads an empty workspace", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const leagueSettings = createLeagueSettings({ teamCount: 2, rounds: 2 });
+    const rankings = [
+      createRanking("player-1", 1, "WR"),
+      createRanking("player-2", 2, "RB"),
+      createRanking("player-3", 3, "QB"),
+    ];
+    const workspace = await repository.createDraftWorkspace({
+      name: "Reset Me",
+      leagueSettings,
+      rankings,
+      userTeamId: "team-2",
+    });
+    const otherWorkspace = await repository.createDraftWorkspace({
+      name: "Keep Me",
+      leagueSettings,
+      rankings,
+      userTeamId: "team-1",
+    });
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-1");
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-2");
+    await repository.draftPlayerInWorkspace(otherWorkspace.draft.id, "player-3");
+
+    const resetWorkspace = await repository.resetDraftWorkspace(workspace.draft.id);
+
+    expect(resetWorkspace).not.toBeNull();
+    if (!resetWorkspace) {
+      throw new Error("Expected reset to return a workspace.");
+    }
+
+    expect(db.drafts[0].picks).toEqual([]);
+    expect(db.drafts[0].status).toBe("NOT_STARTED");
+    expect(db.drafts[1].picks).toEqual([
+      { pickNumber: 1, playerId: "player-3" },
+    ]);
+    expect(db.drafts[1].status).toBe("IN_PROGRESS");
+    expect(resetWorkspace.draft.id).toBe(workspace.draft.id);
+    expect(resetWorkspace.draft.currentPickNumber).toBe(1);
+    expect(resetWorkspace.draft.picks.every((pick) => !pick.playerId)).toBe(true);
+    expect(resetWorkspace.rankings).toEqual(rankings);
+    expect(resetWorkspace.leagueSettings).toEqual(leagueSettings);
+    expect(resetWorkspace.draft.userTeamId).toBe("team-2");
+    expect(isValidDraftState({ draft: resetWorkspace.draft })).toBe(true);
+  });
+
+  it("returns null when resetting a missing draft", async () => {
+    const repository = createDraftRepository(createFakeDraftDb());
+
+    await expect(
+      repository.resetDraftWorkspace("missing-draft"),
+    ).resolves.toBeNull();
+  });
+
   it("lists lightweight draft summaries without loading ranking snapshot JSON", async () => {
     const db = createFakeDraftDb();
     const repository = createDraftRepository(db);
@@ -476,7 +531,7 @@ function createFakeDraftDb() {
       async deleteMany(args: {
         where: {
           draftId: string;
-          pickNumber: number;
+          pickNumber?: number;
         };
       }) {
         const draft = db.drafts.find((candidate) => {
@@ -489,6 +544,10 @@ function createFakeDraftDb() {
 
         const originalPickCount = draft.picks.length;
         draft.picks = draft.picks.filter((pick) => {
+          if (args.where.pickNumber === undefined) {
+            return false;
+          }
+
           return pick.pickNumber !== args.where.pickNumber;
         });
 

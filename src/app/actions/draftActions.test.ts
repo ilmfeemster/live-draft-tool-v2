@@ -1,17 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   draftPlayerInWorkspace,
+  resetDraftWorkspace,
   undoLastPickInWorkspace,
 } from "@/lib/draftRepository";
 import type { DraftWorkspace } from "@/types/draft";
-import { draftPlayerAction, undoLastPickAction } from "./draftActions";
+import {
+  draftPlayerAction,
+  resetDraftAction,
+  undoLastPickAction,
+} from "./draftActions";
 
 vi.mock("@/lib/draftRepository", () => ({
   draftPlayerInWorkspace: vi.fn(),
+  resetDraftWorkspace: vi.fn(),
   undoLastPickInWorkspace: vi.fn(),
 }));
 
 const draftPlayerInWorkspaceMock = vi.mocked(draftPlayerInWorkspace);
+const resetDraftWorkspaceMock = vi.mocked(resetDraftWorkspace);
 const undoLastPickInWorkspaceMock = vi.mocked(undoLastPickInWorkspace);
 
 describe("draft mutation server actions", () => {
@@ -74,6 +81,31 @@ describe("draft mutation server actions", () => {
     await expect(undoLastPickAction(" ")).resolves.toBeNull();
 
     expect(undoLastPickInWorkspaceMock).not.toHaveBeenCalled();
+  });
+
+  it("delegates reset mutations to the repository", async () => {
+    const workspace = createDraftWorkspace();
+    resetDraftWorkspaceMock.mockResolvedValue(workspace);
+
+    const result = await resetDraftAction("draft-1");
+
+    expect(resetDraftWorkspaceMock).toHaveBeenCalledWith("draft-1");
+    expect(result).toBe(workspace);
+  });
+
+  it("returns null from reset mutations when the repository cannot find the draft", async () => {
+    resetDraftWorkspaceMock.mockResolvedValue(null);
+
+    const result = await resetDraftAction("missing-draft");
+
+    expect(resetDraftWorkspaceMock).toHaveBeenCalledWith("missing-draft");
+    expect(result).toBeNull();
+  });
+
+  it("does not call the repository for blank reset inputs", async () => {
+    await expect(resetDraftAction(" ")).resolves.toBeNull();
+
+    expect(resetDraftWorkspaceMock).not.toHaveBeenCalled();
   });
 });
 

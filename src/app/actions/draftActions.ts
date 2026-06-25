@@ -3,6 +3,7 @@
 import type { DraftWorkspace } from "@/types/draft";
 import {
   draftPlayerInWorkspace,
+  resetDraftWorkspace,
   undoLastPickInWorkspace,
 } from "@/lib/draftRepository";
 
@@ -25,4 +26,14 @@ export async function undoLastPickAction(
   }
 
   return undoLastPickInWorkspace(draftId);
+}
+
+export async function resetDraftAction(
+  draftId: string,
+): Promise<DraftWorkspace | null> {
+  if (!draftId.trim()) {
+    return null;
+  }
+
+  return resetDraftWorkspace(draftId);
 }

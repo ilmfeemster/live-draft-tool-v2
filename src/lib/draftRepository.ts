@@ -109,7 +109,7 @@ type DraftPickCreateArgs = {
 type DraftPickDeleteManyArgs = {
   where: {
     draftId: string;
-    pickNumber: number;
+    pickNumber?: number;
   };
 };
 
@@ -305,6 +305,31 @@ export function createDraftRepository(db: DraftRepositoryDb) {
         return getWorkspaceById(tx, draftId);
       });
     },
+
+    async resetDraftWorkspace(draftId: string): Promise<DraftWorkspace | null> {
+      return runRepositoryTransaction(db, async (tx) => {
+        const workspace = await getWorkspaceById(tx, draftId);
+
+        if (!workspace) {
+          return null;
+        }
+
+        await tx.draftPick.deleteMany({
+          where: {
+            draftId,
+          },
+        });
+
+        await tx.draft.update({
+          where: { id: draftId },
+          data: {
+            status: "NOT_STARTED",
+          },
+        });
+
+        return getWorkspaceById(tx, draftId);
+      });
+    },
   };
 }
 
@@ -340,6 +365,13 @@ export async function undoLastPickInWorkspace(
 ): Promise<DraftWorkspace | null> {
   return createDraftRepository(getPrismaClient() as unknown as DraftRepositoryDb)
     .undoLastPickInWorkspace(draftId);
+}
+
+export async function resetDraftWorkspace(
+  draftId: string,
+): Promise<DraftWorkspace | null> {
+  return createDraftRepository(getPrismaClient() as unknown as DraftRepositoryDb)
+    .resetDraftWorkspace(draftId);
 }
 
 function mapDraftRecordToSummary(record: PersistedDraftSummaryRecord): DraftSummary {

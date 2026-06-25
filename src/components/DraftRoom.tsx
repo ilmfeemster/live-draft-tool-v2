@@ -5,7 +5,11 @@ import { AvailablePlayersTable } from "@/components/AvailablePlayersTable";
 import { DraftStatusPanel } from "@/components/DraftStatusPanel";
 import { RecommendationsPanel } from "@/components/RecommendationsPanel";
 import { UserRosterPanel } from "@/components/UserRosterPanel";
-import { draftPlayerAction, undoLastPickAction } from "@/app/actions/draftActions";
+import {
+  draftPlayerAction,
+  resetDraftAction,
+  undoLastPickAction,
+} from "@/app/actions/draftActions";
 import { generateTopRecommendations } from "@/lib/recommendations";
 import type { Draft, RankingEntry, UserRosterPlayer } from "@/types/draft";
 
@@ -66,6 +70,7 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
     activeDraft.picks.length === totalPicks &&
     activeDraft.picks.every((pick) => Boolean(pick.playerId));
   const canUndoLastPick = draftedPlayerIds.size > 0 && !isMutationPending;
+  const isResetDisabled = isMutationPending;
   const areDraftActionsDisabled = isDraftComplete || isMutationPending;
 
   async function draftPlayer(playerId: string) {
@@ -108,6 +113,34 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
     }
   }
 
+  async function resetDraft() {
+    if (isMutationPending) {
+      return;
+    }
+
+    const shouldReset = window.confirm(
+      "Reset the current draft? This will clear all saved picks for this draft.",
+    );
+
+    if (!shouldReset) {
+      return;
+    }
+
+    setIsMutationPending(true);
+
+    try {
+      const workspace = await resetDraftAction(activeDraft.id);
+
+      if (workspace) {
+        setActiveDraft(workspace.draft);
+      }
+    } catch (error) {
+      console.error("Failed to reset draft.", error);
+    } finally {
+      setIsMutationPending(false);
+    }
+  }
+
   return (
     <div className="grid min-h-0 gap-6 xl:grid-cols-[1fr_320px]">
       <div className="flex min-h-0 flex-col gap-6">
@@ -127,8 +160,10 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
         <DraftStatusPanel
           draft={activeDraft}
           canUndoLastPick={canUndoLastPick}
+          isResetDisabled={isResetDisabled}
           isDraftComplete={isDraftComplete}
           isUserPick={isUserPick}
+          onResetDraft={resetDraft}
           onUndoLastPick={undoLastPick}
         />
         <UserRosterPanel players={userRosterPlayers} />
