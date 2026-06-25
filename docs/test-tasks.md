@@ -143,7 +143,7 @@ If the transition logic is still local to a React component, the implementation 
 
 ## Task 4: Add Draft Invariant Tests
 
-Status: [ ]
+Status: [x]
 
 ### Goal
 
