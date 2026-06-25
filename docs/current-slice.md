@@ -1,14 +1,14 @@
-# Current Slice: Add Draft Order Unit Tests
+# Current Slice: Add Draft State Transition Tests
 
 ## Source Task
 
-`docs/test-tasks.md` Task 2: Add Draft Order Unit Tests.
+`docs/test-tasks.md` Task 3: Add Draft State Transition Tests.
 
 ## Goal
 
-Validate the pure snake draft order helpers that determine round, pick-in-round, draft position, and team assignment.
+Validate the draft-state changes that happen when a player is drafted or a pick is undone.
 
-This slice should turn the existing smoke test into meaningful Draft State Engine coverage without changing production draft logic.
+This slice should extract the existing transition behavior from `DraftRoom` into small pure helpers, then test those helpers directly.
 
 ## User-Visible Increment
 
@@ -20,119 +20,119 @@ The developer-visible increment is stronger confidence from:
 npm test
 ```
 
-covering the draft order helper behavior with exact expected outputs.
+covering draft pick and undo state transitions.
 
 ## Problem
 
-Task 1 created the test runner and added a tiny `generateSnakeDraftOrder` smoke test.
+The app already supports manual pick entry and undo, but the transition logic currently lives inside `DraftRoom` component state setters.
 
-That test proves the runner works, but it does not fully validate the draft order helpers listed in Task 2:
-
-- `getRoundForPick`
-- `getPickInRound`
-- `getDraftPositionForPick`
-- `generateSnakeDraftOrder`
-
-`docs/testing.md` now emphasizes that tests should fail for the right reason and should use specific assertions when behavior is deterministic.
+That makes the behavior hard to unit test without React component tooling. Phase 1 testing should prioritize deterministic draft-state business logic, so this slice should move only the smallest transition logic into a pure module.
 
 ## Goals
 
-- Expand `src/lib/draftOrder.test.ts` to cover every exported draft order helper.
-- Use exact expected values for deterministic behavior.
-- Include readable small-draft cases.
-- Include one MVP-shape assertion for 12 teams and 16 rounds.
-- Mark Task 2 complete in `docs/test-tasks.md`.
+- Add pure draft transition helpers.
+- Keep `DraftRoom` behavior unchanged by calling those helpers from the existing state setters.
+- Add unit tests for drafting and undoing picks.
+- Mark Task 3 complete in `docs/test-tasks.md`.
 
 ## Non-Goals
 
-- Draft state transition tests.
-- Manual pick entry tests.
-- Available player tests.
-- Roster tracking tests.
-- Recommendation tests.
-- UI or component tests.
-- Refactoring `src/lib/draftOrder.ts`.
-- Changing draft behavior.
-- Adding new test utilities.
+- Redesigning draft state management.
+- Introducing React component tests.
+- Adding browser tests.
+- Changing UI behavior.
+- Changing draft order helpers.
+- Changing recommendation behavior.
+- Adding draft invariant helpers beyond what is needed for transition tests.
+- Adding persistence, replay, or provider abstractions.
 
 ## Expected Files
 
-- `src/lib/draftOrder.test.ts`
+- `src/lib/draftState.ts`
+- `src/lib/draftState.test.ts`
+- `src/components/DraftRoom.tsx`
 - `docs/test-tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing `src/lib/draftOrder.ts` unless a test exposes an actual bug in existing behavior.
+Avoid changing available-player UI, roster UI, recommendation UI, seed data, ranking data, package metadata, or Vitest config.
 
-Avoid changing package metadata, Vitest config, app components, seed data, recommendation logic, or project scope docs.
+## Helper API
+
+Create `src/lib/draftState.ts` with these exported functions:
+
+```ts
+export function draftPlayerInDraft(draft: Draft, playerId: string): Draft;
+
+export function undoLastDraftPick(draft: Draft): Draft;
+```
+
+Use the existing `Draft` type from `@/types/draft`.
+
+Keep behavior intentionally identical to the current `DraftRoom` logic:
+
+- Return the original `draft` object unchanged when the action is blocked.
+- Draft into the pick matching `draft.currentPickNumber`.
+- Prevent drafting when no current pick exists.
+- Prevent drafting into an already-filled current pick.
+- Prevent drafting duplicate `playerId`s.
+- Prevent drafting after every pick has a `playerId`.
+- Advance `currentPickNumber` by one, capped at `teamCount * rounds`.
+- Undo the highest-numbered drafted pick.
+- Undo restores `currentPickNumber` to the undone pick number.
+- Undo clears that pick by setting `playerId` to `undefined`.
+- Undo on an empty draft returns the original `draft` object unchanged.
 
 ## Implementation Steps
 
-1. Update imports in `src/lib/draftOrder.test.ts`.
-   - Import:
-     - `generateSnakeDraftOrder`
-     - `getDraftPositionForPick`
-     - `getPickInRound`
-     - `getRoundForPick`
-   - Keep using the `@` alias.
+1. Create `src/lib/draftState.ts`.
+   - Import `Draft` as a type from `@/types/draft`.
+   - Add `draftPlayerInDraft`.
+   - Add `undoLastDraftPick`.
+   - Copy the current transition behavior from `DraftRoom` without adding new rules.
 
-2. Add tests for `getRoundForPick`.
-   - Use `teamCount = 4`.
-   - Assert exact round values:
-     - pick 1 -> round 1
-     - pick 4 -> round 1
-     - pick 5 -> round 2
-     - pick 8 -> round 2
-     - pick 9 -> round 3
-
-3. Add tests for `getPickInRound`.
-   - Use `teamCount = 4`.
-   - Assert exact pick-in-round values:
-     - pick 1 -> 1
-     - pick 4 -> 4
-     - pick 5 -> 1
-     - pick 8 -> 4
-     - pick 9 -> 1
-
-4. Add tests for `getDraftPositionForPick`.
-   - Use `teamCount = 4`.
-   - Assert odd-round picks move first to last:
-     - pick 1 -> draft position 1
-     - pick 2 -> draft position 2
-     - pick 3 -> draft position 3
-     - pick 4 -> draft position 4
-   - Assert even-round picks move last to first:
-     - pick 5 -> draft position 4
-     - pick 6 -> draft position 3
-     - pick 7 -> draft position 2
-     - pick 8 -> draft position 1
-
-5. Replace the existing `generateSnakeDraftOrder` smoke test with exact order tests.
-   - For `generateSnakeDraftOrder(4, 2)`, assert the full array equals:
+2. Update `src/components/DraftRoom.tsx`.
+   - Import `draftPlayerInDraft` and `undoLastDraftPick` from `@/lib/draftState`.
+   - Replace the body of `draftPlayer` with:
 
 ```ts
-[
-  { pickNumber: 1, round: 1, pickInRound: 1, teamId: "team-1" },
-  { pickNumber: 2, round: 1, pickInRound: 2, teamId: "team-2" },
-  { pickNumber: 3, round: 1, pickInRound: 3, teamId: "team-3" },
-  { pickNumber: 4, round: 1, pickInRound: 4, teamId: "team-4" },
-  { pickNumber: 5, round: 2, pickInRound: 1, teamId: "team-4" },
-  { pickNumber: 6, round: 2, pickInRound: 2, teamId: "team-3" },
-  { pickNumber: 7, round: 2, pickInRound: 3, teamId: "team-2" },
-  { pickNumber: 8, round: 2, pickInRound: 4, teamId: "team-1" },
-]
+setActiveDraft((currentDraft) => draftPlayerInDraft(currentDraft, playerId));
 ```
 
-6. Add an MVP-shape test.
-   - For `generateSnakeDraftOrder(12, 16)`, assert:
-     - the generated order has 192 picks
-     - first pick is `{ pickNumber: 1, round: 1, pickInRound: 1, teamId: "team-1" }`
-     - pick 12 is `{ pickNumber: 12, round: 1, pickInRound: 12, teamId: "team-12" }`
-     - pick 13 is `{ pickNumber: 13, round: 2, pickInRound: 1, teamId: "team-12" }`
-     - final pick is `{ pickNumber: 192, round: 16, pickInRound: 12, teamId: "team-1" }`
+   - Replace the body of `undoLastPick` with:
+
+```ts
+setActiveDraft((currentDraft) => undoLastDraftPick(currentDraft));
+```
+
+   - Do not change props, derived state, rendering, roster logic, recommendation logic, or UI text.
+
+3. Create `src/lib/draftState.test.ts`.
+   - Import `describe`, `expect`, and `it` from `vitest`.
+   - Import `draftPlayerInDraft` and `undoLastDraftPick` from `@/lib/draftState`.
+   - Import `generateSnakeDraftOrder` and `createDraftTeams` from `@/lib/draftOrder`.
+   - Define a small local `createTestDraft` helper using 2 teams and 2 rounds by default.
+   - Keep test data inline and readable.
+
+4. Add tests for drafting a player.
+   - Drafting a valid player assigns that player to the current pick.
+   - Drafting a valid player advances `currentPickNumber` by exactly one.
+   - The original draft object is not mutated.
+
+5. Add tests for blocked draft actions.
+   - Duplicate `playerId` cannot be assigned to multiple picks.
+   - Drafting is blocked when the current pick already has a player.
+   - Drafting is blocked when `currentPickNumber` does not match any pick.
+   - Drafting is blocked after the draft is complete.
+   - Blocked actions return the original draft object unchanged.
+
+6. Add tests for undo.
+   - Undo clears only the latest drafted pick.
+   - Undo restores `currentPickNumber` to the undone pick number.
+   - Undo on an empty draft returns the original draft object unchanged.
 
 7. Update `docs/test-tasks.md`.
-   - Mark `Task 2: Add Draft Order Unit Tests` as complete.
-   - Do not mark Task 3 or later tasks complete.
+   - Mark `Task 3: Add Draft State Transition Tests` as complete.
+   - Do not mark Task 4 or later tasks complete.
 
 8. Validate.
    - Run `npm test`.
@@ -141,27 +141,36 @@ Avoid changing package metadata, Vitest config, app components, seed data, recom
 
 ## Acceptance Criteria
 
-- `getRoundForPick` has exact unit coverage.
-- `getPickInRound` has exact unit coverage.
-- `getDraftPositionForPick` has exact odd/even round unit coverage.
-- `generateSnakeDraftOrder` has exact small-draft unit coverage.
-- `generateSnakeDraftOrder(12, 16)` is checked for 192 picks and key boundary picks.
-- Tests avoid weak existence-only assertions.
-- Production draft order code is unchanged unless a real bug is found.
-- `docs/test-tasks.md` marks only Task 2 newly complete.
+- `draftPlayerInDraft` exists as a pure helper.
+- `undoLastDraftPick` exists as a pure helper.
+- `DraftRoom` uses the pure helpers for draft and undo actions.
+- Valid drafting assigns the player to the current pick.
+- Valid drafting advances `currentPickNumber` by one until the draft is complete.
+- Duplicate player IDs cannot be assigned to multiple picks.
+- Filled current picks cannot be overwritten.
+- Missing current picks are blocked.
+- Extra picks are blocked after the final pick.
+- Undo clears only the latest drafted pick.
+- Undo restores `currentPickNumber`.
+- Undo on an empty draft leaves draft state unchanged.
+- Tests verify blocked actions return the original draft object unchanged.
+- Production behavior is unchanged except for moving logic into pure helpers.
+- `docs/test-tasks.md` marks only Task 3 newly complete.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes.
 
 ## Manual Test Notes
 
-No browser or manual draft smoke test is required for this slice because runtime app behavior is not intended to change.
+No browser or manual draft smoke test is required for this slice because the extracted helper should preserve existing behavior and automated tests cover the transition logic.
+
+If validation suggests the UI behavior changed, stop and investigate rather than expanding scope.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it covers only pure draft order helpers.
-- Concrete enough for implementation: yes, exact functions, cases, expected values, docs update, and validation commands are listed.
-- Avoids unnecessary architecture changes: yes, no production refactor or new test utility is required.
-- Blast radius reasonable: yes, expected changes are one test file, test-task docs, and this slice plan.
-- Review/revert comfort: yes, the change is isolated to tests and task tracking unless a genuine bug is discovered.
-- Observable/testable acceptance criteria: yes, exact assertions plus `npm test`, lint, build, and the Task 2 checkbox verify the slice.
+- Smallest meaningful increment: yes, it extracts and tests only draft/undo transitions.
+- Concrete enough for implementation: yes, helper names, behavior, files, tests, docs update, and validation commands are listed.
+- Avoids unnecessary architecture changes: yes, no state-management redesign or provider abstraction is introduced.
+- Blast radius reasonable: yes, expected changes are one helper module, one test file, one component using the helper, test-task docs, and this slice plan.
+- Review/revert comfort: yes, the extraction is local and preserves existing behavior.
+- Observable/testable acceptance criteria: yes, unit tests plus lint/build and the Task 3 checkbox verify the slice.
