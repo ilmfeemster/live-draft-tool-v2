@@ -83,6 +83,36 @@ Do not read or rely on `roadmap.md` for routine implementation slices unless the
 
 ---
 
+## Design Documents
+
+Use `docs/design/` for phase-specific architecture and product-design clarification when a phase introduces meaningful technical decisions.
+
+Design documents should clarify *how* a phase should be approached before tasks are created. They should not replace `roadmap.md`, `project.md`, `tasks.md`, or `current-slice.md`.
+
+### When to Create or Update a Design Document
+
+Create or update a design document when a phase includes decisions about:
+
+- Architecture boundaries
+- Data modeling
+- API shape
+- Persistence strategy
+- External integrations
+- State ownership
+- Testing strategy for complex behavior
+- Tradeoffs that affect future phases
+
+Do not create a design document for simple implementation slices that are already clearly defined.
+
+### Design Document Location
+
+Store design documents in:
+
+```text
+docs/design/*phase name*
+
+---
+
 ## Documentation Workflow
 
 Documentation is part of development.
