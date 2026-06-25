@@ -16,6 +16,8 @@ Reference when needed:
 
 - docs/future_ideas.md
 
+If you notice prior context may have been compacted, summarized, or lost, stop and tell me before continuing. Do not silently infer missing project details.
+
 ---
 
 ## Documentation Reading Strategy
