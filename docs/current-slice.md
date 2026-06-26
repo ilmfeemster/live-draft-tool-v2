@@ -1,20 +1,20 @@
-# Current Slice: Add Tier-Drop Risk Modifier
+# Current Slice: Add Positional Scarcity And Run Pressure Modifier
 
 ## Source Task
 
-Task 6: Add Tier-Drop Risk Modifier.
+Task 7: Add Positional Scarcity And Run Pressure Modifier.
 
 ## Goal
 
-Add a bounded tier-drop risk modifier to the pure Recommendation Engine path.
+Add bounded positional scarcity and observed run-pressure modifiers to the pure Recommendation Engine path.
 
-This slice should reward players who are among the last useful options in their current positional tier, especially when the position still matters to the user's roster and the user may not pick again before that tier is likely gone.
+This slice should reward positions where useful remaining options are thinning, including recent observed draft runs, without predicting opponent behavior or letting run pressure force bad picks.
 
 ## User-Visible Increment
 
-- Recommendations can identify meaningful tier cliffs.
-- Last-few-in-tier players at relevant positions can rise above similar alternatives.
-- Tier pressure remains bounded so it cannot single-handedly push much lower base-value players above elite options.
+- Recommendations can recognize when useful options at a roster-relevant position are becoming thin.
+- Recent positional runs can add bounded urgency when the user's roster still benefits from the position.
+- Scarcity, run pressure, and tier pressure share the approved urgency cap so contextual pressure remains explainable and controlled.
 
 ## Current Context
 
@@ -22,50 +22,45 @@ Previous Phase 3 slices established:
 
 - A pure `generatePlayerRecommendations` entry point.
 - Rank-derived `baseScore` from `RankingEntry.overallRank`.
-- A `base_value` score component.
-- A `roster_fit` score component derived from draft state and league settings.
-- A `value_opportunity` score component derived from current pick and overall rank.
-- `contextScore` is currently the clamped sum of roster fit and value opportunity.
+- Score components for `base_value`, `roster_fit`, `tier_cliff`, and `value_opportunity`.
+- User roster derivation from draft picks and rankings.
+- Drafted-player filtering through `availableRankings`.
+- Current urgency composition as `min(tier_cliff, tuning.maxUrgencyScore)`.
 - `generateTopRecommendations` remains the legacy UI compatibility path and should not be changed for this slice.
 
-The approved design defines tier-drop risk as a positive-only urgency modifier in the range `0` to `+12`. It should consider available players in the candidate's position and tier, the next available tier at that position, distance to the user's next pick, and roster relevance.
+The approved design defines positional scarcity and run pressure as positive-only urgency modifiers in the range `0` to `+10`. Scarcity and run pressure should combine with tier-drop risk through the same urgency cap, currently represented by `tuning.maxUrgencyScore`.
 
 ## Scope
 
 ### Goals
 
-- Add a pure tier-drop risk helper in `src/lib/recommendations.ts`.
-- Calculate available rankings once after drafted-player filtering.
-- Detect remaining available players in the candidate's position and tier.
-- Detect the next available tier for the candidate's position.
-- Calculate distance to the user's next pick from `input.draft.picks`.
-- Scale tier pressure by roster relevance using the existing `roster_fit` component delta.
-- Add a `tier_cliff` score component to every `PlayerRecommendation`.
-- Apply bounded tier deltas:
-  - No pressure: `0`
-  - Mild pressure with two remaining players in tier: `+4`
-  - Last player in a normal next-tier drop: `+8`
-  - Last player before a major tier cliff at a needed position: `+12`
-- Reduce tier pressure when roster fit is neutral or negative.
-- Treat the current tier urgency score as `min(tierDropRisk, tuning.maxUrgencyScore)` until scarcity is added in Task 7.
+- Add a pure positional scarcity helper in `src/lib/recommendations.ts`.
+- Add a pure observed run-pressure helper in `src/lib/recommendations.ts`.
+- Measure remaining available quality by candidate position using `availableRankings`.
+- Detect recent observed positional runs from `input.draft.picks`.
+- Apply scarcity and run pressure only when the candidate position remains relevant to the user's roster.
+- Add `positional_scarcity` and `positional_run` score components to every `PlayerRecommendation`.
+- Keep scarcity and run pressure positive-only.
+- Combine urgency as:
+  - `urgencyScore = min(tier_cliff + positional_scarcity + positional_run, tuning.maxUrgencyScore)`
 - Recompute `contextScore` as the clamped sum of:
   - `roster_fit`
-  - current urgency score from `tier_cliff`
+  - combined urgency score
   - `value_opportunity`
-- Recompute `totalScore` as `baseScore + contextScore`.
 - Preserve deterministic sorting by total score, base score, overall rank, position rank, and player id.
-- Add focused tests for mild tier pressure, major tier cliffs, roster-relevance reduction, urgency cap behavior, and elite-player guardrails.
+- Add focused tests for scarcity, run pressure, solved-position behavior, combined urgency cap behavior, and deterministic output.
 
 ### Non-Goals
 
-- Adding positional scarcity or run pressure.
-- Predicting opponent behavior.
+- Modeling opponents.
 - Simulating future picks.
+- Predicting whether a run will continue.
+- Replacing tier-drop risk.
+- Letting positional runs force bad picks.
 - Generating final recommendation reasons.
-- Adding UI-only tier labels.
-- Changing UI components to consume `generatePlayerRecommendations`.
+- Adding UI wiring or display behavior.
 - Changing persistence, Prisma, server actions, draft source behavior, or Draft State Engine behavior.
-- Introducing Phase 6 strategy advice.
+- Introducing provider-specific assumptions.
 - Introducing a generic modifier registry.
 - Updating `docs/tasks.md`, `docs/project.md`, `docs/architecture.md`, `docs/decisions.md`, or design docs.
 
@@ -81,65 +76,80 @@ Do not modify `src/types/draft.ts` unless a compile blocker appears. Use the exi
 
 1. Review the active context.
    - Read `docs/current-slice.md`.
-   - Read Task 6 in `docs/tasks.md`.
-   - Read the tier-drop risk section of `docs/design/recommendation-engine.md`.
+   - Read Task 7 in `docs/tasks.md`.
+   - Read the positional scarcity and run pressure sections of `docs/design/recommendation-engine.md`.
    - Read `src/lib/recommendations.ts`.
    - Read `src/lib/recommendations.test.ts`.
 
-2. Prepare available rankings and next-pick distance.
-   - In `generatePlayerRecommendations`, keep filtering drafted players before scoring.
-   - Store the filtered list as `availableRankings`.
-   - Add a pure helper such as `getDistanceToNextUserPick`.
-   - Find the next pick where `pick.teamId === input.userTeamId` and `pick.pickNumber > input.draft.currentPickNumber`.
-   - Return `nextPick.pickNumber - input.draft.currentPickNumber` when one exists.
-   - Return `null` when the user has no remaining pick.
-
-3. Add the tier-drop risk calculation.
-   - Add a helper such as `calculateTierDropRiskComponent`.
+2. Add positional scarcity calculation.
+   - Add a helper such as `calculatePositionalScarcityComponent`.
    - Inputs should include:
      - candidate `RankingEntry`
      - `availableRankings`
-     - distance to next user pick
      - existing `roster_fit` component delta
      - recommendation tuning config
+   - Limit scarcity to roster-building positions where scarcity is strategically useful for MVP recommendations: `QB`, `RB`, `WR`, and `TE`.
    - Compute same-position available rankings sorted by `overallRank`.
-   - Count available players with the candidate's position and current tier.
-   - Find the next higher tier number available at the same position.
-   - Compute `tierGap = nextTier - currentTier` when a next tier exists.
+   - Count same-position options behind the candidate within the existing lookahead window, such as `candidate.overallRank + 24`.
    - Return `0` when:
-     - no next tier exists
-     - the candidate is not in the best available tier for the position
-     - same-tier count is greater than `tuning.tierThinnessThreshold`
-     - distance to the user's next pick exists and same-tier count is greater than that distance
-   - Use base deltas:
-     - same-tier count equals `tuning.tierThinnessThreshold`: `+4`
-     - same-tier count is `1` and `tierGap === 1`: `+8`
-     - same-tier count is `1` and `tierGap > 1`: `+12`
+     - the position is not roster-relevant
+     - roster fit delta is negative
+     - enough nearby same-position options remain
+   - Use starting deltas:
+     - Mild scarcity when one or two nearby same-position options remain: `+3`
+     - Clear scarcity when no nearby same-position options remain: `+6`
    - Scale by roster relevance:
      - `roster_fit.delta > 0`: keep full delta.
      - `roster_fit.delta === 0`: halve the delta and round down.
-     - `roster_fit.delta < 0`: cap the delta at `+3`.
-   - Clamp the final tier delta to `0` through `+12`.
+     - `roster_fit.delta < 0`: return `0`.
+   - Clamp the final scarcity delta to `0` through `+6` for this slice.
 
-4. Add the tier score component.
-   - Use stable id `tier_cliff`.
-   - Set `delta` to the calculated tier modifier.
+3. Add observed run-pressure calculation.
+   - Add a helper such as `calculatePositionalRunComponent`.
+   - Inputs should include:
+     - candidate `RankingEntry`
+     - full rankings map or lookup by player id
+     - `input.draft.picks`
+     - `input.draft.currentPickNumber`
+     - existing `roster_fit` component delta
+     - recommendation tuning config
+   - Use only completed picks with `pick.pickNumber < currentPickNumber`.
+   - Sort recent picks by `pickNumber` descending and inspect at most `tuning.recentPickRunWindow`.
+   - Map picked players to positions through the ranking snapshot.
+   - Ignore picks whose player id is missing from rankings.
+   - Limit run pressure to `QB`, `RB`, `WR`, and `TE`.
+   - Return `0` when:
+     - the candidate position is not roster-relevant
+     - roster fit delta is not positive
+     - the recent window does not show a meaningful run
+   - Use starting deltas:
+     - Three or four recent picks at the candidate position: `+2`
+     - Five or more recent picks at the candidate position: `+4`
+   - Clamp the final run-pressure delta to `0` through `+4`.
+
+4. Add score components.
+   - Add stable component id `positional_scarcity`.
+   - Add stable component id `positional_run`.
+   - Set `delta` to the calculated modifier.
    - Set direction to `"positive"` when `delta > 0`, otherwise `"neutral"`.
-   - Set a stable priority suitable for later reason selection.
-   - Include evidence such as:
+   - Set stable priorities suitable for later reason selection.
+   - Include evidence for scarcity such as:
      - `position`
-     - `currentTier`
-     - `sameTierRemaining`
-     - `nextTier`
-     - `tierGap`
-     - `distanceToNextUserPick`
+     - `nearbySamePositionOptions`
+     - `lookaheadRanks`
+     - `rosterFitDelta`
+     - `thresholdMatched`
+   - Include evidence for run pressure such as:
+     - `position`
+     - `recentPickWindow`
+     - `recentPositionPickCount`
      - `rosterFitDelta`
      - `thresholdMatched`
 
-5. Compose context score.
-   - Keep existing `base_value`, `roster_fit`, and `value_opportunity` components.
-   - Add the new `tier_cliff` component after `roster_fit` and before `value_opportunity`.
-   - Compute `urgencyScore = min(tierCliffComponent.delta, tuning.maxUrgencyScore)`.
+5. Compose combined urgency.
+   - Keep existing `base_value`, `roster_fit`, `tier_cliff`, and `value_opportunity` components.
+   - Add `positional_scarcity` and `positional_run` after `tier_cliff` and before `value_opportunity`.
+   - Compute `urgencyScore = min(tierCliffComponent.delta + positionalScarcityComponent.delta + positionalRunComponent.delta, tuning.maxUrgencyScore)`.
    - Compute raw context as `rosterFitComponent.delta + urgencyScore + valueOpportunityComponent.delta`.
    - Clamp raw context with `tuning.maxNegativeContextScore` and `tuning.maxPositiveContextScore`.
    - Set `totalScore` from `baseScore + contextScore`.
@@ -148,17 +158,18 @@ Do not modify `src/types/draft.ts` unless a compile blocker appears. Use the exi
 6. Preserve existing compatibility behavior.
    - Do not change `generateTopRecommendations`.
    - Do not change UI call sites.
-   - Do not alter roster fit or value opportunity behavior except for composing tier urgency into context.
+   - Do not alter base value, roster fit, tier-drop risk, or value opportunity behavior except for composing scarcity and run pressure into urgency.
 
 7. Add focused tests.
-   - Unit test mild tier pressure when two players remain in a relevant tier.
-   - Unit test major tier cliff when one player remains before a multi-tier drop at a needed position.
-   - Unit test no tier pressure when several players remain beyond the thinness threshold.
-   - Unit test no tier pressure when the candidate is not in the best available tier at the position.
-   - Unit test that filled or low-value roster positions reduce tier impact.
-   - Unit test that tier pressure cannot move a much lower base-value player above an elite player by itself.
-   - Unit test `tier_cliff` component shape and evidence.
-   - Unit test urgency score respects `tuning.maxUrgencyScore`.
+   - Unit test mild scarcity when one or two nearby same-position options remain at a relevant position.
+   - Unit test clear scarcity when no nearby same-position options remain at a relevant position.
+   - Unit test no scarcity when enough nearby same-position options remain.
+   - Unit test observed run pressure at a needed position.
+   - Unit test observed run pressure is ignored for a solved or roster-irrelevant position.
+   - Unit test recent picks with player ids missing from rankings are ignored.
+   - Unit test scarcity, run pressure, and tier pressure together respect `tuning.maxUrgencyScore`.
+   - Unit test that scarcity and run pressure do not move a much lower base-value player above an elite player by themselves.
+   - Unit test component shape and evidence for both new components.
    - Unit test deterministic output for identical inputs.
 
 8. Run validation.
@@ -168,34 +179,36 @@ Do not modify `src/types/draft.ts` unless a compile blocker appears. Use the exi
    - Fix only failures caused by this slice.
    - If validation fails for unrelated pre-existing reasons, document the blocker and stop.
 
-9. Stop after Task 6.
-   - Do not start positional scarcity, run pressure, explanation selection, scenario validation, or UI wiring tasks.
+9. Stop after Task 7.
+   - Do not start explanation selection, scenario validation, UI wiring, or later recommendation tasks.
    - Do not update planning docs beyond this current slice.
 
 ## Acceptance Criteria
 
-- Last-few-in-tier situations increase recommendations for roster-relevant positions.
-- Major tier cliffs can receive a larger bounded `tier_cliff` modifier.
-- Tier pressure is reduced when the position is already solved or low-value for the roster.
-- Candidates outside the best available tier for their position do not receive tier pressure.
-- Tier pressure cannot move a much lower base-value player above an elite player by itself.
-- `tier_cliff` components include evidence needed for later reason generation.
-- `contextScore` is the clamped sum of roster fit, current urgency score, and value opportunity.
-- Current urgency score respects `tuning.maxUrgencyScore`.
+- Thin remaining positional quality creates bounded `positional_scarcity` credit.
+- Recent observed positional runs create bounded `positional_run` pressure only when tied to roster relevance.
+- Runs at solved or roster-irrelevant positions have no effect.
+- Scarcity and run pressure are positive-only and remain bounded.
+- Scarcity, run pressure, and tier pressure share the combined urgency cap.
+- Scarcity and run pressure cannot move a much lower base-value player above an elite player by themselves.
+- New components include evidence needed for later reason generation.
+- `contextScore` is the clamped sum of roster fit, combined urgency, and value opportunity.
 - Recommendation ordering remains deterministic for the same draft state and rankings.
+- The modifier remains independent from manual, replay, or future live draft sources.
 - Existing `generateTopRecommendations` behavior remains available for current UI compatibility.
 - No UI, persistence, server action, Prisma, or draft source dependency is introduced into the engine.
 
 ## Suggested Tests
 
-- Unit test mild tier pressure.
-- Unit test major tier cliff at a needed position.
-- Unit test no tier pressure when tier depth is not thin.
-- Unit test no tier pressure outside the best available tier.
-- Unit test filled-position reduction.
+- Unit test mild scarcity.
+- Unit test clear scarcity.
+- Unit test no scarcity when nearby depth remains.
+- Unit test observed run pressure at a needed position.
+- Unit test observed run pressure ignored for a solved position.
+- Unit test unknown recent pick player ids are ignored.
+- Unit test combined urgency cap behavior.
 - Unit test elite-player guardrail.
-- Unit test urgency cap behavior.
-- Unit test tier component shape and evidence.
+- Unit test scarcity and run component shape and evidence.
 - Unit test deterministic output for identical inputs.
 
 ## Validation Notes
@@ -216,9 +229,9 @@ npm run lint
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It adds only the tier-drop risk modifier from Task 6.
-- Concrete enough for implementation: yes. The tier detection inputs, distance rule, relevance scaling, component shape, composition rule, and tests are specified.
+- Smallest meaningful increment: yes. It adds only the Task 7 scarcity and observed run-pressure modifiers.
+- Concrete enough for implementation: yes. Inputs, thresholds, roster-relevance gates, component shape, composition rule, and tests are specified.
 - Avoids unnecessary architecture changes: yes. It stays inside the pure Recommendation Engine path and avoids a modifier registry.
 - Blast radius reasonable: yes. Expected implementation changes are limited to recommendation library code and tests.
-- Review/revert comfort: yes. The slice is isolated from UI, persistence, scarcity, run pressure, and explanation work.
+- Review/revert comfort: yes. The slice is isolated from UI, persistence, explanation selection, and scenario validation.
 - Observable/testable acceptance criteria: yes. Behavior is covered by focused unit tests and linting.
