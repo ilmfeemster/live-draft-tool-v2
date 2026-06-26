@@ -268,10 +268,10 @@ Prove that persistence preserves the manual draft workflow end to end.
 
 Scope:
 
-- Add or update integration coverage for save/load round trips.
-- Validate draft invariants after hydration.
-- Validate recommendation inputs before and after reload.
-- Include a non-default league configuration test.
+- [x] Add or update integration coverage for save/load round trips.
+- [x] Validate draft invariants after hydration.
+- [x] Validate recommendation inputs before and after reload.
+- [x] Include a non-default league configuration test.
 - Complete manual QA for refresh/restart and full draft completion from persisted state.
 
 Non-Goals:

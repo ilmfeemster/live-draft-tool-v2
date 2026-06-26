@@ -4,7 +4,14 @@ import { createDraftRepository } from "@/lib/draftRepository";
 import { isValidDraftState } from "@/lib/draftInvariants";
 import { serializeLeagueSettingsSnapshot } from "@/lib/leagueSettingsSnapshot";
 import { serializeRankingSnapshot } from "@/lib/rankingSnapshot";
-import type { LeagueSettings, Position, RankingEntry } from "@/types/draft";
+import { generateTopRecommendations } from "@/lib/recommendations";
+import type {
+  Draft,
+  LeagueSettings,
+  Position,
+  RankingEntry,
+  UserRosterPlayer,
+} from "@/types/draft";
 
 describe("draft repository", () => {
   it("creates a default draft from source state without empty pick rows", async () => {
@@ -201,6 +208,132 @@ describe("draft repository", () => {
     expect(updatedWorkspace?.draft.picks[1].playerId).toBeUndefined();
     expect(reloadedWorkspace?.draft.currentPickNumber).toBe(2);
     expect(reloadedWorkspace?.draft.picks[1].playerId).toBeUndefined();
+  });
+
+  it("preserves draft invariants and recommendation inputs across persisted reload and undo", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const rankings = [
+      createRanking("player-1", 1, "WR"),
+      createRanking("player-2", 2, "RB"),
+      createRanking("player-3", 3, "QB"),
+      createRanking("player-4", 4, "TE"),
+      createRanking("player-5", 5, "WR"),
+      createRanking("player-6", 6, "RB"),
+      createRanking("player-7", 7, "WR"),
+      createRanking("player-8", 8, "RB"),
+    ];
+    const workspace = await repository.createDraftWorkspace({
+      leagueSettings: createLeagueSettings({ teamCount: 4, rounds: 3 }),
+      rankings,
+      userTeamId: "team-3",
+    });
+
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-1");
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-2");
+    await repository.draftPlayerInWorkspace(workspace.draft.id, "player-3");
+
+    const reloadedWorkspace = await repository.getDraftWorkspaceById(
+      workspace.draft.id,
+    );
+
+    expect(reloadedWorkspace).not.toBeNull();
+    if (!reloadedWorkspace) {
+      throw new Error("Expected persisted workflow draft to reload.");
+    }
+
+    const availableRankings = getAvailableRankings(
+      reloadedWorkspace.rankings,
+      reloadedWorkspace.draft,
+    );
+    const rosterPlayers = getUserRosterPlayers(
+      reloadedWorkspace.rankings,
+      reloadedWorkspace.draft,
+    );
+    const recommendations = generateTopRecommendations(availableRankings, {
+      rosterPlayers,
+    });
+
+    expect(reloadedWorkspace.draft.currentPickNumber).toBe(4);
+    expect(
+      reloadedWorkspace.draft.picks
+        .filter((pick) => pick.playerId)
+        .map((pick) => pick.playerId),
+    ).toEqual(["player-1", "player-2", "player-3"]);
+    expect(availableRankings.map((ranking) => ranking.player.id)).not.toContain(
+      "player-1",
+    );
+    expect(availableRankings.map((ranking) => ranking.player.id)).not.toContain(
+      "player-2",
+    );
+    expect(availableRankings.map((ranking) => ranking.player.id)).not.toContain(
+      "player-3",
+    );
+    expect(rosterPlayers).toEqual([
+      {
+        pickNumber: 3,
+        name: "player-3",
+        team: "TEST",
+        position: "QB",
+      },
+    ]);
+    expect(recommendations.map((recommendation) => recommendation.ranking.player.id))
+      .toEqual(["player-4", "player-5", "player-6", "player-7", "player-8"]);
+    expect(
+      isValidDraftState({
+        draft: reloadedWorkspace.draft,
+        availableRankings,
+        rosterPlayers,
+        recommendationRankings: recommendations.map((recommendation) => {
+          return recommendation.ranking;
+        }),
+      }),
+    ).toBe(true);
+
+    await repository.undoLastPickInWorkspace(workspace.draft.id);
+
+    const restoredWorkspace = await repository.getDraftWorkspaceById(
+      workspace.draft.id,
+    );
+
+    expect(restoredWorkspace).not.toBeNull();
+    if (!restoredWorkspace) {
+      throw new Error("Expected post-undo workflow draft to reload.");
+    }
+
+    const restoredAvailableRankings = getAvailableRankings(
+      restoredWorkspace.rankings,
+      restoredWorkspace.draft,
+    );
+    const restoredRosterPlayers = getUserRosterPlayers(
+      restoredWorkspace.rankings,
+      restoredWorkspace.draft,
+    );
+    const restoredRecommendations = generateTopRecommendations(
+      restoredAvailableRankings,
+      { rosterPlayers: restoredRosterPlayers },
+    );
+
+    expect(restoredWorkspace.draft.currentPickNumber).toBe(3);
+    expect(
+      restoredWorkspace.draft.picks
+        .filter((pick) => pick.playerId)
+        .map((pick) => pick.playerId),
+    ).toEqual(["player-1", "player-2"]);
+    expect(restoredAvailableRankings.map((ranking) => ranking.player.id)).toContain(
+      "player-3",
+    );
+    expect(restoredRosterPlayers).toEqual([]);
+    expect(
+      isValidDraftState({
+        draft: restoredWorkspace.draft,
+        availableRankings: restoredAvailableRankings,
+        rosterPlayers: restoredRosterPlayers,
+        recommendationRankings: restoredRecommendations.map((recommendation) => {
+          return recommendation.ranking;
+        }),
+      }),
+    ).toBe(true);
   });
 
   it("returns null when undoing a missing draft", async () => {
@@ -571,6 +704,47 @@ function toWorkspaceRecord(draft: FakeDraftRecord) {
     },
     picks: [...draft.picks].sort((left, right) => left.pickNumber - right.pickNumber),
   };
+}
+
+function getAvailableRankings(
+  rankings: RankingEntry[],
+  draft: Draft,
+): RankingEntry[] {
+  const draftedPlayerIds = new Set(
+    draft.picks
+      .map((pick) => pick.playerId)
+      .filter((playerId): playerId is string => Boolean(playerId)),
+  );
+
+  return rankings.filter((ranking) => {
+    return !draftedPlayerIds.has(ranking.player.id);
+  });
+}
+
+function getUserRosterPlayers(
+  rankings: RankingEntry[],
+  draft: Draft,
+): UserRosterPlayer[] {
+  return draft.picks
+    .filter((pick) => pick.teamId === draft.userTeamId && pick.playerId)
+    .map((pick) => {
+      const ranking = rankings.find((entry) => {
+        return entry.player.id === pick.playerId;
+      });
+
+      if (!ranking) {
+        return undefined;
+      }
+
+      return {
+        pickNumber: pick.pickNumber,
+        name: ranking.player.name,
+        team: ranking.player.team,
+        position: ranking.player.position,
+      };
+    })
+    .filter((player): player is UserRosterPlayer => Boolean(player))
+    .sort((left, right) => left.pickNumber - right.pickNumber);
 }
 
 function createLeagueSettings({
