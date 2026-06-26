@@ -37,6 +37,13 @@ const MAJOR_VALUE_OPPORTUNITY_DELTA = 8;
 const CLEAR_REACH_DELTA = -4;
 const MAJOR_REACH_DELTA = -6;
 const VALUE_OPPORTUNITY_COMPONENT_PRIORITY = 15;
+const TIER_CLIFF_MIN_DELTA = 0;
+const TIER_CLIFF_MAX_DELTA = 12;
+const MILD_TIER_PRESSURE_DELTA = 4;
+const LAST_PLAYER_TIER_PRESSURE_DELTA = 8;
+const MAJOR_TIER_CLIFF_DELTA = 12;
+const SOLVED_POSITION_TIER_CAP = 3;
+const TIER_CLIFF_COMPONENT_PRIORITY = 18;
 
 export const defaultRecommendationTuningConfig: RecommendationTuningConfig = {
   baseScoreCurveCoefficient: 6,
@@ -385,6 +392,97 @@ export function calculateValueOpportunityComponent({
   };
 }
 
+function getDistanceToNextUserPick(input: RecommendationInput) {
+  const nextUserPick = input.draft.picks.find((pick) => {
+    return pick.teamId === input.userTeamId && pick.pickNumber > input.draft.currentPickNumber;
+  });
+
+  return nextUserPick ? nextUserPick.pickNumber - input.draft.currentPickNumber : null;
+}
+
+export function calculateTierDropRiskComponent({
+  ranking,
+  availableRankings,
+  distanceToNextUserPick,
+  rosterFitDelta,
+  tuning,
+}: {
+  ranking: RankingEntry;
+  availableRankings: RankingEntry[];
+  distanceToNextUserPick: number | null;
+  rosterFitDelta: number;
+  tuning: RecommendationTuningConfig;
+}): RecommendationScoreComponent {
+  const position = ranking.player.position;
+  const samePositionRankings = availableRankings
+    .filter((candidate) => candidate.player.position === position)
+    .sort(compareRankingsByStableDraftOrder);
+  const bestAvailableTier = Math.min(...samePositionRankings.map((candidate) => candidate.tier));
+  const sameTierRemaining = samePositionRankings.filter((candidate) => {
+    return candidate.tier === ranking.tier;
+  }).length;
+  const nextTier =
+    samePositionRankings
+      .map((candidate) => candidate.tier)
+      .filter((tier) => tier > ranking.tier)
+      .sort((a, b) => a - b)[0] ?? null;
+  const tierGap = nextTier === null ? null : nextTier - ranking.tier;
+  let delta = 0;
+  let thresholdMatched = "neutral";
+
+  if (samePositionRankings.length === 0) {
+    thresholdMatched = "no_position_options";
+  } else if (ranking.tier !== bestAvailableTier) {
+    thresholdMatched = "not_best_available_tier";
+  } else if (nextTier === null || tierGap === null) {
+    thresholdMatched = "no_next_tier";
+  } else if (sameTierRemaining > tuning.tierThinnessThreshold) {
+    thresholdMatched = "tier_not_thin";
+  } else if (distanceToNextUserPick !== null && sameTierRemaining > distanceToNextUserPick) {
+    thresholdMatched = "likely_available_next_pick";
+  } else if (sameTierRemaining === 1 && tierGap > 1) {
+    delta = MAJOR_TIER_CLIFF_DELTA;
+    thresholdMatched = "major_tier_cliff";
+  } else if (sameTierRemaining === 1) {
+    delta = LAST_PLAYER_TIER_PRESSURE_DELTA;
+    thresholdMatched = "last_in_tier";
+  } else {
+    delta = MILD_TIER_PRESSURE_DELTA;
+    thresholdMatched = "mild_tier_pressure";
+  }
+
+  let relevanceAdjustedDelta = delta;
+
+  if (rosterFitDelta === 0) {
+    relevanceAdjustedDelta = Math.floor(delta / 2);
+  } else if (rosterFitDelta < 0) {
+    relevanceAdjustedDelta = Math.min(delta, SOLVED_POSITION_TIER_CAP);
+  }
+
+  const boundedDelta = clamp(
+    relevanceAdjustedDelta,
+    TIER_CLIFF_MIN_DELTA,
+    TIER_CLIFF_MAX_DELTA,
+  );
+
+  return {
+    id: "tier_cliff",
+    delta: boundedDelta,
+    direction: boundedDelta > 0 ? "positive" : "neutral",
+    priority: TIER_CLIFF_COMPONENT_PRIORITY,
+    evidence: {
+      position,
+      currentTier: ranking.tier,
+      sameTierRemaining,
+      nextTier,
+      tierGap,
+      distanceToNextUserPick,
+      rosterFitDelta,
+      thresholdMatched,
+    },
+  };
+}
+
 export function generatePlayerRecommendations(
   input: RecommendationInput,
   options: GeneratePlayerRecommendationsOptions = {},
@@ -398,9 +496,12 @@ export function generatePlayerRecommendations(
 
   const draftedPlayerIds = getDraftedPlayerIds(input);
   const rosterPlayers = getUserRoster(input);
+  const availableRankings = input.rankings.filter((ranking) => {
+    return !draftedPlayerIds.has(ranking.player.id);
+  });
+  const distanceToNextUserPick = getDistanceToNextUserPick(input);
 
-  return input.rankings
-    .filter((ranking) => !draftedPlayerIds.has(ranking.player.id))
+  return availableRankings
     .map((ranking) => {
       const baseScore = calculateBasePlayerValueScore(
         ranking.overallRank,
@@ -413,14 +514,22 @@ export function generatePlayerRecommendations(
         draft: input.draft,
         tuning,
       });
+      const tierCliffComponent = calculateTierDropRiskComponent({
+        ranking,
+        availableRankings,
+        distanceToNextUserPick,
+        rosterFitDelta: rosterFitComponent.delta,
+        tuning,
+      });
       const valueOpportunityComponent = calculateValueOpportunityComponent({
         ranking,
         currentPickNumber: input.draft.currentPickNumber,
         rosterFitDelta: rosterFitComponent.delta,
         tuning,
       });
+      const urgencyScore = Math.min(tierCliffComponent.delta, tuning.maxUrgencyScore);
       const contextScore = clamp(
-        rosterFitComponent.delta + valueOpportunityComponent.delta,
+        rosterFitComponent.delta + urgencyScore + valueOpportunityComponent.delta,
         tuning.maxNegativeContextScore,
         tuning.maxPositiveContextScore,
       );
@@ -444,6 +553,7 @@ export function generatePlayerRecommendations(
             },
           },
           rosterFitComponent,
+          tierCliffComponent,
           valueOpportunityComponent,
         ],
         reasons: [],

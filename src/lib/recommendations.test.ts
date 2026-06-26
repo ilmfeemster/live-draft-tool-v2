@@ -4,6 +4,7 @@ import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import { draftPlayerInDraft } from "@/lib/draftState";
 import {
   calculateBasePlayerValueScore,
+  calculateTierDropRiskComponent,
   calculateValueOpportunityComponent,
   defaultRecommendationTuningConfig,
   generatePlayerRecommendations,
@@ -417,7 +418,7 @@ describe("generatePlayerRecommendations", () => {
     expect(recommendation.ranking.player.id).toBe("player-1");
   });
 
-  it("adds roster fit as the only context score source", () => {
+  it("adds roster fit to context score", () => {
     const rankings = [createRanking("player-1", 25, "RB")];
 
     const [recommendation] = generatePlayerRecommendations(
@@ -808,6 +809,169 @@ describe("generatePlayerRecommendations", () => {
         }),
       }),
     );
+  });
+
+  it("adds mild tier pressure when two players remain in a relevant tier", () => {
+    const tierComponent = calculateTierDropRiskComponent({
+      ranking: createRanking("tier-rb-1", 20, "RB", "tier-rb-1", { tier: 1 }),
+      availableRankings: [
+        createRanking("tier-rb-1", 20, "RB", "tier-rb-1", { tier: 1 }),
+        createRanking("tier-rb-2", 21, "RB", "tier-rb-2", { tier: 1 }),
+        createRanking("next-tier-rb", 30, "RB", "next-tier-rb", { tier: 2 }),
+      ],
+      distanceToNextUserPick: null,
+      rosterFitDelta: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(tierComponent).toMatchObject({
+      id: "tier_cliff",
+      delta: 4,
+      direction: "positive",
+      evidence: expect.objectContaining({
+        sameTierRemaining: 2,
+        nextTier: 2,
+        tierGap: 1,
+        thresholdMatched: "mild_tier_pressure",
+      }),
+    });
+  });
+
+  it("adds major tier pressure before a multi-tier drop at a needed position", () => {
+    const rankings = [
+      createRanking("tier-rb", 20, "RB", "tier-rb", { tier: 1 }),
+      createRanking("next-tier-rb", 30, "RB", "next-tier-rb", { tier: 3 }),
+    ];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings }),
+    );
+    const tierComponent = recommendation.components.find((component) => {
+      return component.id === "tier_cliff";
+    });
+
+    expect(tierComponent).toEqual(
+      expect.objectContaining({
+        delta: 12,
+        direction: "positive",
+        evidence: expect.objectContaining({
+          position: "RB",
+          currentTier: 1,
+          sameTierRemaining: 1,
+          nextTier: 3,
+          tierGap: 2,
+          thresholdMatched: "major_tier_cliff",
+        }),
+      }),
+    );
+    expect(recommendation.contextScore).toBe(22);
+  });
+
+  it("does not add tier pressure when tier depth is not thin", () => {
+    const tierComponent = calculateTierDropRiskComponent({
+      ranking: createRanking("tier-rb-1", 20, "RB", "tier-rb-1", { tier: 1 }),
+      availableRankings: [
+        createRanking("tier-rb-1", 20, "RB", "tier-rb-1", { tier: 1 }),
+        createRanking("tier-rb-2", 21, "RB", "tier-rb-2", { tier: 1 }),
+        createRanking("tier-rb-3", 22, "RB", "tier-rb-3", { tier: 1 }),
+        createRanking("next-tier-rb", 30, "RB", "next-tier-rb", { tier: 2 }),
+      ],
+      distanceToNextUserPick: null,
+      rosterFitDelta: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(tierComponent).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+      evidence: expect.objectContaining({
+        thresholdMatched: "tier_not_thin",
+      }),
+    });
+  });
+
+  it("does not add tier pressure outside the best available tier", () => {
+    const tierComponent = calculateTierDropRiskComponent({
+      ranking: createRanking("second-tier-rb", 25, "RB", "second-tier-rb", { tier: 2 }),
+      availableRankings: [
+        createRanking("top-tier-rb", 20, "RB", "top-tier-rb", { tier: 1 }),
+        createRanking("second-tier-rb", 25, "RB", "second-tier-rb", { tier: 2 }),
+        createRanking("third-tier-rb", 30, "RB", "third-tier-rb", { tier: 3 }),
+      ],
+      distanceToNextUserPick: null,
+      rosterFitDelta: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(tierComponent).toMatchObject({
+      delta: 0,
+      evidence: expect.objectContaining({
+        thresholdMatched: "not_best_available_tier",
+      }),
+    });
+  });
+
+  it("reduces tier pressure for filled or low-value roster positions", () => {
+    const tierComponent = calculateTierDropRiskComponent({
+      ranking: createRanking("tier-rb", 20, "RB", "tier-rb", { tier: 1 }),
+      availableRankings: [
+        createRanking("tier-rb", 20, "RB", "tier-rb", { tier: 1 }),
+        createRanking("next-tier-rb", 30, "RB", "next-tier-rb", { tier: 3 }),
+      ],
+      distanceToNextUserPick: null,
+      rosterFitDelta: -12,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(tierComponent).toEqual(
+      expect.objectContaining({
+        delta: 3,
+        evidence: expect.objectContaining({
+          rosterFitDelta: -12,
+          thresholdMatched: "major_tier_cliff",
+        }),
+      }),
+    );
+  });
+
+  it("does not let tier pressure alone move a much lower base-value player above an elite player", () => {
+    const rankings = [
+      createRanking("elite-wr", 1, "WR", "elite-wr", { tier: 1 }),
+      createRanking("tier-rb", 40, "RB", "tier-rb", { tier: 1 }),
+      createRanking("next-tier-rb", 55, "RB", "next-tier-rb", { tier: 3 }),
+    ];
+
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput({ rankings }),
+    );
+
+    expect(getPlayerRecommendationIds(recommendations).slice(0, 2)).toEqual([
+      "elite-wr",
+      "tier-rb",
+    ]);
+  });
+
+  it("caps tier urgency with the tuning max urgency score", () => {
+    const rankings = [
+      createRanking("tier-rb", 20, "RB", "tier-rb", { tier: 1 }),
+      createRanking("next-tier-rb", 30, "RB", "next-tier-rb", { tier: 3 }),
+    ];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings }),
+      {
+        tuning: {
+          ...defaultRecommendationTuningConfig,
+          maxUrgencyScore: 5,
+        },
+      },
+    );
+    const tierComponent = recommendation.components.find((component) => {
+      return component.id === "tier_cliff";
+    });
+
+    expect(tierComponent).toEqual(expect.objectContaining({ delta: 12 }));
+    expect(recommendation.contextScore).toBe(15);
   });
 
   it("does not mutate the input draft", () => {
