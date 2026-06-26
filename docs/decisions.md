@@ -261,6 +261,99 @@ Tradeoffs:
 
 ---
 
+## 2026-06-26
+
+### Phase 3 Bounded Additive Recommendation Scoring
+
+Decision:
+
+Use a bounded additive scoring model for Phase 3 recommendations:
+
+```txt
+recommendation score =
+base player value
++ bounded context modifiers
+```
+
+Base player value should come from the active ranking snapshot. Context modifiers should include roster fit and timing, value opportunity, tier-drop risk, positional scarcity, and observed run pressure.
+
+Reason:
+
+This keeps recommendations deterministic, inspectable, and easy to tune while improving beyond static rankings. The model lets elite players remain obvious recommendations while still allowing contextual draft state to reorder similarly ranked players.
+
+Tradeoffs:
+
+- Less sophisticated than projection-based value, VORP, simulations, or opponent modeling.
+- Requires scenario tests to keep tuning grounded in expected draft behavior.
+- Modifier ranges and caps become important product tuning choices.
+- Ranking snapshots remain the scoring anchor until rankings and projections become first-class product data.
+
+---
+
+## 2026-06-26
+
+### Phase 3 Score-Backed Recommendation Explanations
+
+Decision:
+
+Generate recommendation explanations directly from scoring components.
+
+Each displayed reason must trace back to an input that affected recommendation scoring, such as base value, roster need, value opportunity, tier pressure, scarcity, observed run pressure, or a meaningful penalty.
+
+Reason:
+
+The MVP must keep recommendations explainable and debuggable. Score-backed reasons prevent unsupported strategic claims and make it possible to validate explanation behavior with deterministic tests.
+
+Tradeoffs:
+
+- Explanations may be less conversational than AI-generated advice.
+- Reason text is limited to what the scoring model actually knows.
+- Future richer insight language should wait until the Insight Engine phase.
+
+---
+
+## 2026-06-26
+
+### Phase 3 Recommendation Engine Boundary
+
+Decision:
+
+Keep the Recommendation Engine pure and derived.
+
+The engine should consume typed draft state, ranking data, league settings, and user team identity. It should not read from persistence, mutate draft state, depend on React, depend on database records, or persist recommendation output.
+
+Reason:
+
+Recommendations are deterministic outputs of draft state and ranking context. Keeping the engine pure preserves architecture boundaries, makes the behavior easy to test, and ensures future manual, replay, and live draft sources can share the same recommendation logic.
+
+Tradeoffs:
+
+- UI and persistence layers must provide typed domain-facing inputs before calling the engine.
+- Recommendation output is recomputed after loading a draft rather than reused from storage.
+- Future performance optimization, if ever needed, must preserve derived-output semantics.
+
+---
+
+## 2026-06-26
+
+### Phase 3 Deferred Recommendation Alternatives
+
+Decision:
+
+Defer projection-based value, VORP, opponent modeling, draft simulations, AI-generated explanations, and a generic modifier registry.
+
+Reason:
+
+These approaches either require data the MVP does not yet own, add assumptions that are hard to validate, reduce explainability, or introduce abstraction before the current modifier set needs it.
+
+Tradeoffs:
+
+- Phase 3 recommendations remain simpler than mature draft tools.
+- Some advanced strategy behaviors wait for later roadmap phases.
+- Future phases may revisit these alternatives after rankings, replay tooling, live integrations, or the Insight Engine become active scope.
+
+---
+
 ## Template
 
 ### YYYY-MM-DD

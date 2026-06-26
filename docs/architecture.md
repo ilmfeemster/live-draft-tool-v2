@@ -98,7 +98,17 @@ State complexity should only be added after actual friction appears.
 
 ## Recommendation Engine
 
-The recommendation engine should be:
+The Recommendation Engine sits above the Draft State Engine.
+
+It should be a pure domain layer that consumes typed draft state, ranking data, league settings, and user team identity. It should return recommendation output. It should not:
+
+- Read from persistence directly.
+- Mutate draft state.
+- Depend on React.
+- Depend on database records or raw JSON.
+- Depend on whether draft state came from manual entry, replay, or a future live provider.
+
+The recommendation engine should remain:
 
 - Rule-based
 - Deterministic
@@ -109,22 +119,34 @@ It should not use AI or machine learning during MVP.
 
 Initial recommendation factors:
 
-- Overall ranking value
-- Roster need
-- Positional scarcity
+- Rank-derived base player value
+- Roster fit and timing
+- Value opportunity
 - Tier-drop risk
+- Positional scarcity
+- Observed run pressure
 
-Conceptual scoring model:
+Use a bounded additive scoring model:
 
 ```txt
 recommendation score =
-base ranking score
-+ roster need modifier
-+ scarcity modifier
-+ tier modifier
+base player value
++ bounded context modifiers
 ```
 
-Recommendation explanations should come directly from the scoring inputs.
+The base player value should anchor recommendations. Context modifiers should move players within a bounded range, especially among similarly ranked players, without letting a single signal dominate recommendation quality.
+
+Architecture guardrails:
+
+- Base value should come from the active ranking snapshot.
+- Context modifiers should be bounded.
+- Total context impact should be capped.
+- Scarcity and tier pressure should avoid double-counting the same urgency.
+- Tie breaking should be deterministic.
+- Recommendation output should be derived, not persisted.
+- Roster need should be derived from league settings and roster configuration rather than MVP constants.
+
+Recommendation explanations should come directly from scoring components. The engine should not generate explanation text from unsupported claims, AI reasoning, opponent predictions, or UI-only labels.
 
 ---
 
