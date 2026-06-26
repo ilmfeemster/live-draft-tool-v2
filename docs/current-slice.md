@@ -1,63 +1,69 @@
-# Current Slice: Add Roster Fit And Timing Modifier
+# Current Slice: Add Value Opportunity Modifier
 
 ## Source Task
 
-Task 4: Add Roster Fit And Timing Modifier.
+Task 5: Add Value Opportunity Modifier.
 
 ## Goal
 
-Add the primary team-context modifier to the pure Recommendation Engine path.
+Add a bounded value opportunity modifier to the pure Recommendation Engine path.
 
-This slice should make `generatePlayerRecommendations` adjust base-scored recommendations using the user's roster state, configured roster slots, draft phase, and candidate position. The modifier must remain deterministic, bounded, and independent from UI, persistence, and draft-source details.
+This slice should reward players who have fallen meaningfully relative to the current pick and lightly penalize clear reaches when no existing context supports the pick. The modifier must stay separate from base player value and compose with the existing roster fit context.
 
 ## User-Visible Increment
 
-- Recommendations begin to respond to the user's actual drafted roster.
-- Open starter and FLEX needs can move comparable players upward.
-- Saturated positions and poorly timed early DEF/K picks are de-emphasized without hiding elite base value.
+- Recommendations can identify useful falling value at the current pick.
+- Clear reaches can be lightly de-emphasized when they are not supported by roster context.
+- Base ranking value remains the scoring anchor while draft-position value adds bounded context.
 
 ## Current Context
 
-Task 3 added rank-derived base scoring to `generatePlayerRecommendations`.
+Previous Phase 3 slices established:
 
-Current Recommendation Engine behavior:
-
-- Drafted players are excluded from `input.draft.picks`.
-- `baseScore` comes from `RankingEntry.overallRank`.
-- `contextScore` is still `0`.
-- Each recommendation has a `base_value` score component.
+- A pure `generatePlayerRecommendations` entry point.
+- Rank-derived `baseScore` from `RankingEntry.overallRank`.
+- A `base_value` score component.
+- A `roster_fit` score component derived from draft state and league settings.
+- `contextScore` currently comes from roster fit only and is clamped by tuning config.
 - `generateTopRecommendations` remains the legacy UI compatibility path and should not be changed for this slice.
 
-The approved design defines roster fit and timing as the primary team-context modifier with a recommended range of `-20` to `+14`. It must derive roster needs from configured league settings instead of hard-coded MVP starter counts.
+The approved design defines value opportunity as a context modifier in the range `-6` to `+8`. It should compare the current overall pick number with the candidate's overall rank, use existing ranking fields only, and avoid duplicating base score.
 
 ## Scope
 
 ### Goals
 
-- Derive the user's drafted roster from:
-  - `input.draft.picks`
-  - `input.userTeamId`
-  - `input.rankings`
-- Derive roster need from `input.leagueSettings.rosterSlots`.
-- Treat slots with `label: "BENCH"` as bench capacity.
-- Treat non-bench slots with exactly one eligible position as direct starter slots.
-- Treat non-bench slots with multiple eligible positions as FLEX-style slots.
-- Add a pure roster fit/timing helper in `src/lib/recommendations.ts`.
-- Add a roster fit score component to every `PlayerRecommendation`.
-- Add the roster fit delta into `contextScore`.
-- Clamp `contextScore` using `defaultRecommendationTuningConfig.maxNegativeContextScore` and `maxPositiveContextScore`.
+- Add a pure value opportunity helper in `src/lib/recommendations.ts`.
+- Compare `input.draft.currentPickNumber` against each candidate `ranking.overallRank`.
+- Use the existing tuning thresholds:
+  - `valueOpportunitySmallFallThreshold`
+  - `valueOpportunityClearFallThreshold`
+  - `valueOpportunityMajorFallThreshold`
+- Add a `value_opportunity` score component to every `PlayerRecommendation`.
+- Apply bounded value deltas:
+  - Small fall: `+2`
+  - Clear value: `+5`
+  - Major value: `+8`
+  - Clear unsupported reach: `-4`
+  - Major unsupported reach: `-6`
+  - Neutral: `0`
+- Treat a player as a falling value when `currentPickNumber - overallRank` meets a configured fall threshold.
+- Treat a player as an unsupported reach when `overallRank - currentPickNumber` meets at least the clear threshold and the existing `roster_fit` delta is not positive.
+- Keep value opportunity separate from `baseScore`.
+- Recompute `contextScore` as the clamped sum of `roster_fit` and `value_opportunity`.
 - Recompute `totalScore` as `baseScore + contextScore`.
 - Preserve deterministic sorting by total score, base score, overall rank, position rank, and player id.
-- Add focused tests for starter need, FLEX eligibility, saturation, DEF/K timing, and non-default roster configuration.
+- Add focused tests for fall thresholds, reach penalties, context caps, and deterministic behavior.
 
 ### Non-Goals
 
-- Adding positional scarcity, run pressure, tier-drop risk, or value-opportunity modifiers.
+- Adding projections, VORP, normalized player value, ADP dependency, or external data.
+- Adding tier-drop risk, positional scarcity, or run pressure.
 - Generating final recommendation reasons.
+- Adding UI-only value labels.
 - Changing UI components to consume `generatePlayerRecommendations`.
 - Changing persistence, Prisma, server actions, draft source behavior, or Draft State Engine behavior.
-- Hard-coding 12 teams, 16 rounds, MVP starter counts, fixed FLEX rules, or fixed bench size.
-- Introducing strategy profiles or a generic modifier registry.
+- Introducing a generic modifier registry.
 - Updating `docs/tasks.md`, `docs/project.md`, `docs/architecture.md`, `docs/decisions.md`, or design docs.
 
 ## Expected Files
@@ -72,107 +78,102 @@ Do not modify `src/types/draft.ts` unless a compile blocker appears. Use the exi
 
 1. Review the active context.
    - Read `docs/current-slice.md`.
-   - Read Task 4 in `docs/tasks.md`.
-   - Read the roster fit and timing section of `docs/design/recommendation-engine.md`.
+   - Read Task 5 in `docs/tasks.md`.
+   - Read the value opportunity section of `docs/design/recommendation-engine.md`.
    - Read `src/lib/recommendations.ts`.
    - Read `src/lib/recommendations.test.ts`.
-   - Read `src/data/defaultLeagueSettings.ts` only if roster slot fixtures need confirmation.
 
-2. Add roster derivation for the pure engine.
-   - Build a `Map` from player id to `RankingEntry`.
-   - Select picks where `pick.teamId === input.userTeamId` and `pick.playerId` exists.
-   - Convert those picks into roster entries using ranking player position data.
-   - Ignore drafted player ids that are missing from rankings rather than guessing positions.
-   - Keep this logic local and pure; do not call persistence, React, or draft-source code.
+2. Add the value opportunity calculation.
+   - Add a helper such as `calculateValueOpportunityComponent`.
+   - Inputs should include:
+     - candidate `RankingEntry`
+     - `draft.currentPickNumber`
+     - existing `roster_fit` component delta
+     - recommendation tuning config
+   - Calculate `pickValueGap = currentPickNumber - ranking.overallRank`.
+   - Calculate `reachGap = ranking.overallRank - currentPickNumber`.
+   - Return:
+     - `+8` when `pickValueGap >= valueOpportunityMajorFallThreshold`
+     - `+5` when `pickValueGap >= valueOpportunityClearFallThreshold`
+     - `+2` when `pickValueGap >= valueOpportunitySmallFallThreshold`
+     - `-6` when `reachGap >= valueOpportunityMajorFallThreshold` and `roster_fit.delta <= 0`
+     - `-4` when `reachGap >= valueOpportunityClearFallThreshold` and `roster_fit.delta <= 0`
+     - `0` otherwise
+   - Clamp the helper output to `-6` through `+8`.
+   - Do not use `adpRank`, projections, or persisted data.
 
-3. Add roster slot analysis helpers.
-   - Split roster slots into bench and non-bench slots using `slot.label === "BENCH"`.
-   - For a candidate position, count direct starter slots whose `eligiblePositions` is exactly that position.
-   - Count FLEX-style slots whose `eligiblePositions` includes the candidate position and has multiple eligible positions.
-   - Count bench slots whose `eligiblePositions` includes the candidate position.
-   - Count current user roster players by position and by FLEX eligibility.
-   - Do not assume MVP default counts or fixed FLEX positions.
-
-4. Add the roster fit and timing calculation.
-   - Add a helper such as `calculateRosterFitComponent`.
-   - Inputs should include the candidate ranking, derived user roster, league settings, draft state, and tuning.
-   - Suggested starting deltas:
-     - Open direct starter slot: `+10`.
-     - Open FLEX-style capacity for candidate position: `+5`.
-     - Useful bench depth when starter/FLEX needs are filled and bench capacity remains: `+3`.
-     - Starter/FLEX filled with limited bench value: `-6`.
-     - Heavily saturated position beyond useful roster capacity: `-12`.
-     - Early DEF/K timing penalty: `-20`.
-   - Keep the final roster fit delta within `-20` to `+14`.
-   - For DEF/K:
-     - Apply the early timing penalty before the late draft phase when the configured slot is not urgently needed.
-     - Allow DEF/K to become normal open starter needs in the late phase if configured slots remain empty.
-     - De-emphasize backup DEF/K once configured DEF/K slots are filled.
-   - Use draft phase from `input.draft.currentPickNumber / (input.draft.teamCount * input.draft.rounds)`.
-   - Use `tuning.lateDraftPickRatio` as the late-phase boundary.
-
-5. Apply roster fit in `generatePlayerRecommendations`.
-   - Keep the existing `base_value` component.
-   - Add one roster component with a stable id such as `roster_fit`.
-   - Set the component direction from the delta:
+3. Add the value score component.
+   - Use stable id `value_opportunity`.
+   - Set `delta` to the calculated value modifier.
+   - Set direction from the delta:
      - positive for `> 0`
      - negative for `< 0`
      - neutral for `0`
-   - Include evidence such as candidate position, direct starter openings, flex openings, bench openings, roster count at position, draft phase, and timing label.
-   - Set `contextScore` to the clamped sum of roster components for now.
+   - Set a stable priority suitable for later reason selection.
+   - Include evidence such as:
+     - `currentPickNumber`
+     - `overallRank`
+     - `pickValueGap`
+     - `reachGap`
+     - `thresholdMatched`
+     - `rosterFitDelta`
+
+4. Compose context score.
+   - Keep the existing `base_value` and `roster_fit` components.
+   - Add the new `value_opportunity` component after `roster_fit`.
+   - Compute raw context as `rosterFitComponent.delta + valueOpportunityComponent.delta`.
+   - Clamp raw context with `tuning.maxNegativeContextScore` and `tuning.maxPositiveContextScore`.
+   - Set `totalScore` from `baseScore + contextScore`.
    - Keep `reasons` empty until the explanation-selection task.
 
-6. Preserve existing compatibility behavior.
+5. Preserve existing compatibility behavior.
    - Do not change `generateTopRecommendations`.
-   - Do not change legacy roster helper behavior unless a direct compile issue requires a tiny local adjustment.
    - Do not change UI call sites.
+   - Do not alter roster fit behavior except for composing it with value opportunity.
 
-7. Add focused tests.
-   - Unit test that an open configured starter slot increases the eligible position's context score.
-   - Unit test that FLEX-style eligibility affects need using a non-default FLEX slot configuration.
-   - Unit test that a saturated position receives a negative roster fit component but can still appear when base value is strong.
-   - Unit test that early DEF/K picks receive a strong negative timing component.
-   - Unit test that late empty DEF/K configured slots become valid starter needs.
-   - Unit test using a non-default roster configuration, such as extra WR starter or QB-eligible FLEX, to prove no MVP starter counts are hard-coded.
-   - Unit test that `contextScore` is clamped to configured positive and negative caps if the helper could otherwise exceed them.
-   - Unit test that recommendation output remains deterministic for identical inputs.
+6. Add focused tests.
+   - Unit test small, clear, and major falling value deltas.
+   - Unit test clear and major unsupported reach penalties.
+   - Unit test that positive roster fit prevents the reach penalty.
+   - Unit test that neutral value opportunity does not duplicate base score.
+   - Unit test that context score is the clamped sum of roster fit and value opportunity.
+   - Unit test that value opportunity remains within `-6` to `+8`.
+   - Unit test deterministic output for the same current pick, rankings, and roster state.
+   - Unit test that the modifier only depends on typed draft state and ranking fields.
 
-8. Run validation.
+7. Run validation.
    - Run `npm test -- src/lib/recommendations.test.ts` if the test runner accepts a file argument.
    - If that command does not work, run `npm test`.
    - Run `npm run lint`.
    - Fix only failures caused by this slice.
    - If validation fails for unrelated pre-existing reasons, document the blocker and stop.
 
-9. Stop after Task 4.
-   - Do not start value opportunity, tier-drop, scarcity, run-pressure, explanation selection, or UI wiring tasks.
+8. Stop after Task 5.
+   - Do not start tier-drop risk, positional scarcity, run pressure, explanation selection, scenario validation, or UI wiring tasks.
    - Do not update planning docs beyond this current slice.
 
 ## Acceptance Criteria
 
-- `generatePlayerRecommendations` derives the user roster from draft state and rankings.
-- Roster need is derived from configured roster slots instead of MVP defaults.
-- Open direct starter slots increase context score for eligible positions.
-- FLEX-style roster slots affect positional need in observable ways.
-- Bench depth can provide limited positive credit after starter/FLEX needs are mostly filled.
-- Saturated positions receive negative context without removing elite base-value players from consideration.
-- DEF/K are strongly de-emphasized before the late draft phase and become valid needs late when configured slots remain empty.
-- Non-default roster configurations influence scoring correctly.
-- Every recommendation includes a roster fit score component tied to scoring evidence.
-- `contextScore` is clamped to configured context score bounds.
+- Players who have fallen meaningfully relative to `draft.currentPickNumber` receive a bounded positive `value_opportunity` component.
+- Clear unsupported reaches receive a bounded negative `value_opportunity` component.
+- Positive roster fit prevents the reach penalty from firing.
+- Value opportunity does not replace or duplicate `baseScore`.
+- `contextScore` is the clamped sum of roster fit and value opportunity.
+- The value modifier stays within `-6` to `+8`.
+- Recommendation ordering remains deterministic for the same current pick and rankings.
+- The modifier works from typed draft state and ranking fields only.
 - Existing `generateTopRecommendations` behavior remains available for current UI compatibility.
 - No UI, persistence, server action, Prisma, or draft source dependency is introduced into the engine.
 
 ## Suggested Tests
 
-- Unit test open direct starter need.
-- Unit test FLEX-style slot eligibility using a custom roster slot.
-- Unit test position saturation penalty.
-- Unit test early DEF/K timing penalty.
-- Unit test late DEF/K open starter need.
-- Unit test non-default roster configuration.
-- Unit test context score clamping.
-- Unit test deterministic output for the same roster and rankings.
+- Unit test small, clear, and major fall thresholds.
+- Unit test clear and major reach penalties.
+- Unit test roster-supported reach avoids penalty.
+- Unit test context score composition and clamping.
+- Unit test neutral value opportunity leaves context unchanged except for existing roster fit.
+- Unit test value component shape and evidence.
+- Unit test deterministic output for identical inputs.
 
 ## Validation Notes
 
@@ -192,9 +193,9 @@ npm run lint
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It adds only the roster fit and timing modifier from Task 4.
-- Concrete enough for implementation: yes. The derivation inputs, slot interpretation, scoring ranges, component behavior, and tests are specified.
+- Smallest meaningful increment: yes. It adds only the value opportunity modifier from Task 5.
+- Concrete enough for implementation: yes. The thresholds, deltas, component shape, composition rule, and tests are specified.
 - Avoids unnecessary architecture changes: yes. It stays inside the pure Recommendation Engine path and avoids a modifier registry.
 - Blast radius reasonable: yes. Expected implementation changes are limited to recommendation library code and tests.
 - Review/revert comfort: yes. The slice is isolated from UI, persistence, and later modifier work.
-- Observable/testable acceptance criteria: yes. The behavior is covered by focused unit tests and linting.
+- Observable/testable acceptance criteria: yes. Behavior is covered by focused unit tests and linting.
