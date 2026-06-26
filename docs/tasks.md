@@ -260,7 +260,7 @@ Acceptance Criteria:
 - Reopened drafts restore picks, available players, roster, and recommendations.
 - Draft history does not require loading full ranking snapshot JSON for every row.
 
-### [ ] 9. Add New Draft Creation Flow
+### [x] 9. Add New Draft Creation Flow
 
 Goal:
 
@@ -338,7 +338,7 @@ Before Phase 2 is complete:
 - [x] Hydrate `Draft` from settings, ranking snapshot, and pick history.
 - [ ] Resume an incomplete draft after refresh or restart.
 - [ ] Reopen a draft from draft history.
-- [ ] Start a new persisted draft without overwriting an existing draft.
+- [x] Start a new persisted draft without overwriting an existing draft.
 - [ ] Verify recommendations remain derived after reload.
 - [x] Verify no raw ranking JSON reaches the Draft State Engine or Recommendation Engine.
 - [x] Verify persistence and hydration do not assume MVP league defaults.

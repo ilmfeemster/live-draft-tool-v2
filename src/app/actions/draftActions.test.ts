@@ -1,22 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
+import { seedRankings } from "@/data/seedRankings";
 import {
+  createDraftWorkspace as createDraftWorkspaceRepository,
   draftPlayerInWorkspace,
   resetDraftWorkspace,
   undoLastPickInWorkspace,
 } from "@/lib/draftRepository";
 import type { DraftWorkspace } from "@/types/draft";
 import {
+  createNewDraftAction,
   draftPlayerAction,
   resetDraftAction,
   undoLastPickAction,
 } from "./draftActions";
 
 vi.mock("@/lib/draftRepository", () => ({
+  createDraftWorkspace: vi.fn(),
   draftPlayerInWorkspace: vi.fn(),
   resetDraftWorkspace: vi.fn(),
   undoLastPickInWorkspace: vi.fn(),
 }));
 
+const createDraftWorkspaceRepositoryMock = vi.mocked(
+  createDraftWorkspaceRepository,
+);
 const draftPlayerInWorkspaceMock = vi.mocked(draftPlayerInWorkspace);
 const resetDraftWorkspaceMock = vi.mocked(resetDraftWorkspace);
 const undoLastPickInWorkspaceMock = vi.mocked(undoLastPickInWorkspace);
@@ -24,6 +32,21 @@ const undoLastPickInWorkspaceMock = vi.mocked(undoLastPickInWorkspace);
 describe("draft mutation server actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("creates a new draft workspace with MVP defaults", async () => {
+    const workspace = createDraftWorkspace();
+    createDraftWorkspaceRepositoryMock.mockResolvedValue(workspace);
+
+    const result = await createNewDraftAction();
+
+    expect(createDraftWorkspaceRepositoryMock).toHaveBeenCalledWith({
+      name: "New Draft",
+      leagueSettings: defaultLeagueSettings,
+      rankings: seedRankings,
+      userTeamId: "team-2",
+    });
+    expect(result).toBe(workspace);
   });
 
   it("delegates draft player mutations to the repository", async () => {

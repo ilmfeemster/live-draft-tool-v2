@@ -3,9 +3,11 @@ import type { Draft, DraftPick } from "@/types/draft";
 type DraftStatusPanelProps = {
   draft: Draft;
   canUndoLastPick: boolean;
+  isNewDraftDisabled: boolean;
   isResetDisabled: boolean;
   isDraftComplete: boolean;
   isUserPick: boolean;
+  onCreateNewDraft: () => void;
   onResetDraft: () => void;
   onUndoLastPick: () => void;
 };
@@ -23,9 +25,11 @@ function getCurrentPick(draft: Draft): DraftPick {
 export function DraftStatusPanel({
   draft,
   canUndoLastPick,
+  isNewDraftDisabled,
   isResetDisabled,
   isDraftComplete,
   isUserPick,
+  onCreateNewDraft,
   onResetDraft,
   onUndoLastPick,
 }: DraftStatusPanelProps) {
@@ -102,6 +106,26 @@ export function DraftStatusPanel({
         ) : null}
       </div>
 
+      {isDraftComplete ? (
+        <div className="rounded border border-emerald-200 bg-emerald-50 p-3">
+          <div className="text-xs uppercase tracking-wide text-emerald-700">
+            Ready For The Next Draft
+          </div>
+          <div className="mt-1 text-sm text-emerald-900">
+            This draft is saved in history. Start another draft whenever you are
+            ready.
+          </div>
+          <button
+            type="button"
+            className="mt-3 h-10 w-full rounded bg-emerald-700 px-4 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500"
+            disabled={isNewDraftDisabled}
+            onClick={onCreateNewDraft}
+          >
+            Start New Draft
+          </button>
+        </div>
+      ) : null}
+
       <div className="rounded border border-emerald-200 bg-emerald-50 p-3">
         <div className="text-xs uppercase tracking-wide text-emerald-700">Your Team</div>
         <div className="mt-1 font-semibold text-emerald-950">{userTeam?.name ?? "Unknown Team"}</div>
@@ -111,6 +135,14 @@ export function DraftStatusPanel({
       </div>
 
       <div className="grid gap-2">
+        <button
+          type="button"
+          className="h-10 rounded border border-emerald-200 bg-white px-4 text-sm font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:bg-zinc-50 disabled:text-zinc-400"
+          disabled={isNewDraftDisabled}
+          onClick={onCreateNewDraft}
+        >
+          Start New Draft
+        </button>
         <button
           type="button"
           className="h-10 rounded bg-zinc-950 px-4 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500"

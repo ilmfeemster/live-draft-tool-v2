@@ -1,11 +1,25 @@
 "use server";
 
 import type { DraftWorkspace } from "@/types/draft";
+import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
+import { seedRankings } from "@/data/seedRankings";
 import {
+  createDraftWorkspace,
   draftPlayerInWorkspace,
   resetDraftWorkspace,
   undoLastPickInWorkspace,
 } from "@/lib/draftRepository";
+
+const mvpUserTeamId = "team-2";
+
+export async function createNewDraftAction(): Promise<DraftWorkspace> {
+  return createDraftWorkspace({
+    name: "New Draft",
+    leagueSettings: defaultLeagueSettings,
+    rankings: seedRankings,
+    userTeamId: mvpUserTeamId,
+  });
+}
 
 export async function draftPlayerAction(
   draftId: string,

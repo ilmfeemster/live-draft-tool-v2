@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AvailablePlayersTable } from "@/components/AvailablePlayersTable";
 import { DraftStatusPanel } from "@/components/DraftStatusPanel";
 import { RecommendationsPanel } from "@/components/RecommendationsPanel";
 import { UserRosterPanel } from "@/components/UserRosterPanel";
 import {
+  createNewDraftAction,
   draftPlayerAction,
   resetDraftAction,
   undoLastPickAction,
@@ -19,6 +21,7 @@ type DraftRoomProps = {
 };
 
 export function DraftRoom({ draft, rankings }: DraftRoomProps) {
+  const router = useRouter();
   const [activeDraft, setActiveDraft] = useState<Draft>(draft);
   const [isMutationPending, setIsMutationPending] = useState(false);
 
@@ -71,6 +74,7 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
     activeDraft.picks.every((pick) => Boolean(pick.playerId));
   const canUndoLastPick = draftedPlayerIds.size > 0 && !isMutationPending;
   const isResetDisabled = isMutationPending;
+  const isNewDraftDisabled = isMutationPending;
   const areDraftActionsDisabled = isDraftComplete || isMutationPending;
 
   async function draftPlayer(playerId: string) {
@@ -141,6 +145,36 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
     }
   }
 
+  async function createNewDraft() {
+    if (isMutationPending) {
+      return;
+    }
+
+    const isInProgressDraft = draftedPlayerIds.size > 0 && !isDraftComplete;
+
+    if (isInProgressDraft) {
+      const shouldCreateDraft = window.confirm(
+        "Start a new draft? Your current draft and saved picks will remain available in draft history.",
+      );
+
+      if (!shouldCreateDraft) {
+        return;
+      }
+    }
+
+    setIsMutationPending(true);
+
+    try {
+      const workspace = await createNewDraftAction();
+
+      router.push(`/?draftId=${encodeURIComponent(workspace.draft.id)}`);
+    } catch (error) {
+      console.error("Failed to create a new draft.", error);
+    } finally {
+      setIsMutationPending(false);
+    }
+  }
+
   return (
     <div className="grid min-h-0 gap-6 xl:grid-cols-[1fr_320px]">
       <div className="flex min-h-0 flex-col gap-6">
@@ -160,9 +194,11 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
         <DraftStatusPanel
           draft={activeDraft}
           canUndoLastPick={canUndoLastPick}
+          isNewDraftDisabled={isNewDraftDisabled}
           isResetDisabled={isResetDisabled}
           isDraftComplete={isDraftComplete}
           isUserPick={isUserPick}
+          onCreateNewDraft={createNewDraft}
           onResetDraft={resetDraft}
           onUndoLastPick={undoLastPick}
         />
