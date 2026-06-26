@@ -1,20 +1,20 @@
-# Current Slice: Add Value Opportunity Modifier
+# Current Slice: Add Tier-Drop Risk Modifier
 
 ## Source Task
 
-Task 5: Add Value Opportunity Modifier.
+Task 6: Add Tier-Drop Risk Modifier.
 
 ## Goal
 
-Add a bounded value opportunity modifier to the pure Recommendation Engine path.
+Add a bounded tier-drop risk modifier to the pure Recommendation Engine path.
 
-This slice should reward players who have fallen meaningfully relative to the current pick and lightly penalize clear reaches when no existing context supports the pick. The modifier must stay separate from base player value and compose with the existing roster fit context.
+This slice should reward players who are among the last useful options in their current positional tier, especially when the position still matters to the user's roster and the user may not pick again before that tier is likely gone.
 
 ## User-Visible Increment
 
-- Recommendations can identify useful falling value at the current pick.
-- Clear reaches can be lightly de-emphasized when they are not supported by roster context.
-- Base ranking value remains the scoring anchor while draft-position value adds bounded context.
+- Recommendations can identify meaningful tier cliffs.
+- Last-few-in-tier players at relevant positions can rise above similar alternatives.
+- Tier pressure remains bounded so it cannot single-handedly push much lower base-value players above elite options.
 
 ## Current Context
 
@@ -24,45 +24,48 @@ Previous Phase 3 slices established:
 - Rank-derived `baseScore` from `RankingEntry.overallRank`.
 - A `base_value` score component.
 - A `roster_fit` score component derived from draft state and league settings.
-- `contextScore` currently comes from roster fit only and is clamped by tuning config.
+- A `value_opportunity` score component derived from current pick and overall rank.
+- `contextScore` is currently the clamped sum of roster fit and value opportunity.
 - `generateTopRecommendations` remains the legacy UI compatibility path and should not be changed for this slice.
 
-The approved design defines value opportunity as a context modifier in the range `-6` to `+8`. It should compare the current overall pick number with the candidate's overall rank, use existing ranking fields only, and avoid duplicating base score.
+The approved design defines tier-drop risk as a positive-only urgency modifier in the range `0` to `+12`. It should consider available players in the candidate's position and tier, the next available tier at that position, distance to the user's next pick, and roster relevance.
 
 ## Scope
 
 ### Goals
 
-- Add a pure value opportunity helper in `src/lib/recommendations.ts`.
-- Compare `input.draft.currentPickNumber` against each candidate `ranking.overallRank`.
-- Use the existing tuning thresholds:
-  - `valueOpportunitySmallFallThreshold`
-  - `valueOpportunityClearFallThreshold`
-  - `valueOpportunityMajorFallThreshold`
-- Add a `value_opportunity` score component to every `PlayerRecommendation`.
-- Apply bounded value deltas:
-  - Small fall: `+2`
-  - Clear value: `+5`
-  - Major value: `+8`
-  - Clear unsupported reach: `-4`
-  - Major unsupported reach: `-6`
-  - Neutral: `0`
-- Treat a player as a falling value when `currentPickNumber - overallRank` meets a configured fall threshold.
-- Treat a player as an unsupported reach when `overallRank - currentPickNumber` meets at least the clear threshold and the existing `roster_fit` delta is not positive.
-- Keep value opportunity separate from `baseScore`.
-- Recompute `contextScore` as the clamped sum of `roster_fit` and `value_opportunity`.
+- Add a pure tier-drop risk helper in `src/lib/recommendations.ts`.
+- Calculate available rankings once after drafted-player filtering.
+- Detect remaining available players in the candidate's position and tier.
+- Detect the next available tier for the candidate's position.
+- Calculate distance to the user's next pick from `input.draft.picks`.
+- Scale tier pressure by roster relevance using the existing `roster_fit` component delta.
+- Add a `tier_cliff` score component to every `PlayerRecommendation`.
+- Apply bounded tier deltas:
+  - No pressure: `0`
+  - Mild pressure with two remaining players in tier: `+4`
+  - Last player in a normal next-tier drop: `+8`
+  - Last player before a major tier cliff at a needed position: `+12`
+- Reduce tier pressure when roster fit is neutral or negative.
+- Treat the current tier urgency score as `min(tierDropRisk, tuning.maxUrgencyScore)` until scarcity is added in Task 7.
+- Recompute `contextScore` as the clamped sum of:
+  - `roster_fit`
+  - current urgency score from `tier_cliff`
+  - `value_opportunity`
 - Recompute `totalScore` as `baseScore + contextScore`.
 - Preserve deterministic sorting by total score, base score, overall rank, position rank, and player id.
-- Add focused tests for fall thresholds, reach penalties, context caps, and deterministic behavior.
+- Add focused tests for mild tier pressure, major tier cliffs, roster-relevance reduction, urgency cap behavior, and elite-player guardrails.
 
 ### Non-Goals
 
-- Adding projections, VORP, normalized player value, ADP dependency, or external data.
-- Adding tier-drop risk, positional scarcity, or run pressure.
+- Adding positional scarcity or run pressure.
+- Predicting opponent behavior.
+- Simulating future picks.
 - Generating final recommendation reasons.
-- Adding UI-only value labels.
+- Adding UI-only tier labels.
 - Changing UI components to consume `generatePlayerRecommendations`.
 - Changing persistence, Prisma, server actions, draft source behavior, or Draft State Engine behavior.
+- Introducing Phase 6 strategy advice.
 - Introducing a generic modifier registry.
 - Updating `docs/tasks.md`, `docs/project.md`, `docs/architecture.md`, `docs/decisions.md`, or design docs.
 
@@ -78,101 +81,121 @@ Do not modify `src/types/draft.ts` unless a compile blocker appears. Use the exi
 
 1. Review the active context.
    - Read `docs/current-slice.md`.
-   - Read Task 5 in `docs/tasks.md`.
-   - Read the value opportunity section of `docs/design/recommendation-engine.md`.
+   - Read Task 6 in `docs/tasks.md`.
+   - Read the tier-drop risk section of `docs/design/recommendation-engine.md`.
    - Read `src/lib/recommendations.ts`.
    - Read `src/lib/recommendations.test.ts`.
 
-2. Add the value opportunity calculation.
-   - Add a helper such as `calculateValueOpportunityComponent`.
+2. Prepare available rankings and next-pick distance.
+   - In `generatePlayerRecommendations`, keep filtering drafted players before scoring.
+   - Store the filtered list as `availableRankings`.
+   - Add a pure helper such as `getDistanceToNextUserPick`.
+   - Find the next pick where `pick.teamId === input.userTeamId` and `pick.pickNumber > input.draft.currentPickNumber`.
+   - Return `nextPick.pickNumber - input.draft.currentPickNumber` when one exists.
+   - Return `null` when the user has no remaining pick.
+
+3. Add the tier-drop risk calculation.
+   - Add a helper such as `calculateTierDropRiskComponent`.
    - Inputs should include:
      - candidate `RankingEntry`
-     - `draft.currentPickNumber`
+     - `availableRankings`
+     - distance to next user pick
      - existing `roster_fit` component delta
      - recommendation tuning config
-   - Calculate `pickValueGap = currentPickNumber - ranking.overallRank`.
-   - Calculate `reachGap = ranking.overallRank - currentPickNumber`.
-   - Return:
-     - `+8` when `pickValueGap >= valueOpportunityMajorFallThreshold`
-     - `+5` when `pickValueGap >= valueOpportunityClearFallThreshold`
-     - `+2` when `pickValueGap >= valueOpportunitySmallFallThreshold`
-     - `-6` when `reachGap >= valueOpportunityMajorFallThreshold` and `roster_fit.delta <= 0`
-     - `-4` when `reachGap >= valueOpportunityClearFallThreshold` and `roster_fit.delta <= 0`
-     - `0` otherwise
-   - Clamp the helper output to `-6` through `+8`.
-   - Do not use `adpRank`, projections, or persisted data.
+   - Compute same-position available rankings sorted by `overallRank`.
+   - Count available players with the candidate's position and current tier.
+   - Find the next higher tier number available at the same position.
+   - Compute `tierGap = nextTier - currentTier` when a next tier exists.
+   - Return `0` when:
+     - no next tier exists
+     - the candidate is not in the best available tier for the position
+     - same-tier count is greater than `tuning.tierThinnessThreshold`
+     - distance to the user's next pick exists and same-tier count is greater than that distance
+   - Use base deltas:
+     - same-tier count equals `tuning.tierThinnessThreshold`: `+4`
+     - same-tier count is `1` and `tierGap === 1`: `+8`
+     - same-tier count is `1` and `tierGap > 1`: `+12`
+   - Scale by roster relevance:
+     - `roster_fit.delta > 0`: keep full delta.
+     - `roster_fit.delta === 0`: halve the delta and round down.
+     - `roster_fit.delta < 0`: cap the delta at `+3`.
+   - Clamp the final tier delta to `0` through `+12`.
 
-3. Add the value score component.
-   - Use stable id `value_opportunity`.
-   - Set `delta` to the calculated value modifier.
-   - Set direction from the delta:
-     - positive for `> 0`
-     - negative for `< 0`
-     - neutral for `0`
+4. Add the tier score component.
+   - Use stable id `tier_cliff`.
+   - Set `delta` to the calculated tier modifier.
+   - Set direction to `"positive"` when `delta > 0`, otherwise `"neutral"`.
    - Set a stable priority suitable for later reason selection.
    - Include evidence such as:
-     - `currentPickNumber`
-     - `overallRank`
-     - `pickValueGap`
-     - `reachGap`
-     - `thresholdMatched`
+     - `position`
+     - `currentTier`
+     - `sameTierRemaining`
+     - `nextTier`
+     - `tierGap`
+     - `distanceToNextUserPick`
      - `rosterFitDelta`
+     - `thresholdMatched`
 
-4. Compose context score.
-   - Keep the existing `base_value` and `roster_fit` components.
-   - Add the new `value_opportunity` component after `roster_fit`.
-   - Compute raw context as `rosterFitComponent.delta + valueOpportunityComponent.delta`.
+5. Compose context score.
+   - Keep existing `base_value`, `roster_fit`, and `value_opportunity` components.
+   - Add the new `tier_cliff` component after `roster_fit` and before `value_opportunity`.
+   - Compute `urgencyScore = min(tierCliffComponent.delta, tuning.maxUrgencyScore)`.
+   - Compute raw context as `rosterFitComponent.delta + urgencyScore + valueOpportunityComponent.delta`.
    - Clamp raw context with `tuning.maxNegativeContextScore` and `tuning.maxPositiveContextScore`.
    - Set `totalScore` from `baseScore + contextScore`.
    - Keep `reasons` empty until the explanation-selection task.
 
-5. Preserve existing compatibility behavior.
+6. Preserve existing compatibility behavior.
    - Do not change `generateTopRecommendations`.
    - Do not change UI call sites.
-   - Do not alter roster fit behavior except for composing it with value opportunity.
+   - Do not alter roster fit or value opportunity behavior except for composing tier urgency into context.
 
-6. Add focused tests.
-   - Unit test small, clear, and major falling value deltas.
-   - Unit test clear and major unsupported reach penalties.
-   - Unit test that positive roster fit prevents the reach penalty.
-   - Unit test that neutral value opportunity does not duplicate base score.
-   - Unit test that context score is the clamped sum of roster fit and value opportunity.
-   - Unit test that value opportunity remains within `-6` to `+8`.
-   - Unit test deterministic output for the same current pick, rankings, and roster state.
-   - Unit test that the modifier only depends on typed draft state and ranking fields.
+7. Add focused tests.
+   - Unit test mild tier pressure when two players remain in a relevant tier.
+   - Unit test major tier cliff when one player remains before a multi-tier drop at a needed position.
+   - Unit test no tier pressure when several players remain beyond the thinness threshold.
+   - Unit test no tier pressure when the candidate is not in the best available tier at the position.
+   - Unit test that filled or low-value roster positions reduce tier impact.
+   - Unit test that tier pressure cannot move a much lower base-value player above an elite player by itself.
+   - Unit test `tier_cliff` component shape and evidence.
+   - Unit test urgency score respects `tuning.maxUrgencyScore`.
+   - Unit test deterministic output for identical inputs.
 
-7. Run validation.
+8. Run validation.
    - Run `npm test -- src/lib/recommendations.test.ts` if the test runner accepts a file argument.
    - If that command does not work, run `npm test`.
    - Run `npm run lint`.
    - Fix only failures caused by this slice.
    - If validation fails for unrelated pre-existing reasons, document the blocker and stop.
 
-8. Stop after Task 5.
-   - Do not start tier-drop risk, positional scarcity, run pressure, explanation selection, scenario validation, or UI wiring tasks.
+9. Stop after Task 6.
+   - Do not start positional scarcity, run pressure, explanation selection, scenario validation, or UI wiring tasks.
    - Do not update planning docs beyond this current slice.
 
 ## Acceptance Criteria
 
-- Players who have fallen meaningfully relative to `draft.currentPickNumber` receive a bounded positive `value_opportunity` component.
-- Clear unsupported reaches receive a bounded negative `value_opportunity` component.
-- Positive roster fit prevents the reach penalty from firing.
-- Value opportunity does not replace or duplicate `baseScore`.
-- `contextScore` is the clamped sum of roster fit and value opportunity.
-- The value modifier stays within `-6` to `+8`.
-- Recommendation ordering remains deterministic for the same current pick and rankings.
-- The modifier works from typed draft state and ranking fields only.
+- Last-few-in-tier situations increase recommendations for roster-relevant positions.
+- Major tier cliffs can receive a larger bounded `tier_cliff` modifier.
+- Tier pressure is reduced when the position is already solved or low-value for the roster.
+- Candidates outside the best available tier for their position do not receive tier pressure.
+- Tier pressure cannot move a much lower base-value player above an elite player by itself.
+- `tier_cliff` components include evidence needed for later reason generation.
+- `contextScore` is the clamped sum of roster fit, current urgency score, and value opportunity.
+- Current urgency score respects `tuning.maxUrgencyScore`.
+- Recommendation ordering remains deterministic for the same draft state and rankings.
 - Existing `generateTopRecommendations` behavior remains available for current UI compatibility.
 - No UI, persistence, server action, Prisma, or draft source dependency is introduced into the engine.
 
 ## Suggested Tests
 
-- Unit test small, clear, and major fall thresholds.
-- Unit test clear and major reach penalties.
-- Unit test roster-supported reach avoids penalty.
-- Unit test context score composition and clamping.
-- Unit test neutral value opportunity leaves context unchanged except for existing roster fit.
-- Unit test value component shape and evidence.
+- Unit test mild tier pressure.
+- Unit test major tier cliff at a needed position.
+- Unit test no tier pressure when tier depth is not thin.
+- Unit test no tier pressure outside the best available tier.
+- Unit test filled-position reduction.
+- Unit test elite-player guardrail.
+- Unit test urgency cap behavior.
+- Unit test tier component shape and evidence.
 - Unit test deterministic output for identical inputs.
 
 ## Validation Notes
@@ -193,9 +216,9 @@ npm run lint
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It adds only the value opportunity modifier from Task 5.
-- Concrete enough for implementation: yes. The thresholds, deltas, component shape, composition rule, and tests are specified.
+- Smallest meaningful increment: yes. It adds only the tier-drop risk modifier from Task 6.
+- Concrete enough for implementation: yes. The tier detection inputs, distance rule, relevance scaling, component shape, composition rule, and tests are specified.
 - Avoids unnecessary architecture changes: yes. It stays inside the pure Recommendation Engine path and avoids a modifier registry.
 - Blast radius reasonable: yes. Expected implementation changes are limited to recommendation library code and tests.
-- Review/revert comfort: yes. The slice is isolated from UI, persistence, and later modifier work.
+- Review/revert comfort: yes. The slice is isolated from UI, persistence, scarcity, run pressure, and explanation work.
 - Observable/testable acceptance criteria: yes. Behavior is covered by focused unit tests and linting.
