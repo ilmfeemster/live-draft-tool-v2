@@ -328,7 +328,7 @@ Acceptance Criteria:
 - Existing persisted drafts without the new naming pattern still render safely.
 - Existing create, load, resume, draft, undo, reset, and history behavior still works.
 
-### [ ] 11. Make Draft History Compact And Separate Completed Drafts
+### [x] 11. Make Draft History Compact And Separate Completed Drafts
 
 Goal:
 
@@ -444,7 +444,7 @@ Before Phase 2 is complete:
 - [ ] Reopen a draft from draft history.
 - [x] Start a new persisted draft without overwriting an existing draft.
 - [x] Use distinguishable automatic names for new persisted drafts.
-- [ ] Keep completed drafts separate from the active draft workflow.
+- [x] Keep completed drafts separate from the active draft workflow.
 - [ ] Delete unwanted persisted drafts safely.
 - [ ] Verify recommendations remain derived after reload.
 - [x] Verify no raw ranking JSON reaches the Draft State Engine or Recommendation Engine.
