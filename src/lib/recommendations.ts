@@ -66,6 +66,15 @@ export function calculateRankingScore(ranking: RankingEntry) {
   return 1000 - ranking.overallRank;
 }
 
+export function calculateBasePlayerValueScore(
+  overallRank: number,
+  coefficient = defaultRecommendationTuningConfig.baseScoreCurveCoefficient,
+) {
+  const rankDistanceFromTop = Math.max(overallRank - 1, 0);
+
+  return Math.max(0, 100 - coefficient * Math.sqrt(rankDistanceFromTop));
+}
+
 function getDraftedPlayerIds(input: RecommendationInput) {
   return new Set(input.draft.picks.flatMap((pick) => (pick.playerId ? [pick.playerId] : [])));
 }
@@ -82,11 +91,24 @@ function compareRankingsByStableDraftOrder(a: RankingEntry, b: RankingEntry) {
   return a.player.id.localeCompare(b.player.id);
 }
 
+function comparePlayerRecommendations(a: PlayerRecommendation, b: PlayerRecommendation) {
+  if (b.totalScore !== a.totalScore) {
+    return b.totalScore - a.totalScore;
+  }
+
+  if (b.baseScore !== a.baseScore) {
+    return b.baseScore - a.baseScore;
+  }
+
+  return compareRankingsByStableDraftOrder(a.ranking, b.ranking);
+}
+
 export function generatePlayerRecommendations(
   input: RecommendationInput,
   options: GeneratePlayerRecommendationsOptions = {},
 ): PlayerRecommendation[] {
   const recommendationLimit = options.limit ?? DEFAULT_RECOMMENDATION_LIMIT;
+  const tuning = options.tuning ?? defaultRecommendationTuningConfig;
 
   if (input.rankings.length === 0 || recommendationLimit <= 0) {
     return [];
@@ -96,17 +118,37 @@ export function generatePlayerRecommendations(
 
   return input.rankings
     .filter((ranking) => !draftedPlayerIds.has(ranking.player.id))
-    .sort(compareRankingsByStableDraftOrder)
+    .map((ranking) => {
+      const baseScore = calculateBasePlayerValueScore(
+        ranking.overallRank,
+        tuning.baseScoreCurveCoefficient,
+      );
+      const contextScore = 0;
+      const totalScore = baseScore + contextScore;
+
+      return {
+        ranking,
+        playerId: ranking.player.id,
+        totalScore,
+        baseScore,
+        contextScore,
+        components: [
+          {
+            id: "base_value",
+            delta: baseScore,
+            direction: baseScore > 0 ? "positive" : "neutral",
+            priority: 10,
+            evidence: {
+              overallRank: ranking.overallRank,
+              coefficient: tuning.baseScoreCurveCoefficient,
+            },
+          },
+        ],
+        reasons: [],
+      };
+    })
+    .sort(comparePlayerRecommendations)
     .slice(0, Math.floor(recommendationLimit))
-    .map((ranking) => ({
-      ranking,
-      playerId: ranking.player.id,
-      totalScore: 0,
-      baseScore: 0,
-      contextScore: 0,
-      components: [],
-      reasons: [],
-    }));
 }
 
 function countPosition(rosterPlayers: RosterNeedPlayer[], position: Position) {

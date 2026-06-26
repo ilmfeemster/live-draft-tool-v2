@@ -3,6 +3,7 @@ import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import { draftPlayerInDraft } from "@/lib/draftState";
 import {
+  calculateBasePlayerValueScore,
   defaultRecommendationTuningConfig,
   generatePlayerRecommendations,
   generateTopRecommendations,
@@ -79,6 +80,19 @@ function createRecommendationInput({
     userTeamId,
   };
 }
+
+describe("calculateBasePlayerValueScore", () => {
+  it("uses the approved rank-derived curve", () => {
+    expect(calculateBasePlayerValueScore(1)).toBe(100);
+    expect(calculateBasePlayerValueScore(25)).toBeCloseTo(100 - 6 * Math.sqrt(24));
+    expect(calculateBasePlayerValueScore(325)).toBe(0);
+  });
+
+  it("clamps invalid low ranks before calculating the curve", () => {
+    expect(calculateBasePlayerValueScore(0)).toBe(100);
+    expect(calculateBasePlayerValueScore(-10)).toBe(100);
+  });
+});
 
 describe("generateTopRecommendations", () => {
   it("excludes drafted players before generating recommendations", () => {
@@ -294,6 +308,27 @@ describe("generatePlayerRecommendations", () => {
     ]);
   });
 
+  it("uses stable tie breakers when base scores are equal", () => {
+    const rankings = [
+      createRanking("player-c", 30, "WR", "C", { positionRank: 3 }),
+      createRanking("player-a", 10, "RB", "A", { positionRank: 2 }),
+      createRanking("player-b", 10, "RB", "B", { positionRank: 2 }),
+    ];
+
+    const recommendations = generatePlayerRecommendations(createRecommendationInput({ rankings }), {
+      tuning: {
+        ...defaultRecommendationTuningConfig,
+        baseScoreCurveCoefficient: 0,
+      },
+    });
+
+    expect(getPlayerRecommendationIds(recommendations)).toEqual([
+      "player-a",
+      "player-b",
+      "player-c",
+    ]);
+  });
+
   it("accepts non-default league settings", () => {
     const nonDefaultSettings: LeagueSettings = {
       ...defaultLeagueSettings,
@@ -329,13 +364,71 @@ describe("generatePlayerRecommendations", () => {
 
     expect(recommendation).toMatchObject({
       playerId: "player-1",
-      totalScore: 0,
-      baseScore: 0,
+      totalScore: 100,
+      baseScore: 100,
       contextScore: 0,
-      components: [],
       reasons: [],
     });
+    expect(recommendation.components).toEqual([
+      {
+        id: "base_value",
+        delta: 100,
+        direction: "positive",
+        priority: 10,
+        evidence: {
+          overallRank: 1,
+          coefficient: defaultRecommendationTuningConfig.baseScoreCurveCoefficient,
+        },
+      },
+    ]);
     expect(recommendation.ranking.player.id).toBe("player-1");
+  });
+
+  it("keeps context score at zero and total score equal to base score", () => {
+    const rankings = [createRanking("player-1", 25, "RB")];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings }),
+    );
+
+    expect(recommendation.contextScore).toBe(0);
+    expect(recommendation.totalScore).toBe(recommendation.baseScore);
+    expect(recommendation.baseScore).toBeCloseTo(calculateBasePlayerValueScore(25));
+  });
+
+  it("does not let a lower-ranked player outrank a higher-ranked player without context modifiers", () => {
+    const rankings = [
+      createRanking("player-lower-ranked", 8, "WR"),
+      createRanking("player-higher-ranked", 3, "RB"),
+    ];
+
+    const recommendations = generatePlayerRecommendations(createRecommendationInput({ rankings }));
+
+    expect(getPlayerRecommendationIds(recommendations)).toEqual([
+      "player-higher-ranked",
+      "player-lower-ranked",
+    ]);
+    expect(recommendations[0].baseScore).toBeGreaterThan(recommendations[1].baseScore);
+  });
+
+  it("includes a base value score component with rank evidence", () => {
+    const rankings = [createRanking("player-1", 200, "RB")];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings }),
+    );
+
+    expect(recommendation.components).toEqual([
+      expect.objectContaining({
+        id: "base_value",
+        delta: recommendation.baseScore,
+        direction: recommendation.baseScore > 0 ? "positive" : "neutral",
+        evidence: expect.objectContaining({
+          overallRank: 200,
+          coefficient: defaultRecommendationTuningConfig.baseScoreCurveCoefficient,
+        }),
+      }),
+    ]);
   });
 
   it("does not mutate the input draft", () => {
