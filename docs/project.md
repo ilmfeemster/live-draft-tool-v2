@@ -2,23 +2,23 @@
 
 ## Active Phase
 
-Phase 2 - Persistence
+Phase 3 - Recommendation Engine
 
-The current project phase is focused on making draft state and configuration durable across application sessions.
+The current project phase is focused on turning draft state into deterministic, explainable player recommendations.
 
-Phase 1 established the manual draft simulator and in-memory draft state engine. Phase 2 should preserve that working draft experience while introducing persistence underneath it.
+Phase 1 established the manual draft simulator and in-memory Draft State Engine. Phase 2 established durable draft persistence. Phase 3 should preserve the existing manual and persisted draft workflows while making recommendation quality the primary product focus.
 
 ---
 
 ## Product Goal
 
-Build a single-user fantasy football draft assistant that can resume draft work across sessions.
+Build a single-user fantasy football draft assistant that recommends players based on draft context rather than static rankings alone.
 
-The tool helps users make better draft decisions by combining rankings, roster context, positional scarcity, and tier information during a live draft.
+The tool helps users make better draft decisions by combining rankings, roster context, positional scarcity, tier information, and current draft state during a live draft.
 
-The app is a companion tool, not a fantasy platform.
+The app is a companion decision engine, not a fantasy platform or replacement draft room.
 
-For Phase 2, the product should move from an in-memory draft simulator to a durable draft workspace where drafts, settings, picks, rosters, and ranking snapshots can survive browser refreshes and application restarts.
+For Phase 3, the product should move from basic recommendation scaffolding to a meaningful recommendation engine that scores available players, orders them consistently, and explains the major reasons behind each recommendation.
 
 ---
 
@@ -28,22 +28,22 @@ The initial user is the developer.
 
 The user participates in live fantasy football drafts and wants better decision support than a static rankings sheet provides.
 
-During Phase 2, the user should be able to pause, close, refresh, or restart the app without losing draft setup or draft progress.
+During Phase 3, the user should be able to open or resume a draft, enter picks manually, and receive recommendations that respond to roster needs, draft context, scarcity, and tier pressure.
 
 ---
 
 ## Phase Goals
 
-Phase 2 should deliver:
+Phase 3 should deliver:
 
-- Persistent draft state.
-- Persistent draft configuration.
-- Persistent ranking snapshots associated with drafts.
-- A way to save and load existing drafts.
-- Draft history for previously created drafts.
-- A persistence layer that supports future replay testing, historical analysis, and user accounts without requiring those features now.
+- A deterministic recommendation scoring pipeline.
+- Recommendation models that expose score, ordering, and reasons.
+- Extensible scoring modifiers for ranking value, roster need, positional scarcity, and tier-drop risk.
+- Recommendation output that updates from the current draft state.
+- Recommendation reasons that explain the highest-impact scoring factors.
+- Test coverage that proves recommendation behavior is stable, observable, and tied to business rules.
 
-The phase is successful only if persistence supports the existing manual draft workflow without making the draft engine source-specific or platform-specific.
+The phase is successful only if recommendations provide useful decision support beyond static rankings while remaining inspectable and predictable.
 
 ---
 
@@ -51,39 +51,41 @@ The phase is successful only if persistence supports the existing manual draft w
 
 ### In Scope
 
-- Store draft records.
-- Store league and draft configuration.
-- Store draft picks.
-- Store enough roster-related state or derivable data to restore a draft accurately.
-- Store ranking snapshots used by a draft.
-- Load an existing draft into the current app workflow.
-- Resume an incomplete draft after refresh or restart.
-- View or select from previously created drafts.
-- Keep the existing manual pick-entry workflow working.
-- Introduce a simple API/data-access boundary for persistence.
-- Preserve deterministic recommendation behavior after loading a draft.
+- Score available players from the current draft state.
+- Rank recommendations using deterministic scoring rules.
+- Preserve static ranking value as a primary input.
+- Apply roster need modifiers based on the user's current roster and league settings.
+- Apply positional scarcity modifiers based on remaining available players.
+- Apply tier-drop modifiers when waiting could meaningfully reduce player quality at a position.
+- Generate recommendation reasons from scoring inputs.
+- Keep recommendation logic independent from persistence implementation details.
+- Keep recommendation logic independent from draft source or platform provider assumptions.
+- Support the existing manual draft workflow.
+- Support recommendations after loading a persisted draft.
+- Add scenario-level confidence for representative draft situations.
 
 ### Out of Scope
 
-- Authentication.
-- Multi-user support.
-- Cloud user accounts.
-- Real-time collaboration.
+- Opponent modeling.
+- AI-generated reasoning.
+- Machine learning recommendations.
+- Draft simulations.
+- Auto drafting.
+- Strategy profiles.
+- Advanced insight engine behavior.
+- Live platform integrations.
 - ESPN integration.
 - Yahoo integration.
 - Sleeper integration.
 - WebSocket sync.
-- AI chat assistant.
-- Simulations.
+- Authentication.
+- Multi-user support.
 - Dynasty support.
 - Auction drafts.
 - Keeper leagues.
-- Mobile app.
-- Machine learning recommendations.
-- News/injury ingestion.
+- News or injury ingestion.
 - Payments.
-- Advanced historical analytics.
-- Replay tooling beyond what persistence naturally enables.
+- Recommendation UI redesign beyond what is necessary to display Phase 3 outputs.
 
 ---
 
@@ -118,11 +120,10 @@ The phase is successful only if persistence supports the existing manual draft w
 
 ### Before Draft
 
-- Create draft.
-- Import or select rankings.
-- Set draft position.
-- Save draft setup.
-- Start draft.
+- Create or load a draft.
+- Select or use saved rankings.
+- Confirm draft position and league settings.
+- Start or resume the draft.
 
 ### During Draft
 
@@ -130,14 +131,15 @@ The phase is successful only if persistence supports the existing manual draft w
 - Track drafted players.
 - Update available player pool.
 - Update user roster.
-- Generate recommendations.
-- Persist draft progress.
+- Generate scored recommendations.
+- Display recommendation reasons.
+- Persist draft progress when persistence is available.
 
 ### Returning to a Draft
 
 - View existing drafts.
 - Load an incomplete draft.
-- Restore draft setup, picks, available players, roster, and recommendations.
+- Restore draft setup, picks, available players, user roster, and recommendations.
 - Continue entering picks from the correct draft position.
 
 ### On User Pick
@@ -145,50 +147,56 @@ The phase is successful only if persistence supports the existing manual draft w
 Display:
 
 - Top recommendations.
+- Recommendation score or ordering.
 - Recommendation reasoning.
 - Tier warnings.
 - Positional scarcity warnings.
-- Roster needs.
+- Roster need signals.
 
 ---
 
 ## Milestones
 
-### Milestone 1 - Persistence Model
+### Milestone 1 - Recommendation Model
 
-Define the durable data shape for drafts, picks, league settings, draft settings, and ranking snapshots.
+Define the project-level recommendation output shape used by the app.
 
-The model should reflect current domain concepts without introducing user accounts or provider-specific assumptions.
+The model should represent recommended players, scores, scoring components, and human-readable reasons without coupling the engine to UI rendering, database storage, or future platform providers.
 
-### Milestone 2 - Save Draft Progress
+### Milestone 2 - Scoring Pipeline
 
-Persist draft setup and pick history as the manual draft progresses.
+Establish the deterministic scoring flow that starts from available players and current draft state, applies scoring factors, and returns ordered recommendations.
 
-The existing in-memory workflow should continue to behave correctly while draft state is written to durable storage.
+The scoring pipeline should be explicit enough to debug and small enough to adjust as recommendation quality improves.
 
-### Milestone 3 - Load And Resume Drafts
+### Milestone 3 - Core Modifiers
 
-Load saved draft state back into the app and reconstruct the same draft workflow the user had before leaving.
+Introduce the initial recommendation factors:
 
-Loaded drafts should restore available players, user roster, current pick, draft board, and recommendations.
+- Base ranking value.
+- Roster need.
+- Positional scarcity.
+- Tier-drop risk.
 
-### Milestone 4 - Draft History
+Each modifier should have an understandable impact on score and should be able to produce reasons when it materially affects a recommendation.
 
-Provide a simple way to see and reopen previously created drafts.
+### Milestone 4 - Recommendation Reasons
 
-This should remain a utility for the single-user workflow, not an account or collaboration system.
+Provide clear, deterministic explanations for why players are recommended.
 
-### Milestone 5 - Persistence Validation
+Reasons should come from scoring inputs and should avoid generic, AI-generated, or unverifiable claims.
 
-Validate that saved and loaded drafts preserve draft invariants and recommendation behavior.
+### Milestone 5 - Scenario Validation
 
-Testing should prove that persistence does not corrupt draft state or create duplicate player availability.
+Validate recommendation behavior across representative draft states.
+
+Testing should prove recommendation ordering, modifier behavior, and reasons remain stable for defined scenarios, including loaded persisted draft states where practical.
 
 ---
 
 ## Architecture Impact
 
-Phase 2 introduces a Persistence Layer beneath the Draft State Engine.
+Phase 3 introduces the Recommendation Engine above the Draft State Engine.
 
 The intended architecture becomes:
 
@@ -204,48 +212,52 @@ Persistence Layer
 Database
 ```
 
-The Draft State Engine should remain the core source of draft rules and state transitions. Persistence should store and restore draft state; it should not own draft business rules.
+The Draft State Engine should remain the source of draft rules, picks, rosters, available players, and league settings. The Recommendation Engine should consume draft state and ranking data; it should not own draft progression, persistence, or provider-specific behavior.
 
-The persistence layer should use the existing monolith-first Next.js direction:
+The recommendation engine should follow the existing monolith-first Next.js direction:
 
-- Next.js app routes or server actions where appropriate.
-- Prisma for data access.
-- PostgreSQL as the durable database.
-- Simple repository/data-access functions before adding broader abstractions.
+- TypeScript domain functions for deterministic scoring.
+- Simple data structures before broad abstractions.
+- React/UI code consumes recommendation output rather than duplicating scoring rules.
+- Persistence hydrates draft state and ranking snapshots before recommendation logic runs.
 
 Important boundaries:
 
-- Platform-specific provider logic must not leak into persisted core draft models.
-- Recommendation logic should continue to consume draft state, not database implementation details.
-- Ranking snapshots should make saved drafts stable even when future rankings change.
-- Data models should be shaped for current single-user persistence, while avoiding choices that would block future accounts.
+- Recommendation logic must consume draft state, not database implementation details.
+- Recommendation logic must be independent from manual, replay, or future live draft sources.
+- Recommendation explanations should come directly from scoring components.
+- Scoring rules should remain inspectable and adjustable.
+- Modifier extensibility should stay simple and local until real duplication or complexity appears.
+- Phase 3 should not introduce the Phase 6 Insight Engine, opponent modeling, or AI-generated reasoning.
 
 ---
 
 ## Success Criteria
 
-Phase 2 is successful when a user can:
+Phase 3 is successful when a user can:
 
-1. Create a draft with the existing league assumptions.
-2. Save draft setup and ranking context.
-3. Enter manual picks.
-4. Refresh or restart the app without losing draft progress.
-5. Reopen an incomplete draft from draft history.
-6. Continue drafting from the correct pick.
-7. See drafted players, available players, user roster, and recommendations restored accurately.
-8. Complete a full 12-team draft from a persisted draft state.
-9. Confirm draft invariants still hold after saving and loading.
+1. Open or resume a draft with the existing league assumptions.
+2. Enter manual picks and see recommendations update from the new draft state.
+3. Receive ordered recommendations that differ from static rankings when draft context justifies it.
+4. See roster need influence recommendations in observable draft situations.
+5. See positional scarcity influence recommendations in observable draft situations.
+6. See tier-drop risk influence recommendations in observable draft situations.
+7. Understand the main reasons a player is recommended.
+8. Confirm recommendation output is deterministic for the same draft state and rankings.
+9. Confirm recommendation results only contain available players.
+10. Validate representative recommendation scenarios with automated tests.
 
-The product should feel like a durable draft workspace rather than a disposable in-memory simulator.
+The product should feel like a draft decision engine rather than a persisted draft board with rankings attached.
 
 ---
 
 ## Product Principles
 
-- Prioritize draft speed over feature depth.
-- Preserve the working manual draft flow.
-- Prefer simple, inspectable persistence.
+- Prioritize recommendation usefulness over recommendation sophistication.
+- Keep recommendation behavior deterministic.
+- Keep scoring rules inspectable and easy to tune.
+- Preserve the working manual and persisted draft workflows.
 - Keep draft rules in the Draft State Engine.
-- Keep recommendation logic understandable.
-- Avoid account, provider, and multiplayer complexity during Phase 2.
-- Add only the persistence structure needed to resume drafts reliably.
+- Keep persistence below the Draft State Engine and outside recommendation scoring.
+- Explain recommendations using concrete scoring inputs.
+- Avoid AI, simulations, opponent modeling, and strategy-engine complexity during Phase 3.
