@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import { draftPlayerInDraft } from "@/lib/draftState";
-import { generateTopRecommendations } from "@/lib/recommendations";
-import type { Draft, Position, RankingEntry } from "@/types/draft";
+import {
+  defaultRecommendationTuningConfig,
+  generatePlayerRecommendations,
+  generateTopRecommendations,
+} from "@/lib/recommendations";
+import type { Draft, LeagueSettings, Position, RankingEntry } from "@/types/draft";
 
 function createRanking(
   id: string,
@@ -48,6 +53,31 @@ function getAvailableRankings(rankings: RankingEntry[], draft: Draft) {
 
 function getRecommendationPlayerIds(recommendations: ReturnType<typeof generateTopRecommendations>) {
   return recommendations.map((recommendation) => recommendation.ranking.player.id);
+}
+
+function getPlayerRecommendationIds(
+  recommendations: ReturnType<typeof generatePlayerRecommendations>,
+) {
+  return recommendations.map((recommendation) => recommendation.playerId);
+}
+
+function createRecommendationInput({
+  draft = createTestDraft(),
+  rankings = [],
+  leagueSettings = defaultLeagueSettings,
+  userTeamId = draft.userTeamId,
+}: {
+  draft?: Draft;
+  rankings?: RankingEntry[];
+  leagueSettings?: LeagueSettings;
+  userTeamId?: string;
+}) {
+  return {
+    draft,
+    rankings,
+    leagueSettings,
+    userTeamId,
+  };
 }
 
 describe("generateTopRecommendations", () => {
@@ -215,5 +245,122 @@ describe("generateTopRecommendations", () => {
         "Tier drop after this RB",
       ]),
     );
+  });
+});
+
+describe("generatePlayerRecommendations", () => {
+  it("excludes drafted players from draft state", () => {
+    const rankings = [
+      createRanking("player-1", 1, "RB"),
+      createRanking("player-2", 2, "WR"),
+      createRanking("player-3", 3, "QB"),
+    ];
+    const draft = draftPlayerInDraft(createTestDraft(), "player-1");
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput({ draft, rankings }),
+    );
+
+    expect(getPlayerRecommendationIds(recommendations)).toEqual(["player-2", "player-3"]);
+  });
+
+  it("returns deterministic ordering for identical input", () => {
+    const rankings = [
+      createRanking("player-c", 3, "RB"),
+      createRanking("player-b", 2, "WR"),
+      createRanking("player-a", 1, "QB"),
+    ];
+    const input = createRecommendationInput({ rankings });
+
+    const firstRun = getPlayerRecommendationIds(generatePlayerRecommendations(input));
+    const secondRun = getPlayerRecommendationIds(generatePlayerRecommendations(input));
+
+    expect(firstRun).toEqual(["player-a", "player-b", "player-c"]);
+    expect(secondRun).toEqual(firstRun);
+  });
+
+  it("uses stable tie breakers after overall rank", () => {
+    const rankings = [
+      createRanking("player-c", 10, "WR", "C", { positionRank: 3 }),
+      createRanking("player-a", 10, "RB", "A", { positionRank: 2 }),
+      createRanking("player-b", 10, "RB", "B", { positionRank: 2 }),
+    ];
+
+    const recommendations = generatePlayerRecommendations(createRecommendationInput({ rankings }));
+
+    expect(getPlayerRecommendationIds(recommendations)).toEqual([
+      "player-a",
+      "player-b",
+      "player-c",
+    ]);
+  });
+
+  it("accepts non-default league settings", () => {
+    const nonDefaultSettings: LeagueSettings = {
+      ...defaultLeagueSettings,
+      teamCount: 4,
+      rounds: 3,
+      rosterSlots: defaultLeagueSettings.rosterSlots.slice(0, 3),
+    };
+    const draft = createTestDraft({
+      teamCount: nonDefaultSettings.teamCount,
+      rounds: nonDefaultSettings.rounds,
+      teams: createDraftTeams(nonDefaultSettings.teamCount),
+      picks: generateSnakeDraftOrder(nonDefaultSettings.teamCount, nonDefaultSettings.rounds),
+    });
+    const rankings = [createRanking("player-1", 1, "RB")];
+
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput({
+        draft,
+        rankings,
+        leagueSettings: nonDefaultSettings,
+      }),
+    );
+
+    expect(getPlayerRecommendationIds(recommendations)).toEqual(["player-1"]);
+  });
+
+  it("returns contract fields for future scoring and reasons", () => {
+    const rankings = [createRanking("player-1", 1, "RB")];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings }),
+    );
+
+    expect(recommendation).toMatchObject({
+      playerId: "player-1",
+      totalScore: 0,
+      baseScore: 0,
+      contextScore: 0,
+      components: [],
+      reasons: [],
+    });
+    expect(recommendation.ranking.player.id).toBe("player-1");
+  });
+
+  it("does not mutate the input draft", () => {
+    const draft = createTestDraft();
+    const draftBeforeRecommendation = JSON.parse(JSON.stringify(draft)) as Draft;
+    const rankings = [createRanking("player-1", 1, "RB")];
+
+    generatePlayerRecommendations(createRecommendationInput({ draft, rankings }));
+
+    expect(draft).toEqual(draftBeforeRecommendation);
+  });
+
+  it("respects requested limit and exposes default tuning config", () => {
+    const rankings = [
+      createRanking("player-1", 1, "RB"),
+      createRanking("player-2", 2, "WR"),
+      createRanking("player-3", 3, "QB"),
+    ];
+
+    const recommendations = generatePlayerRecommendations(createRecommendationInput({ rankings }), {
+      limit: 2,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(getPlayerRecommendationIds(recommendations)).toEqual(["player-1", "player-2"]);
+    expect(defaultRecommendationTuningConfig.maxReasons).toBe(3);
   });
 });

@@ -1,4 +1,12 @@
-import type { Position, RankingEntry, Recommendation, UserRosterPlayer } from "@/types/draft";
+import type {
+  PlayerRecommendation,
+  Position,
+  RankingEntry,
+  Recommendation,
+  RecommendationInput,
+  RecommendationTuningConfig,
+  UserRosterPlayer,
+} from "@/types/draft";
 
 const DEFAULT_RECOMMENDATION_LIMIT = 5;
 const DIRECT_STARTER_NEED_BONUS = 15;
@@ -9,6 +17,23 @@ const SCARCITY_LOOKAHEAD_RANKS = 24;
 const SCARCITY_MIN_NEARBY_OPTIONS = 2;
 const SCARCITY_BONUS = 5;
 const flexPositions: Position[] = ["RB", "WR", "TE"];
+
+export const defaultRecommendationTuningConfig: RecommendationTuningConfig = {
+  baseScoreCurveCoefficient: 6,
+  maxPositiveContextScore: 30,
+  maxNegativeContextScore: -24,
+  maxUrgencyScore: 16,
+  recentPickRunWindow: 12,
+  tierThinnessThreshold: 2,
+  valueOpportunitySmallFallThreshold: 6,
+  valueOpportunityClearFallThreshold: 12,
+  valueOpportunityMajorFallThreshold: 24,
+  earlyDraftPickRatio: 1 / 3,
+  lateDraftPickRatio: 2 / 3,
+  positiveReasonThreshold: 3,
+  negativeReasonThreshold: -6,
+  maxReasons: 3,
+};
 
 type RosterNeedPlayer = Pick<UserRosterPlayer, "position">;
 
@@ -32,8 +57,56 @@ type ScarcityResult = {
   reason: string | null;
 };
 
+type GeneratePlayerRecommendationsOptions = {
+  limit?: number;
+  tuning?: RecommendationTuningConfig;
+};
+
 export function calculateRankingScore(ranking: RankingEntry) {
   return 1000 - ranking.overallRank;
+}
+
+function getDraftedPlayerIds(input: RecommendationInput) {
+  return new Set(input.draft.picks.flatMap((pick) => (pick.playerId ? [pick.playerId] : [])));
+}
+
+function compareRankingsByStableDraftOrder(a: RankingEntry, b: RankingEntry) {
+  if (a.overallRank !== b.overallRank) {
+    return a.overallRank - b.overallRank;
+  }
+
+  if (a.positionRank !== b.positionRank) {
+    return a.positionRank - b.positionRank;
+  }
+
+  return a.player.id.localeCompare(b.player.id);
+}
+
+export function generatePlayerRecommendations(
+  input: RecommendationInput,
+  options: GeneratePlayerRecommendationsOptions = {},
+): PlayerRecommendation[] {
+  const recommendationLimit = options.limit ?? DEFAULT_RECOMMENDATION_LIMIT;
+
+  if (input.rankings.length === 0 || recommendationLimit <= 0) {
+    return [];
+  }
+
+  const draftedPlayerIds = getDraftedPlayerIds(input);
+
+  return input.rankings
+    .filter((ranking) => !draftedPlayerIds.has(ranking.player.id))
+    .sort(compareRankingsByStableDraftOrder)
+    .slice(0, Math.floor(recommendationLimit))
+    .map((ranking) => ({
+      ranking,
+      playerId: ranking.player.id,
+      totalScore: 0,
+      baseScore: 0,
+      contextScore: 0,
+      components: [],
+      reasons: [],
+    }));
 }
 
 function countPosition(rosterPlayers: RosterNeedPlayer[], position: Position) {

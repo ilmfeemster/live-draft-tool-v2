@@ -23,6 +23,59 @@ export type Recommendation = {
   reasons: string[];
 };
 
+export type RecommendationInput = {
+  draft: Draft;
+  rankings: RankingEntry[];
+  leagueSettings: LeagueSettings;
+  userTeamId: string;
+};
+
+export type RecommendationScoreComponentDirection = "positive" | "negative" | "neutral";
+
+export type RecommendationEvidenceValue = string | number | boolean | null;
+
+export type RecommendationScoreComponent = {
+  id: string;
+  delta: number;
+  direction: RecommendationScoreComponentDirection;
+  priority?: number;
+  evidence?: Record<string, RecommendationEvidenceValue>;
+};
+
+export type RecommendationReason = {
+  id: string;
+  text: string;
+  sourceComponentId: string;
+  priority: number;
+};
+
+export type PlayerRecommendation = {
+  ranking: RankingEntry;
+  playerId: string;
+  totalScore: number;
+  baseScore: number;
+  contextScore: number;
+  components: RecommendationScoreComponent[];
+  reasons: RecommendationReason[];
+};
+
+export type RecommendationTuningConfig = {
+  baseScoreCurveCoefficient: number;
+  maxPositiveContextScore: number;
+  maxNegativeContextScore: number;
+  maxUrgencyScore: number;
+  recentPickRunWindow: number;
+  tierThinnessThreshold: number;
+  valueOpportunitySmallFallThreshold: number;
+  valueOpportunityClearFallThreshold: number;
+  valueOpportunityMajorFallThreshold: number;
+  earlyDraftPickRatio: number;
+  lateDraftPickRatio: number;
+  positiveReasonThreshold: number;
+  negativeReasonThreshold: number;
+  maxReasons: number;
+};
+
 export type UserRosterPlayer = {
   pickNumber: number;
   name: string;
