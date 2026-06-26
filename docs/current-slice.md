@@ -1,236 +1,194 @@
-# Current Slice: Add Persisted Draft Workflow Validation Test
+# Current Slice: Add New Draft Creation Flow
 
 ## Source Task
 
-Task 9: Complete Phase 2 Persistence Validation.
-
-This slice adds the smallest useful automated validation for persisted draft workflow behavior. It does not attempt to complete all Phase 2 manual QA or full-draft validation.
+Task 9: Add New Draft Creation Flow.
 
 ## Goal
 
-Prove that a persisted draft can be created, mutated, reloaded, and used as recommendation input without corrupting draft invariants.
+Give the user an intentional way to start a fresh persisted draft without resetting, overwriting, deleting, or manually editing an existing draft.
 
-The test should validate the repository/workspace boundary that Phase 2 depends on: persisted source state goes in, a hydrated `DraftWorkspace` comes back out, and the app can derive available players, user roster, and recommendations from that workspace after reload.
+This slice closes the product gap between "resume an old draft" and "reset this same draft." Reset remains a manual QA tool for clearing the current draft. New draft creation is the user-facing workflow for saving the current draft in history and moving on to another draft.
 
 ## User-Visible Increment
 
-No direct UI change.
-
-The user-visible value is increased confidence that refresh/resume behavior is backed by tested persistence workflow behavior rather than only isolated repository operations.
+- A user can start a new persisted draft from the draft room.
+- If the current draft is complete, the draft room shows a clear prompt to start another draft.
+- The new draft loads immediately through the existing `?draftId=<id>` route.
+- The previous draft remains visible in draft history.
 
 ## Problem
 
-Phase 2 now supports persisted drafts, persisted pick mutations, reset, and draft history links. Existing tests cover many pieces independently, but there is not yet a single validation test that exercises the core persisted workflow as a user would depend on it:
-
-```txt
-create draft
-draft picks
-reload workspace
-derive available players
-derive user roster
-generate recommendations
-undo
-reload again
-confirm invariants still hold
-```
-
-Task 9 is broad, so this slice should add one focused automated confidence layer before moving to manual full-draft QA.
+The app can persist, resume, reset, draft, and undo, but it does not yet provide a normal "start another draft" workflow. A user who finishes a draft, or simply wants to begin a separate draft, currently has no clear product action. Reset is destructive to the current draft's pick history and should not be used as a substitute for creating a new saved draft.
 
 ## Goals
 
-- Add a focused persisted workflow validation test.
-- Use a non-default league configuration.
-- Create a persisted draft workspace through the repository.
-- Persist multiple draft picks through repository mutation methods.
-- Reload the workspace from the repository after mutations.
-- Derive available rankings from reloaded pick history.
-- Derive user roster players from reloaded pick history.
-- Generate recommendations from reloaded available rankings and user roster.
-- Validate draft invariants after reload, including recommendation availability.
-- Undo the latest persisted pick.
-- Reload again and validate the restored draft state.
-- Keep the test at the repository/domain boundary; do not add a UI test dependency.
+- Add a server action that creates a new persisted draft workspace.
+- Use current MVP defaults for the new draft:
+  - default league settings
+  - seed ranking snapshot
+  - current MVP user team id
+- Add a visible `Start New Draft` control in the draft room status area.
+- Show an inline completed-draft prompt with a `Start New Draft` action when `isDraftComplete` is true.
+- After creating the draft, navigate to `/?draftId=<newDraftId>`.
+- Preserve the existing draft and its pick history.
+- Prevent duplicate creates while the create action is pending.
+- Keep existing draft, undo, reset, resume, recommendation, and history behavior intact.
+- Add focused server-action test coverage for the new create action.
+- Update task tracking after implementation.
 
 ## Non-Goals
 
-- Real PostgreSQL integration testing.
-- Prisma migration testing.
-- Browser or React UI testing.
-- Full 12-team draft completion.
-- Manual QA checklist completion.
-- Draft history UI changes.
-- New production features.
-- New repository methods.
-- New schema or migration changes.
+- Custom league setup UI.
+- Ranking import or ranking selection UI.
+- Draft templates.
+- Draft duplication.
+- Draft deletion.
+- Draft renaming.
+- Accounts or multi-user draft ownership.
+- Changing the existing auto-save behavior.
+- Changing the draft history list into a full management screen.
+- Adding a modal flow for this slice.
+- Prisma schema or migration changes.
 - New package dependencies.
-- Broad refactoring of existing tests or helpers.
 
 ## Expected Files
 
-- `src/lib/draftRepository.test.ts`
+- `src/app/actions/draftActions.ts`
+- `src/app/actions/draftActions.test.ts`
+- `src/components/DraftRoom.tsx`
+- `src/components/DraftStatusPanel.tsx`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing production code unless the validation exposes a real bug caused by existing behavior. Avoid modifying page UI, components, server actions, Prisma schema, recommendation scoring rules, seed ranking data, or unrelated documentation.
+Avoid changing repository APIs, Prisma schema, route structure, recommendation logic, ranking seed data, or unrelated UI layout unless implementation reveals a real blocker.
 
-## Test Shape
+## Server Action Shape
 
-Add one integration-style repository test to `src/lib/draftRepository.test.ts`, near the existing repository mutation tests.
-
-Use the existing fake DB test pattern in that file. Do not export test helpers or introduce a new test utility module for this slice.
-
-The test should be close to:
+Add a new server action in `src/app/actions/draftActions.ts`:
 
 ```ts
-it("preserves draft invariants and recommendation inputs across persisted reload and undo", async () => {
-  // create non-default draft workspace
-  // draft multiple players
-  // reload workspace
-  // derive available rankings and user roster players from reloaded workspace
-  // generate recommendations
-  // assert drafted players are unavailable
-  // assert recommendations only contain available players
-  // assert draft invariants are valid
-  // undo latest pick
-  // reload workspace again
-  // assert current pick and availability are restored
-  // assert draft invariants remain valid
-});
+export async function createNewDraftAction()
 ```
 
-Use local helper functions in the test file if needed:
+Expected behavior:
 
-- `getAvailableRankings(rankings, draft)`
-- `getUserRosterPlayers(rankings, draft)`
+- Call the existing repository create function.
+- Pass MVP defaults explicitly:
+  - `defaultLeagueSettings`
+  - `seedRankings`
+  - MVP user team id, currently `team-2`
+  - a simple name such as `New Draft`
+- Return the created `DraftWorkspace` so the client can navigate using `workspace.draft.id`.
 
-Keep helpers small and specific to this test file.
+Keep the action small. Do not add a general draft setup abstraction in this slice.
 
-## Expected Behavior
+## UI Behavior
 
-### Setup
+Add the new-draft control to the existing draft room/status flow.
 
-- Use a non-default league configuration, such as 4 teams and 3 rounds.
-- Use enough rankings to draft several players and still generate recommendations.
-- Use a user team id that receives at least one pick in the tested sequence.
+### Always-Available Control
 
-### Persist And Reload
+- Render a `Start New Draft` button in the draft status panel near the existing undo/reset controls.
+- Disable it while another draft mutation is pending.
+- On click, call `createNewDraftAction`.
+- On success, navigate to `/?draftId=<newDraftId>` using Next navigation.
 
-- Create the workspace through `repository.createDraftWorkspace`.
-- Persist at least three draft picks through `repository.draftPlayerInWorkspace`.
-- Reload through `repository.getDraftWorkspaceById`.
-- Assert the reloaded draft reflects persisted picks and the correct next pick.
+### In-Progress Draft Safety
 
-### Derived Inputs
+If the current draft has one or more picks and is not complete:
 
-- Build available rankings by removing reloaded drafted player ids from `workspace.rankings`.
-- Build user roster players from reloaded picks assigned to `workspace.draft.userTeamId`.
-- Generate recommendations with `generateTopRecommendations(availableRankings, { rosterPlayers })`.
-- Assert recommendations are non-empty when available rankings remain.
-- Assert recommendation rankings are all available.
+- Ask for browser confirmation before creating and navigating to a new draft.
+- Make the confirmation copy clear that the existing draft will be saved in history, not reset or deleted.
+- If the user cancels, do not call the server action.
 
-### Invariants
+### Completed Draft Prompt
 
-- Call `isValidDraftState` with:
-  - the reloaded draft
-  - available rankings
-  - user roster players
-  - recommendation rankings
-- Expect invariants to be valid.
+When `isDraftComplete` is true:
 
-### Undo And Reload
-
-- Call `repository.undoLastPickInWorkspace`.
-- Reload again through `repository.getDraftWorkspaceById`.
-- Assert the undone player is available again.
-- Assert the current pick has moved back correctly.
-- Regenerate recommendation inputs from the post-undo reload.
-- Assert invariants are still valid.
-
-## Safety Rules
-
-- Do not weaken existing tests.
-- Do not replace specific assertions with broad truthy assertions.
-- Do not change production behavior solely to satisfy the new test.
-- If existing behavior fails this validation and the expected behavior is unclear, stop and report the discrepancy rather than expanding scope.
-- Keep the test deterministic and independent of test execution order.
-
-## Testing Strategy
-
-This slice is itself a testing slice.
-
-Required validation:
-
-- Run `npm test`.
-- Run `npm run lint`.
-- Run `npm run build`.
-
-Manual runtime validation is not required for this slice because the goal is automated workflow coverage. If a local dev server or `.next` file lock blocks `npm run build`, report that separately and do not change the slice scope.
+- Show an inline completion prompt in `DraftStatusPanel`.
+- Include a `Start New Draft` button in that prompt.
+- Reuse the same create handler and pending state.
+- Do not add a modal for this slice.
 
 ## Implementation Steps
 
-1. Add imports.
-   - Import `generateTopRecommendations` in `src/lib/draftRepository.test.ts`.
-   - Reuse existing `isValidDraftState` import.
+1. Add the create action.
+   - Import `createDraftWorkspace`, `defaultLeagueSettings`, and `seedRankings`.
+   - Add a local constant for the MVP user team id if no shared constant already exists.
+   - Return the created workspace.
 
-2. Add small local derivation helpers if needed.
-   - Add `getAvailableRankings(rankings, draft)`.
-   - Add `getUserRosterPlayers(rankings, draft)`.
-   - Keep helper return data aligned with existing app derivation behavior in `DraftRoom`.
+2. Test the create action.
+   - Extend `src/app/actions/draftActions.test.ts`.
+   - Mock the repository create function.
+   - Assert `createNewDraftAction` delegates with default settings, seed rankings, user team id, and draft name.
+   - Assert the created workspace is returned.
+   - Keep existing action tests unchanged.
 
-3. Add the persisted workflow validation test.
-   - Use `createFakeDraftDb`.
-   - Use `createDraftRepository`.
-   - Use `createLeagueSettings({ teamCount: 4, rounds: 3 })`.
-   - Create enough rankings across positions to support drafting and recommendations.
-   - Draft at least three players.
-   - Reload the workspace and assert persisted state.
-   - Derive available rankings, user roster, and recommendations.
-   - Validate invariants.
-   - Undo the latest pick.
-   - Reload and validate the restored state and invariants.
+3. Wire the client handler.
+   - In `DraftRoom`, import `createNewDraftAction`.
+   - Use `useRouter` from `next/navigation`.
+   - Add a handler that:
+     - confirms when the current draft is in progress
+     - sets pending mutation state
+     - calls the create action
+     - pushes `/?draftId=<createdWorkspace.draft.id>`
+     - clears pending state if navigation does not immediately replace the component
 
-4. Update task tracking.
-   - In `docs/tasks.md`, mark only the Task 9 scope item directly proven by this slice.
-   - Do not mark Task 9 complete.
-   - Do not check manual QA or full 12-team completion items.
-   - Do not update the Phase 2 validation checklist unless the automated test directly proves a listed item.
+4. Extend `DraftStatusPanel` props.
+   - Add an `onCreateNewDraft` callback.
+   - Add an `isNewDraftDisabled` or reuse the existing pending/disabled shape.
+   - Render the always-available `Start New Draft` control.
+   - Render the completed-draft prompt when `isDraftComplete` is true.
 
-5. Validate.
+5. Preserve existing controls.
+   - Keep undo behavior unchanged.
+   - Keep reset behavior unchanged.
+   - Keep current draft status display unchanged except for the new prompt/control.
+   - Do not remove existing draft history links.
+
+6. Update task tracking.
+   - In `docs/tasks.md`, mark Task 9 complete only if all acceptance criteria are satisfied.
+   - Check `Start a new persisted draft without overwriting an existing draft` in the Phase 2 validation checklist if validated.
+   - Do not mark unrelated Phase 2 validation items complete.
+
+7. Validate.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
+   - Manually verify the new draft workflow in the browser if a dev server is already available or can be started locally.
 
 ## Acceptance Criteria
 
-- A persisted workflow test covers create, draft, reload, derive, recommend, undo, and reload again.
-- The test uses a non-default league configuration.
-- The test validates draft invariants after reload.
-- The test validates recommendation inputs only reference available players.
-- The test proves undo restores the latest persisted pick after reload.
-- Existing repository tests still pass.
-- No production code is changed unless a real bug is found.
-- No React/UI testing dependency is added.
-- No Prisma schema, migration, package dependency, or UI change is added.
+- A user can intentionally create a new persisted draft from the draft room.
+- Creating a new draft does not overwrite, reset, or delete the current draft.
+- The app navigates to the newly created draft at `/?draftId=<newDraftId>`.
+- The new draft starts at pick 1 with MVP default settings and seed rankings.
+- The previous draft remains available in draft history.
+- A completed draft shows an obvious option to start another draft.
+- In-progress drafts ask for confirmation before navigating away to a new draft.
+- Existing resume, draft, undo, reset, available-player, roster, and recommendation behavior still work.
+- Server-action tests cover the new create action.
 - `npm test` passes.
 - `npm run lint` passes.
-- `npm run build` passes or any environment-specific file lock is reported clearly.
+- `npm run build` passes or any environment-specific blocker is reported clearly.
 
 ## Manual Test Notes
 
-Manual QA is deferred to a later slice.
+Recommended manual checks after implementation:
 
-This slice does not complete:
-
-- refresh/restart manual validation
-- full 12-team persisted draft completion
-- real PostgreSQL round-trip validation
-- browser-based draft history validation
+- Create a new draft from an empty draft.
+- Make at least one pick, start a new draft, confirm, and verify the old draft is still in history.
+- Complete or simulate completing a draft enough to see the completed-draft prompt.
+- Start a new draft from the completed prompt.
+- Reopen the previous draft from history and confirm its picks remain intact.
+- Verify undo and reset still affect only the currently selected draft.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it adds one automated workflow validation test rather than trying to finish all Phase 2 QA.
-- Concrete enough for implementation: yes, the test setup, derivations, assertions, and validation commands are specified.
-- Avoids unnecessary architecture changes: yes, it stays inside existing repository tests and fake DB patterns.
-- Blast radius reasonable: yes, expected changes are limited to one test file, task tracking, and this slice document.
-- Review/revert comfort: yes, the test can be removed independently without affecting production behavior.
-- Observable/testable acceptance criteria: yes, success is measured by deterministic test assertions and standard validation commands.
+- Smallest meaningful increment: yes, it adds only the missing new-draft workflow.
+- Concrete enough for implementation: yes, action shape, UI placement, state handling, tests, and validation are specified.
+- Avoids unnecessary architecture changes: yes, it reuses the existing repository create function and `?draftId=` route.
+- Blast radius reasonable: yes, expected changes are limited to two action files, two draft room UI files, and task tracking.
+- Review/revert comfort: yes, the workflow can be reverted without schema or repository contract changes.
+- Observable/testable acceptance criteria: yes, creation, navigation, history preservation, prompt visibility, and regression behavior can all be checked.
