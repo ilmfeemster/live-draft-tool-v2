@@ -26,6 +26,8 @@ Task 2 established the Recommendation Engine contract in:
 
 The current engine entry point returns zeroed scores and deterministic rank-order output. This slice should replace the zeroed base score with the approved formula while preserving the pure domain boundary.
 
+The existing `generateTopRecommendations` helper still contains pre-Phase 3 scoring behavior for the current UI. Preserve it during this slice; implement base scoring only in `generatePlayerRecommendations`.
+
 The approved design defines:
 
 ```txt
@@ -43,7 +45,7 @@ Use `RankingEntry.overallRank` as the base value source. The coefficient should 
 - Use the configured base score curve coefficient from recommendation tuning.
 - Keep `contextScore` at `0`.
 - Set `totalScore` to `baseScore + contextScore`.
-- Add a base-value score component to every `PlayerRecommendation`.
+- Add a base-value score component to every `PlayerRecommendation` using the existing `RecommendationScoreComponent` shape.
 - Sort recommendations by:
   - `totalScore` descending
   - `baseScore` descending
@@ -70,7 +72,7 @@ Use `RankingEntry.overallRank` as the base value source. The coefficient should 
 - `src/lib/recommendations.ts`
 - `src/lib/recommendations.test.ts`
 
-Only touch `src/types/draft.ts` if a small type adjustment is required to represent the base-value component cleanly.
+Do not modify `src/types/draft.ts` unless a compile blocker appears. The existing score component and evidence types are sufficient for this slice.
 
 ## Implementation Steps
 
@@ -85,7 +87,8 @@ Only touch `src/types/draft.ts` if a small type adjustment is required to repres
    - Add an exported helper such as `calculateBasePlayerValueScore`.
    - Accept `overallRank` and an optional coefficient or tuning value.
    - Implement `max(0, 100 - coefficient * sqrt(overallRank - 1))`.
-   - Clamp the square-root input so invalid ranks do not produce `NaN`.
+   - Clamp the square-root input with `Math.max(overallRank - 1, 0)` so invalid ranks do not produce `NaN`.
+   - Use the default coefficient `6` from `defaultRecommendationTuningConfig.baseScoreCurveCoefficient` when no override is supplied.
    - Do not read from projections, ADP, persistence, or league defaults.
 
 3. Apply base scoring in `generatePlayerRecommendations`.
@@ -93,13 +96,18 @@ Only touch `src/types/draft.ts` if a small type adjustment is required to repres
    - Compute `baseScore` for each available ranking.
    - Keep `contextScore` at `0`.
    - Set `totalScore` from `baseScore + contextScore`.
-   - Add a score component with a stable id such as `base_value`.
-   - Include evidence that ties the component to `overallRank`.
+   - Add one score component with:
+     - `id: "base_value"`
+     - `delta: baseScore`
+     - `direction: "positive"` when `baseScore > 0`, otherwise `"neutral"`
+     - `priority` set to a stable value suitable for later reason selection
+     - `evidence` including at least `overallRank` and the coefficient used
    - Keep `reasons` empty until the explanation-selection task.
 
 4. Update recommendation sorting.
    - Sort scored recommendations by total score and base score descending.
    - Use `overallRank`, `positionRank`, and `player.id` as deterministic tie breakers.
+   - Ensure players with equal clamped base scores still produce stable ordering.
    - Apply the requested limit after sorting.
    - Keep drafted players excluded before scoring.
 
@@ -109,7 +117,9 @@ Only touch `src/types/draft.ts` if a small type adjustment is required to repres
    - Unit test deterministic tie-break ordering when scores are equal.
    - Unit test that drafted players are excluded and not scored.
    - Unit test that `contextScore` remains `0` and `totalScore` equals `baseScore`.
+   - Unit test that each recommendation includes a `base_value` component with rank evidence.
    - Unit test that a lower-ranked player does not outrank a higher-ranked player when no context modifiers apply.
+   - Update the Task 2 contract-field test so it expects base-scored output instead of all-zero scores.
 
 6. Run validation.
    - Run `npm test -- src/lib/recommendations.test.ts` if the test runner accepts a file argument.
@@ -130,6 +140,7 @@ Only touch `src/types/draft.ts` if a small type adjustment is required to repres
 - `contextScore` remains `0` for all recommendations.
 - `totalScore` equals `baseScore` while no context modifiers exist.
 - Every recommendation includes a base-value score component tied to the scoring input.
+- The base-value component uses `id: "base_value"`, `delta: baseScore`, rank evidence, and a deterministic direction.
 - Recommendation ordering uses total score, base score, and deterministic rank/id tie breakers.
 - Drafted players are excluded before scoring.
 - Existing `generateTopRecommendations` behavior remains available for current UI compatibility.
@@ -142,6 +153,7 @@ Only touch `src/types/draft.ts` if a small type adjustment is required to repres
 - Unit test deterministic tie-breaking for equal scores.
 - Unit test that drafted players are absent from scored output.
 - Unit test score field consistency: `contextScore === 0` and `totalScore === baseScore`.
+- Unit test base-value component shape and evidence.
 
 ## Validation Notes
 
