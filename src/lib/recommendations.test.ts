@@ -4,6 +4,7 @@ import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import { draftPlayerInDraft } from "@/lib/draftState";
 import {
   calculateBasePlayerValueScore,
+  calculateValueOpportunityComponent,
   defaultRecommendationTuningConfig,
   generatePlayerRecommendations,
   generateTopRecommendations,
@@ -538,7 +539,7 @@ describe("generatePlayerRecommendations", () => {
     });
 
     expect(recommendations[0].playerId).toBe("elite-rb");
-    expect(eliteRunningBack?.contextScore).toBe(-12);
+    expect(eliteRunningBack?.contextScore).toBe(-10);
   });
 
   it("applies an early DEF and K timing penalty", () => {
@@ -577,7 +578,7 @@ describe("generatePlayerRecommendations", () => {
       createRecommendationInput({ draft, rankings }),
     );
 
-    expect(recommendation.contextScore).toBe(10);
+    expect(recommendation.contextScore).toBe(15);
     expect(recommendation.components).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -648,6 +649,165 @@ describe("generatePlayerRecommendations", () => {
 
     expect(positiveRecommendation.contextScore).toBe(4);
     expect(negativeRecommendation.contextScore).toBe(-8);
+  });
+
+  it("adds small, clear, and major value opportunity deltas for falling players", () => {
+    const rankings = [
+      createRanking("small-value", 19, "RB"),
+      createRanking("clear-value", 13, "WR"),
+      createRanking("major-value", 1, "TE"),
+    ];
+    const draft = createTestDraft({ currentPickNumber: 25 });
+
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput({ draft, rankings }),
+    );
+    const valueDeltasByPlayerId = new Map(
+      recommendations.map((recommendation) => {
+        const valueComponent = recommendation.components.find((component) => {
+          return component.id === "value_opportunity";
+        });
+
+        return [recommendation.playerId, valueComponent?.delta];
+      }),
+    );
+
+    expect(valueDeltasByPlayerId.get("small-value")).toBe(2);
+    expect(valueDeltasByPlayerId.get("clear-value")).toBe(5);
+    expect(valueDeltasByPlayerId.get("major-value")).toBe(8);
+  });
+
+  it("applies clear and major unsupported reach penalties", () => {
+    const clearReach = calculateValueOpportunityComponent({
+      ranking: createRanking("clear-reach", 13, "RB"),
+      currentPickNumber: 1,
+      rosterFitDelta: 0,
+      tuning: defaultRecommendationTuningConfig,
+    });
+    const majorReach = calculateValueOpportunityComponent({
+      ranking: createRanking("major-reach", 25, "RB"),
+      currentPickNumber: 1,
+      rosterFitDelta: 0,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(clearReach).toMatchObject({
+      id: "value_opportunity",
+      delta: -4,
+      direction: "negative",
+      evidence: expect.objectContaining({
+        reachGap: 12,
+        thresholdMatched: "clear_reach",
+      }),
+    });
+    expect(majorReach).toMatchObject({
+      delta: -6,
+      direction: "negative",
+      evidence: expect.objectContaining({
+        reachGap: 24,
+        thresholdMatched: "major_reach",
+      }),
+    });
+  });
+
+  it("does not penalize a reach when roster fit supports the pick", () => {
+    const valueComponent = calculateValueOpportunityComponent({
+      ranking: createRanking("supported-reach", 25, "RB"),
+      currentPickNumber: 1,
+      rosterFitDelta: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(valueComponent).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+      evidence: expect.objectContaining({
+        thresholdMatched: "neutral",
+        rosterFitDelta: 10,
+      }),
+    });
+  });
+
+  it("keeps neutral value opportunity separate from base score", () => {
+    const rankings = [createRanking("neutral-value", 5, "RB")];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings }),
+    );
+    const valueComponent = recommendation.components.find((component) => {
+      return component.id === "value_opportunity";
+    });
+
+    expect(valueComponent).toEqual(
+      expect.objectContaining({
+        delta: 0,
+        direction: "neutral",
+      }),
+    );
+    expect(recommendation.baseScore).toBeCloseTo(calculateBasePlayerValueScore(5));
+    expect(recommendation.contextScore).toBe(10);
+  });
+
+  it("clamps context score after composing roster fit and value opportunity", () => {
+    const draft = createTestDraft({ currentPickNumber: 25 });
+    const rankings = [createRanking("major-value", 1, "RB")];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ draft, rankings }),
+      {
+        tuning: {
+          ...defaultRecommendationTuningConfig,
+          maxPositiveContextScore: 12,
+        },
+      },
+    );
+
+    expect(recommendation.contextScore).toBe(12);
+  });
+
+  it("keeps the value opportunity component within its own bounds", () => {
+    const extremeValue = calculateValueOpportunityComponent({
+      ranking: createRanking("extreme-value", 1, "RB"),
+      currentPickNumber: 1000,
+      rosterFitDelta: 0,
+      tuning: defaultRecommendationTuningConfig,
+    });
+    const extremeReach = calculateValueOpportunityComponent({
+      ranking: createRanking("extreme-reach", 1000, "RB"),
+      currentPickNumber: 1,
+      rosterFitDelta: 0,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(extremeValue.delta).toBe(8);
+    expect(extremeReach.delta).toBe(-6);
+  });
+
+  it("includes value opportunity evidence from typed draft state and rankings", () => {
+    const draft = createTestDraft({ currentPickNumber: 25 });
+    const rankings = [createRanking("major-value", 1, "RB", "Major Value", { adpRank: 200 })];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ draft, rankings }),
+    );
+    const valueComponent = recommendation.components.find((component) => {
+      return component.id === "value_opportunity";
+    });
+
+    expect(valueComponent).toEqual(
+      expect.objectContaining({
+        delta: 8,
+        direction: "positive",
+        evidence: expect.objectContaining({
+          currentPickNumber: 25,
+          overallRank: 1,
+          pickValueGap: 24,
+          reachGap: -24,
+          thresholdMatched: "major_value",
+          rosterFitDelta: 10,
+        }),
+      }),
+    );
   });
 
   it("does not mutate the input draft", () => {

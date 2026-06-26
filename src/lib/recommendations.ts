@@ -29,6 +29,14 @@ const LIMITED_BENCH_NEED_DELTA = -6;
 const HEAVY_SATURATION_DELTA = -12;
 const EARLY_DEF_K_TIMING_DELTA = -20;
 const ROSTER_FIT_COMPONENT_PRIORITY = 20;
+const VALUE_OPPORTUNITY_MIN_DELTA = -6;
+const VALUE_OPPORTUNITY_MAX_DELTA = 8;
+const SMALL_VALUE_OPPORTUNITY_DELTA = 2;
+const CLEAR_VALUE_OPPORTUNITY_DELTA = 5;
+const MAJOR_VALUE_OPPORTUNITY_DELTA = 8;
+const CLEAR_REACH_DELTA = -4;
+const MAJOR_REACH_DELTA = -6;
+const VALUE_OPPORTUNITY_COMPONENT_PRIORITY = 15;
 
 export const defaultRecommendationTuningConfig: RecommendationTuningConfig = {
   baseScoreCurveCoefficient: 6,
@@ -316,6 +324,67 @@ export function calculateRosterFitComponent({
   };
 }
 
+export function calculateValueOpportunityComponent({
+  ranking,
+  currentPickNumber,
+  rosterFitDelta,
+  tuning,
+}: {
+  ranking: RankingEntry;
+  currentPickNumber: number;
+  rosterFitDelta: number;
+  tuning: RecommendationTuningConfig;
+}): RecommendationScoreComponent {
+  const pickValueGap = currentPickNumber - ranking.overallRank;
+  const reachGap = ranking.overallRank - currentPickNumber;
+  let delta = 0;
+  let thresholdMatched = "neutral";
+
+  if (pickValueGap >= tuning.valueOpportunityMajorFallThreshold) {
+    delta = MAJOR_VALUE_OPPORTUNITY_DELTA;
+    thresholdMatched = "major_value";
+  } else if (pickValueGap >= tuning.valueOpportunityClearFallThreshold) {
+    delta = CLEAR_VALUE_OPPORTUNITY_DELTA;
+    thresholdMatched = "clear_value";
+  } else if (pickValueGap >= tuning.valueOpportunitySmallFallThreshold) {
+    delta = SMALL_VALUE_OPPORTUNITY_DELTA;
+    thresholdMatched = "small_value";
+  } else if (
+    reachGap >= tuning.valueOpportunityMajorFallThreshold &&
+    rosterFitDelta <= 0
+  ) {
+    delta = MAJOR_REACH_DELTA;
+    thresholdMatched = "major_reach";
+  } else if (
+    reachGap >= tuning.valueOpportunityClearFallThreshold &&
+    rosterFitDelta <= 0
+  ) {
+    delta = CLEAR_REACH_DELTA;
+    thresholdMatched = "clear_reach";
+  }
+
+  const boundedDelta = clamp(
+    delta,
+    VALUE_OPPORTUNITY_MIN_DELTA,
+    VALUE_OPPORTUNITY_MAX_DELTA,
+  );
+
+  return {
+    id: "value_opportunity",
+    delta: boundedDelta,
+    direction: boundedDelta > 0 ? "positive" : boundedDelta < 0 ? "negative" : "neutral",
+    priority: VALUE_OPPORTUNITY_COMPONENT_PRIORITY,
+    evidence: {
+      currentPickNumber,
+      overallRank: ranking.overallRank,
+      pickValueGap,
+      reachGap,
+      thresholdMatched,
+      rosterFitDelta,
+    },
+  };
+}
+
 export function generatePlayerRecommendations(
   input: RecommendationInput,
   options: GeneratePlayerRecommendationsOptions = {},
@@ -344,8 +413,14 @@ export function generatePlayerRecommendations(
         draft: input.draft,
         tuning,
       });
+      const valueOpportunityComponent = calculateValueOpportunityComponent({
+        ranking,
+        currentPickNumber: input.draft.currentPickNumber,
+        rosterFitDelta: rosterFitComponent.delta,
+        tuning,
+      });
       const contextScore = clamp(
-        rosterFitComponent.delta,
+        rosterFitComponent.delta + valueOpportunityComponent.delta,
         tuning.maxNegativeContextScore,
         tuning.maxPositiveContextScore,
       );
@@ -369,6 +444,7 @@ export function generatePlayerRecommendations(
             },
           },
           rosterFitComponent,
+          valueOpportunityComponent,
         ],
         reasons: [],
       };
