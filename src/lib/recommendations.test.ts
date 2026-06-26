@@ -81,6 +81,31 @@ function createRecommendationInput({
   };
 }
 
+function createDraftWithUserPicks(playerIds: string[], overrides: Partial<Draft> = {}): Draft {
+  const teamCount = overrides.teamCount ?? 1;
+  const rounds = overrides.rounds ?? Math.max(playerIds.length + 1, 1);
+  const userTeamId = overrides.userTeamId ?? "team-1";
+  const picks = generateSnakeDraftOrder(teamCount, rounds).map((pick, index) => {
+    if (pick.teamId !== userTeamId) {
+      return pick;
+    }
+
+    const playerId = playerIds[index];
+
+    return playerId ? { ...pick, playerId } : pick;
+  });
+
+  return createTestDraft({
+    teamCount,
+    rounds,
+    userTeamId,
+    teams: createDraftTeams(teamCount),
+    picks,
+    currentPickNumber: Math.min(playerIds.length + 1, teamCount * rounds),
+    ...overrides,
+  });
+}
+
 describe("calculateBasePlayerValueScore", () => {
   it("uses the approved rank-derived curve", () => {
     expect(calculateBasePlayerValueScore(1)).toBe(100);
@@ -364,35 +389,42 @@ describe("generatePlayerRecommendations", () => {
 
     expect(recommendation).toMatchObject({
       playerId: "player-1",
-      totalScore: 100,
+      totalScore: 110,
       baseScore: 100,
-      contextScore: 0,
+      contextScore: 10,
       reasons: [],
     });
-    expect(recommendation.components).toEqual([
-      {
-        id: "base_value",
-        delta: 100,
-        direction: "positive",
-        priority: 10,
-        evidence: {
-          overallRank: 1,
-          coefficient: defaultRecommendationTuningConfig.baseScoreCurveCoefficient,
+    expect(recommendation.components).toEqual(
+      expect.arrayContaining([
+        {
+          id: "base_value",
+          delta: 100,
+          direction: "positive",
+          priority: 10,
+          evidence: {
+            overallRank: 1,
+            coefficient: defaultRecommendationTuningConfig.baseScoreCurveCoefficient,
+          },
         },
-      },
-    ]);
+        expect.objectContaining({
+          id: "roster_fit",
+          delta: 10,
+          direction: "positive",
+        }),
+      ]),
+    );
     expect(recommendation.ranking.player.id).toBe("player-1");
   });
 
-  it("keeps context score at zero and total score equal to base score", () => {
+  it("adds roster fit as the only context score source", () => {
     const rankings = [createRanking("player-1", 25, "RB")];
 
     const [recommendation] = generatePlayerRecommendations(
       createRecommendationInput({ rankings }),
     );
 
-    expect(recommendation.contextScore).toBe(0);
-    expect(recommendation.totalScore).toBe(recommendation.baseScore);
+    expect(recommendation.contextScore).toBe(10);
+    expect(recommendation.totalScore).toBe(recommendation.baseScore + recommendation.contextScore);
     expect(recommendation.baseScore).toBeCloseTo(calculateBasePlayerValueScore(25));
   });
 
@@ -418,17 +450,204 @@ describe("generatePlayerRecommendations", () => {
       createRecommendationInput({ rankings }),
     );
 
-    expect(recommendation.components).toEqual([
+    expect(recommendation.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "base_value",
+          delta: recommendation.baseScore,
+          direction: recommendation.baseScore > 0 ? "positive" : "neutral",
+          evidence: expect.objectContaining({
+            overallRank: 200,
+            coefficient: defaultRecommendationTuningConfig.baseScoreCurveCoefficient,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("increases context score for an open configured starter slot", () => {
+    const rankings = [createRanking("player-rb", 20, "RB")];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings }),
+    );
+    const rosterFitComponent = recommendation.components.find((component) => {
+      return component.id === "roster_fit";
+    });
+
+    expect(recommendation.contextScore).toBe(10);
+    expect(rosterFitComponent).toEqual(
       expect.objectContaining({
-        id: "base_value",
-        delta: recommendation.baseScore,
-        direction: recommendation.baseScore > 0 ? "positive" : "neutral",
+        delta: 10,
+        direction: "positive",
         evidence: expect.objectContaining({
-          overallRank: 200,
-          coefficient: defaultRecommendationTuningConfig.baseScoreCurveCoefficient,
+          position: "RB",
+          directStarterOpenings: 2,
+          timing: "direct_starter_need",
         }),
       }),
-    ]);
+    );
+  });
+
+  it("uses FLEX-style slot eligibility from non-default roster settings", () => {
+    const leagueSettings: LeagueSettings = {
+      ...defaultLeagueSettings,
+      rosterSlots: [
+        { id: "qb-1", label: "QB", eligiblePositions: ["QB"] },
+        { id: "superflex-1", label: "SUPERFLEX", eligiblePositions: ["QB", "RB"] },
+      ],
+    };
+    const draft = createDraftWithUserPicks(["drafted-qb"]);
+    const rankings = [
+      createRanking("drafted-qb", 1, "QB"),
+      createRanking("candidate-qb", 10, "QB"),
+      createRanking("candidate-rb", 11, "RB"),
+    ];
+
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput({ draft, rankings, leagueSettings }),
+    );
+    const quarterback = recommendations.find((recommendation) => {
+      return recommendation.playerId === "candidate-qb";
+    });
+    const runningBack = recommendations.find((recommendation) => {
+      return recommendation.playerId === "candidate-rb";
+    });
+
+    expect(quarterback?.contextScore).toBe(5);
+    expect(runningBack?.contextScore).toBe(5);
+  });
+
+  it("penalizes a saturated position without hiding elite base value", () => {
+    const draftedRunningBackIds = Array.from({ length: 10 }, (_, index) => `drafted-rb-${index}`);
+    const draft = createDraftWithUserPicks(draftedRunningBackIds, {
+      rounds: draftedRunningBackIds.length + 1,
+      currentPickNumber: draftedRunningBackIds.length + 1,
+    });
+    const rankings = [
+      ...draftedRunningBackIds.map((id, index) => createRanking(id, index + 50, "RB")),
+      createRanking("elite-rb", 1, "RB"),
+      createRanking("solid-wr", 20, "WR"),
+    ];
+
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput({ draft, rankings }),
+    );
+    const eliteRunningBack = recommendations.find((recommendation) => {
+      return recommendation.playerId === "elite-rb";
+    });
+
+    expect(recommendations[0].playerId).toBe("elite-rb");
+    expect(eliteRunningBack?.contextScore).toBe(-12);
+  });
+
+  it("applies an early DEF and K timing penalty", () => {
+    const rankings = [createRanking("candidate-dst", 10, "DST")];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings }),
+    );
+    const rosterFitComponent = recommendation.components.find((component) => {
+      return component.id === "roster_fit";
+    });
+
+    expect(recommendation.contextScore).toBe(-20);
+    expect(rosterFitComponent).toEqual(
+      expect.objectContaining({
+        delta: -20,
+        direction: "negative",
+        evidence: expect.objectContaining({
+          timing: "early_def_k",
+        }),
+      }),
+    );
+  });
+
+  it("treats empty DEF and K slots as valid late starter needs", () => {
+    const draft = createTestDraft({
+      teamCount: 2,
+      rounds: 16,
+      teams: createDraftTeams(2),
+      picks: generateSnakeDraftOrder(2, 16),
+      currentPickNumber: 30,
+    });
+    const rankings = [createRanking("candidate-dst", 10, "DST")];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ draft, rankings }),
+    );
+
+    expect(recommendation.contextScore).toBe(10);
+    expect(recommendation.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "roster_fit",
+          evidence: expect.objectContaining({
+            timing: "direct_starter_need",
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("uses non-default starter counts instead of MVP defaults", () => {
+    const leagueSettings: LeagueSettings = {
+      ...defaultLeagueSettings,
+      rosterSlots: [
+        { id: "wr-1", label: "WR", eligiblePositions: ["WR"] },
+        { id: "wr-2", label: "WR", eligiblePositions: ["WR"] },
+        { id: "wr-3", label: "WR", eligiblePositions: ["WR"] },
+      ],
+    };
+    const draft = createDraftWithUserPicks(["drafted-wr-1", "drafted-wr-2"]);
+    const rankings = [
+      createRanking("drafted-wr-1", 1, "WR"),
+      createRanking("drafted-wr-2", 2, "WR"),
+      createRanking("candidate-wr", 10, "WR"),
+    ];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ draft, rankings, leagueSettings }),
+    );
+
+    expect(recommendation.contextScore).toBe(10);
+    expect(recommendation.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "roster_fit",
+          evidence: expect.objectContaining({
+            directStarterSlots: 3,
+            directStarterOpenings: 1,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("clamps roster context score to configured bounds", () => {
+    const rankings = [createRanking("player-rb", 20, "RB")];
+
+    const [positiveRecommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings }),
+      {
+        tuning: {
+          ...defaultRecommendationTuningConfig,
+          maxPositiveContextScore: 4,
+        },
+      },
+    );
+    const [negativeRecommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings: [createRanking("candidate-dst", 10, "DST")] }),
+      {
+        tuning: {
+          ...defaultRecommendationTuningConfig,
+          maxNegativeContextScore: -8,
+        },
+      },
+    );
+
+    expect(positiveRecommendation.contextScore).toBe(4);
+    expect(negativeRecommendation.contextScore).toBe(-8);
   });
 
   it("does not mutate the input draft", () => {

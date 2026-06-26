@@ -49,6 +49,8 @@ When helping with a request:
 
 Do not broaden scope unless explicitly requested.
 
+If continued work risks losing important project context due to automatic conversation compaction, finish the current coherent unit of work, update any affected project documentation, produce a concise handoff summary with progress, decisions, remaining work, blockers, and the recommended next prompt, then stop.
+
 ---
 
 ## 5. Repository Navigation Rules

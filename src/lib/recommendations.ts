@@ -1,8 +1,11 @@
 import type {
+  Draft,
+  LeagueSettings,
   PlayerRecommendation,
   Position,
   RankingEntry,
   Recommendation,
+  RecommendationScoreComponent,
   RecommendationInput,
   RecommendationTuningConfig,
   UserRosterPlayer,
@@ -17,6 +20,15 @@ const SCARCITY_LOOKAHEAD_RANKS = 24;
 const SCARCITY_MIN_NEARBY_OPTIONS = 2;
 const SCARCITY_BONUS = 5;
 const flexPositions: Position[] = ["RB", "WR", "TE"];
+const ROSTER_FIT_MIN_DELTA = -20;
+const ROSTER_FIT_MAX_DELTA = 14;
+const OPEN_DIRECT_STARTER_DELTA = 10;
+const OPEN_FLEX_DELTA = 5;
+const USEFUL_BENCH_DEPTH_DELTA = 3;
+const LIMITED_BENCH_NEED_DELTA = -6;
+const HEAVY_SATURATION_DELTA = -12;
+const EARLY_DEF_K_TIMING_DELTA = -20;
+const ROSTER_FIT_COMPONENT_PRIORITY = 20;
 
 export const defaultRecommendationTuningConfig: RecommendationTuningConfig = {
   baseScoreCurveCoefficient: 6,
@@ -62,6 +74,19 @@ type GeneratePlayerRecommendationsOptions = {
   tuning?: RecommendationTuningConfig;
 };
 
+type DerivedRosterPlayer = Pick<UserRosterPlayer, "pickNumber" | "position">;
+
+type RosterSlotAnalysis = {
+  directStarterSlots: number;
+  flexSlots: number;
+  benchSlots: number;
+  directStarterOpenings: number;
+  flexOpenings: number;
+  benchOpenings: number;
+  rosterCountAtPosition: number;
+  totalUsefulCapacity: number;
+};
+
 export function calculateRankingScore(ranking: RankingEntry) {
   return 1000 - ranking.overallRank;
 }
@@ -73,6 +98,10 @@ export function calculateBasePlayerValueScore(
   const rankDistanceFromTop = Math.max(overallRank - 1, 0);
 
   return Math.max(0, 100 - coefficient * Math.sqrt(rankDistanceFromTop));
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function getDraftedPlayerIds(input: RecommendationInput) {
@@ -103,6 +132,190 @@ function comparePlayerRecommendations(a: PlayerRecommendation, b: PlayerRecommen
   return compareRankingsByStableDraftOrder(a.ranking, b.ranking);
 }
 
+function getUserRoster(input: RecommendationInput): DerivedRosterPlayer[] {
+  const rankingsByPlayerId = new Map(
+    input.rankings.map((ranking) => [ranking.player.id, ranking] as const),
+  );
+
+  return input.draft.picks.flatMap((pick) => {
+    if (pick.teamId !== input.userTeamId || !pick.playerId) {
+      return [];
+    }
+
+    const ranking = rankingsByPlayerId.get(pick.playerId);
+
+    if (!ranking) {
+      return [];
+    }
+
+    return [
+      {
+        pickNumber: pick.pickNumber,
+        position: ranking.player.position,
+      },
+    ];
+  });
+}
+
+function isBenchSlot(label: string) {
+  return label.toUpperCase() === "BENCH";
+}
+
+function countRosterPosition(rosterPlayers: DerivedRosterPlayer[], position: Position) {
+  return rosterPlayers.filter((player) => player.position === position).length;
+}
+
+function analyzeRosterSlots(
+  leagueSettings: LeagueSettings,
+  rosterPlayers: DerivedRosterPlayer[],
+  candidatePosition: Position,
+): RosterSlotAnalysis {
+  const benchSlots = leagueSettings.rosterSlots.filter((slot) => {
+    return isBenchSlot(slot.label) && slot.eligiblePositions.includes(candidatePosition);
+  }).length;
+  const directStarterSlots = leagueSettings.rosterSlots.filter((slot) => {
+    return (
+      !isBenchSlot(slot.label) &&
+      slot.eligiblePositions.length === 1 &&
+      slot.eligiblePositions[0] === candidatePosition
+    );
+  }).length;
+  const flexSlots = leagueSettings.rosterSlots.filter((slot) => {
+    return (
+      !isBenchSlot(slot.label) &&
+      slot.eligiblePositions.length > 1 &&
+      slot.eligiblePositions.includes(candidatePosition)
+    );
+  }).length;
+  const allFlexEligiblePositions = new Set(
+    leagueSettings.rosterSlots
+      .filter((slot) => !isBenchSlot(slot.label) && slot.eligiblePositions.length > 1)
+      .flatMap((slot) => slot.eligiblePositions),
+  );
+  const rosterCountAtPosition = countRosterPosition(rosterPlayers, candidatePosition);
+  const directStarterOpenings = Math.max(directStarterSlots - rosterCountAtPosition, 0);
+  const flexEligibleSurplus = Array.from(allFlexEligiblePositions).reduce((surplus, position) => {
+    const directSlotsForPosition = leagueSettings.rosterSlots.filter((slot) => {
+      return (
+        !isBenchSlot(slot.label) &&
+        slot.eligiblePositions.length === 1 &&
+        slot.eligiblePositions[0] === position
+      );
+    }).length;
+
+    return surplus + Math.max(countRosterPosition(rosterPlayers, position) - directSlotsForPosition, 0);
+  }, 0);
+  const flexOpenings = Math.max(flexSlots - flexEligibleSurplus, 0);
+  const totalNonBenchSlots = leagueSettings.rosterSlots.filter((slot) => !isBenchSlot(slot.label)).length;
+  const benchUsed = Math.max(rosterPlayers.length - totalNonBenchSlots, 0);
+  const benchOpenings = Math.max(benchSlots - benchUsed, 0);
+
+  return {
+    directStarterSlots,
+    flexSlots,
+    benchSlots,
+    directStarterOpenings,
+    flexOpenings,
+    benchOpenings,
+    rosterCountAtPosition,
+    totalUsefulCapacity: directStarterSlots + flexSlots + benchSlots,
+  };
+}
+
+function getDraftPhase(draft: Draft) {
+  const totalPicks = Math.max(draft.teamCount * draft.rounds, 1);
+
+  return draft.currentPickNumber / totalPicks;
+}
+
+function getRosterFitTimingLabel(delta: number, position: Position, isLateDraft: boolean) {
+  if ((position === "DST" || position === "K") && !isLateDraft) {
+    return "early_def_k";
+  }
+
+  if (delta >= OPEN_DIRECT_STARTER_DELTA) {
+    return "direct_starter_need";
+  }
+
+  if (delta >= OPEN_FLEX_DELTA) {
+    return "flex_need";
+  }
+
+  if (delta > 0) {
+    return "bench_depth";
+  }
+
+  if (delta <= HEAVY_SATURATION_DELTA) {
+    return "saturated";
+  }
+
+  if (delta < 0) {
+    return "limited_need";
+  }
+
+  return "neutral";
+}
+
+export function calculateRosterFitComponent({
+  ranking,
+  rosterPlayers,
+  leagueSettings,
+  draft,
+  tuning,
+}: {
+  ranking: RankingEntry;
+  rosterPlayers: DerivedRosterPlayer[];
+  leagueSettings: LeagueSettings;
+  draft: Draft;
+  tuning: RecommendationTuningConfig;
+}): RecommendationScoreComponent {
+  const position = ranking.player.position;
+  const slotAnalysis = analyzeRosterSlots(leagueSettings, rosterPlayers, position);
+  const draftPhase = getDraftPhase(draft);
+  const isLateDraft = draftPhase >= tuning.lateDraftPickRatio;
+  let delta = 0;
+
+  if ((position === "DST" || position === "K") && !isLateDraft) {
+    delta = EARLY_DEF_K_TIMING_DELTA;
+  } else if (slotAnalysis.directStarterOpenings > 0) {
+    delta = OPEN_DIRECT_STARTER_DELTA;
+  } else if (slotAnalysis.flexOpenings > 0) {
+    delta = OPEN_FLEX_DELTA;
+  } else if (slotAnalysis.rosterCountAtPosition >= slotAnalysis.totalUsefulCapacity) {
+    delta = HEAVY_SATURATION_DELTA;
+  } else if (
+    slotAnalysis.benchOpenings > 0 &&
+    position !== "DST" &&
+    position !== "K" &&
+    (slotAnalysis.directStarterSlots > 1 || slotAnalysis.flexSlots > 0)
+  ) {
+    delta = USEFUL_BENCH_DEPTH_DELTA;
+  } else {
+    delta = LIMITED_BENCH_NEED_DELTA;
+  }
+
+  const boundedDelta = clamp(delta, ROSTER_FIT_MIN_DELTA, ROSTER_FIT_MAX_DELTA);
+
+  return {
+    id: "roster_fit",
+    delta: boundedDelta,
+    direction: boundedDelta > 0 ? "positive" : boundedDelta < 0 ? "negative" : "neutral",
+    priority: ROSTER_FIT_COMPONENT_PRIORITY,
+    evidence: {
+      position,
+      directStarterSlots: slotAnalysis.directStarterSlots,
+      flexSlots: slotAnalysis.flexSlots,
+      benchSlots: slotAnalysis.benchSlots,
+      directStarterOpenings: slotAnalysis.directStarterOpenings,
+      flexOpenings: slotAnalysis.flexOpenings,
+      benchOpenings: slotAnalysis.benchOpenings,
+      rosterCountAtPosition: slotAnalysis.rosterCountAtPosition,
+      draftPhase,
+      timing: getRosterFitTimingLabel(boundedDelta, position, isLateDraft),
+    },
+  };
+}
+
 export function generatePlayerRecommendations(
   input: RecommendationInput,
   options: GeneratePlayerRecommendationsOptions = {},
@@ -115,6 +328,7 @@ export function generatePlayerRecommendations(
   }
 
   const draftedPlayerIds = getDraftedPlayerIds(input);
+  const rosterPlayers = getUserRoster(input);
 
   return input.rankings
     .filter((ranking) => !draftedPlayerIds.has(ranking.player.id))
@@ -123,7 +337,18 @@ export function generatePlayerRecommendations(
         ranking.overallRank,
         tuning.baseScoreCurveCoefficient,
       );
-      const contextScore = 0;
+      const rosterFitComponent = calculateRosterFitComponent({
+        ranking,
+        rosterPlayers,
+        leagueSettings: input.leagueSettings,
+        draft: input.draft,
+        tuning,
+      });
+      const contextScore = clamp(
+        rosterFitComponent.delta,
+        tuning.maxNegativeContextScore,
+        tuning.maxPositiveContextScore,
+      );
       const totalScore = baseScore + contextScore;
 
       return {
@@ -143,12 +368,13 @@ export function generatePlayerRecommendations(
               coefficient: tuning.baseScoreCurveCoefficient,
             },
           },
+          rosterFitComponent,
         ],
         reasons: [],
       };
     })
     .sort(comparePlayerRecommendations)
-    .slice(0, Math.floor(recommendationLimit))
+    .slice(0, Math.floor(recommendationLimit));
 }
 
 function countPosition(rosterPlayers: RosterNeedPlayer[], position: Position) {
