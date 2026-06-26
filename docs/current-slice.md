@@ -1,245 +1,236 @@
-# Current Slice: Add Draft History Summary And Resume Links
+# Current Slice: Add Persisted Draft Workflow Validation Test
 
 ## Source Task
 
-Task 8: Add Draft History And Resume Flow.
+Task 9: Complete Phase 2 Persistence Validation.
 
-This slice adds the smallest useful draft history/resume increment: show lightweight persisted draft summaries and allow opening one existing draft from the main draft page.
+This slice adds the smallest useful automated validation for persisted draft workflow behavior. It does not attempt to complete all Phase 2 manual QA or full-draft validation.
 
 ## Goal
 
-Allow the user to see existing persisted drafts and reopen one by selecting it from the page.
+Prove that a persisted draft can be created, mutated, reloaded, and used as recommendation input without corrupting draft invariants.
 
-The app already loads the most recently updated persisted draft by default. This slice makes that behavior visible and controllable without adding a full draft management screen.
+The test should validate the repository/workspace boundary that Phase 2 depends on: persisted source state goes in, a hydrated `DraftWorkspace` comes back out, and the app can derive available players, user roster, and recommendations from that workspace after reload.
 
 ## User-Visible Increment
 
-The draft page should include a simple draft history area that:
+No direct UI change.
 
-```txt
-lists existing persisted draft summaries
-shows enough details to distinguish drafts
-marks the currently loaded draft
-links each summary to reopen that draft
-loads the selected draft into the existing draft room
-keeps draft state, available players, roster, and recommendations derived from the selected workspace
-```
+The user-visible value is increased confidence that refresh/resume behavior is backed by tested persistence workflow behavior rather than only isolated repository operations.
 
 ## Problem
 
-Phase 2 persistence can store multiple draft records and the repository can list draft summaries, but the UI still silently loads the latest draft. The user has no way to intentionally reopen another persisted draft.
+Phase 2 now supports persisted drafts, persisted pick mutations, reset, and draft history links. Existing tests cover many pieces independently, but there is not yet a single validation test that exercises the core persisted workflow as a user would depend on it:
 
-This blocks the core Phase 2 resume workflow and makes persistence feel hidden.
+```txt
+create draft
+draft picks
+reload workspace
+derive available players
+derive user roster
+generate recommendations
+undo
+reload again
+confirm invariants still hold
+```
+
+Task 9 is broad, so this slice should add one focused automated confidence layer before moving to manual full-draft QA.
 
 ## Goals
 
-- Add loader support for an optional selected draft id.
-- Keep default behavior: if no draft id is selected, load the latest draft or create the default draft.
-- Return lightweight draft summaries alongside the loaded workspace.
-- Add a draft history summary list to the main draft page.
-- Use a query param such as `?draftId=<id>` for selecting a draft.
-- Highlight or label the currently loaded draft.
-- Ensure changing selected draft remounts `DraftRoom` so local client state does not show a stale draft.
-- Add focused loader tests for selected draft loading and missing selected draft fallback.
-- Update `docs/tasks.md` only for the directly completed part of Task 8 after implementation.
+- Add a focused persisted workflow validation test.
+- Use a non-default league configuration.
+- Create a persisted draft workspace through the repository.
+- Persist multiple draft picks through repository mutation methods.
+- Reload the workspace from the repository after mutations.
+- Derive available rankings from reloaded pick history.
+- Derive user roster players from reloaded pick history.
+- Generate recommendations from reloaded available rankings and user roster.
+- Validate draft invariants after reload, including recommendation availability.
+- Undo the latest persisted pick.
+- Reload again and validate the restored draft state.
+- Keep the test at the repository/domain boundary; do not add a UI test dependency.
 
 ## Non-Goals
 
-- Creating a new draft from the history UI.
-- Renaming drafts.
-- Deleting drafts.
-- Duplicating drafts.
-- Adding a separate draft history route.
-- Adding route params or nested layouts.
-- Adding accounts, users, sharing, or multi-user behavior.
-- Adding pagination, filters, sorting controls, or search.
-- Loading full ranking snapshot JSON for every history row.
-- Changing repository summary query behavior unless a test reveals it is wrong.
-- Changing draft mutation behavior.
-- Changing recommendation logic.
-- Changing Prisma schema or migrations.
-- Updating package dependencies.
-- Broad styling changes.
+- Real PostgreSQL integration testing.
+- Prisma migration testing.
+- Browser or React UI testing.
+- Full 12-team draft completion.
+- Manual QA checklist completion.
+- Draft history UI changes.
+- New production features.
+- New repository methods.
+- New schema or migration changes.
+- New package dependencies.
+- Broad refactoring of existing tests or helpers.
 
 ## Expected Files
 
-- `src/lib/draftWorkspaceLoader.ts`
-- `src/lib/draftWorkspaceLoader.test.ts`
-- `src/app/page.tsx`
+- `src/lib/draftRepository.test.ts`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing repository mapping, draft state helpers, recommendation logic, seed ranking data, Prisma schema, project scope, roadmap scope, or unrelated documentation.
+Avoid changing production code unless the validation exposes a real bug caused by existing behavior. Avoid modifying page UI, components, server actions, Prisma schema, recommendation scoring rules, seed ranking data, or unrelated documentation.
 
-## Proposed API Shape
+## Test Shape
 
-Use names that fit the implementation, but keep the loader API close to:
+Add one integration-style repository test to `src/lib/draftRepository.test.ts`, near the existing repository mutation tests.
+
+Use the existing fake DB test pattern in that file. Do not export test helpers or introduce a new test utility module for this slice.
+
+The test should be close to:
 
 ```ts
-type LoadDraftWorkspaceResult = {
-  workspace: DraftWorkspace;
-  summaries: DraftSummary[];
-  selectedDraftId: string;
-  requestedDraftMissing: boolean;
-};
-
-async function loadDraftWorkspace(
-  selectedDraftId?: string,
-): Promise<LoadDraftWorkspaceResult>;
+it("preserves draft invariants and recommendation inputs across persisted reload and undo", async () => {
+  // create non-default draft workspace
+  // draft multiple players
+  // reload workspace
+  // derive available rankings and user roster players from reloaded workspace
+  // generate recommendations
+  // assert drafted players are unavailable
+  // assert recommendations only contain available players
+  // assert draft invariants are valid
+  // undo latest pick
+  // reload workspace again
+  // assert current pick and availability are restored
+  // assert draft invariants remain valid
+});
 ```
 
-Keep `loadOrCreateDefaultDraftWorkspace` if existing callers or tests still need it, but it can delegate to the new loader and return only `workspace`.
+Use local helper functions in the test file if needed:
+
+- `getAvailableRankings(rankings, draft)`
+- `getUserRosterPlayers(rankings, draft)`
+
+Keep helpers small and specific to this test file.
 
 ## Expected Behavior
 
-### Loader
+### Setup
 
-- List draft summaries once through the repository.
-- If `selectedDraftId` is present and non-blank:
-  - Try to load that draft by id.
-  - If found, return it as the active workspace.
-  - If not found, fall back to the latest summary or create the default draft.
-  - Mark `requestedDraftMissing` as `true` for the missing selected id case.
-- If `selectedDraftId` is absent or blank:
-  - Load the latest summary if one exists.
-  - Otherwise create the default draft.
-- Return summaries along with the loaded workspace.
-- Do not load full ranking snapshot JSON for every summary.
-- Preserve the existing actionable persistence setup error message.
+- Use a non-default league configuration, such as 4 teams and 3 rounds.
+- Use enough rankings to draft several players and still generate recommendations.
+- Use a user team id that receives at least one pick in the tested sequence.
 
-### Page Routing
+### Persist And Reload
 
-- Read `draftId` from the page `searchParams`.
-- Pass the selected id into the loader.
-- Render links using `?draftId=<id>`.
-- Use the loaded workspace for the existing header values and `DraftRoom`.
-- Add `key={workspace.draft.id}` to `DraftRoom` so client-local `activeDraft` resets when the selected persisted draft changes.
-- If a requested draft id is missing, show a small inline notice and continue with the fallback draft.
+- Create the workspace through `repository.createDraftWorkspace`.
+- Persist at least three draft picks through `repository.draftPlayerInWorkspace`.
+- Reload through `repository.getDraftWorkspaceById`.
+- Assert the reloaded draft reflects persisted picks and the correct next pick.
 
-### Draft History UI
+### Derived Inputs
 
-- Render a compact, scan-friendly section above the draft room.
-- For each summary, show:
-  - draft name or a fallback label
-  - status
-  - drafted pick count
-  - team count
-  - rounds
-  - updated date
-- Clearly indicate the currently loaded draft.
-- Use links rather than client-side mutation state.
-- If no summaries exist before first draft creation, the page may show the newly created default draft after the loader creates it, as long as the page still renders normally.
+- Build available rankings by removing reloaded drafted player ids from `workspace.rankings`.
+- Build user roster players from reloaded picks assigned to `workspace.draft.userTeamId`.
+- Generate recommendations with `generateTopRecommendations(availableRankings, { rosterPlayers })`.
+- Assert recommendations are non-empty when available rankings remain.
+- Assert recommendation rankings are all available.
+
+### Invariants
+
+- Call `isValidDraftState` with:
+  - the reloaded draft
+  - available rankings
+  - user roster players
+  - recommendation rankings
+- Expect invariants to be valid.
+
+### Undo And Reload
+
+- Call `repository.undoLastPickInWorkspace`.
+- Reload again through `repository.getDraftWorkspaceById`.
+- Assert the undone player is available again.
+- Assert the current pick has moved back correctly.
+- Regenerate recommendation inputs from the post-undo reload.
+- Assert invariants are still valid.
 
 ## Safety Rules
 
-- Do not create a new draft when selecting an existing valid draft.
-- Do not silently delete, reset, or mutate any existing draft from the history UI.
-- Do not add a static fallback that bypasses persistence.
-- Do not let UI code import Prisma models or raw database JSON.
-- Keep full ranking snapshots behind the repository/workspace load boundary.
+- Do not weaken existing tests.
+- Do not replace specific assertions with broad truthy assertions.
+- Do not change production behavior solely to satisfy the new test.
+- If existing behavior fails this validation and the expected behavior is unclear, stop and report the discrepancy rather than expanding scope.
+- Keep the test deterministic and independent of test execution order.
 
 ## Testing Strategy
 
-Use existing test patterns.
+This slice is itself a testing slice.
 
-Loader tests should cover:
+Required validation:
 
-- A valid selected draft id loads that exact workspace.
-- No selected draft id loads the latest summary as before.
-- Missing selected draft id falls back to the latest draft and reports `requestedDraftMissing`.
-- Missing selected draft id with no summaries creates the default draft and reports `requestedDraftMissing`.
-- Blank selected draft id behaves like no selected draft id.
-- Repository failures still throw the existing actionable setup error.
+- Run `npm test`.
+- Run `npm run lint`.
+- Run `npm run build`.
 
-Do not add a React testing dependency for the history UI. Use TypeScript/build validation plus manual QA for the link navigation path.
+Manual runtime validation is not required for this slice because the goal is automated workflow coverage. If a local dev server or `.next` file lock blocks `npm run build`, report that separately and do not change the slice scope.
 
 ## Implementation Steps
 
-1. Extend the loader return shape.
-   - Add a result type containing `workspace`, `summaries`, `selectedDraftId`, and `requestedDraftMissing`.
-   - Add a new loader function that accepts an optional selected draft id.
-   - Keep `loadOrCreateDefaultDraftWorkspace` as a compatibility wrapper if useful.
+1. Add imports.
+   - Import `generateTopRecommendations` in `src/lib/draftRepository.test.ts`.
+   - Reuse existing `isValidDraftState` import.
 
-2. Implement selected draft loading.
-   - Trim the selected draft id.
-   - Load summaries once.
-   - If a non-blank selected id exists, attempt `getDraftWorkspaceById(selectedId)`.
-   - Return the selected workspace when found.
-   - Fall back to latest summary or default draft creation when missing.
-   - Preserve the existing setup error wrapping.
+2. Add small local derivation helpers if needed.
+   - Add `getAvailableRankings(rankings, draft)`.
+   - Add `getUserRosterPlayers(rankings, draft)`.
+   - Keep helper return data aligned with existing app derivation behavior in `DraftRoom`.
 
-3. Update loader tests.
-   - Extend the fake repository only as needed.
-   - Add tests for selected id success, selected id missing fallback, selected id missing with no summaries, and blank id behavior.
-   - Keep existing latest/default/error tests meaningful.
+3. Add the persisted workflow validation test.
+   - Use `createFakeDraftDb`.
+   - Use `createDraftRepository`.
+   - Use `createLeagueSettings({ teamCount: 4, rounds: 3 })`.
+   - Create enough rankings across positions to support drafting and recommendations.
+   - Draft at least three players.
+   - Reload the workspace and assert persisted state.
+   - Derive available rankings, user roster, and recommendations.
+   - Validate invariants.
+   - Undo the latest pick.
+   - Reload and validate the restored state and invariants.
 
-4. Update the page.
-   - Accept `searchParams` in `src/app/page.tsx`.
-   - Read `draftId` safely from the query params.
-   - Call the new loader.
-   - Render a compact draft history summary section.
-   - Link each summary to `/?draftId=<id>`.
-   - Mark the active summary by comparing to `workspace.draft.id`.
-   - Pass `key={workspace.draft.id}` to `DraftRoom`.
+4. Update task tracking.
+   - In `docs/tasks.md`, mark only the Task 9 scope item directly proven by this slice.
+   - Do not mark Task 9 complete.
+   - Do not check manual QA or full 12-team completion items.
+   - Do not update the Phase 2 validation checklist unless the automated test directly proves a listed item.
 
-5. Update task tracking.
-   - In `docs/tasks.md`, check only Task 8 items directly completed by this slice.
-   - Do not mark Task 8 complete unless all Task 8 acceptance criteria are satisfied.
-   - Do not update Task 9 or the Phase 2 validation checklist unless manual validation directly proves a listed item.
-
-6. Validate.
+5. Validate.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - With local database configured, manually verify:
-     - multiple persisted drafts appear in the history list
-     - clicking a draft loads that draft
-     - refreshing the selected draft URL keeps that draft loaded
-     - draft, undo, and reset still operate on the selected draft
 
 ## Acceptance Criteria
 
-- The loader can load a selected draft id.
-- The loader still loads the latest draft when no id is selected.
-- The loader falls back safely when a selected draft id is missing.
-- The page renders lightweight draft summaries.
-- Each summary can reopen that persisted draft.
-- The currently loaded draft is clearly indicated.
-- Changing selected draft does not leave stale `DraftRoom` local state.
-- Reopened drafts restore picks, available players, roster, and recommendations through the existing workspace flow.
-- Draft history does not load full ranking snapshot JSON for every row.
-- Existing draft, undo, and reset interactions still work for the loaded draft.
-- No account/user system, custom setup UI, separate history route, Prisma schema change, or package dependency is added.
+- A persisted workflow test covers create, draft, reload, derive, recommend, undo, and reload again.
+- The test uses a non-default league configuration.
+- The test validates draft invariants after reload.
+- The test validates recommendation inputs only reference available players.
+- The test proves undo restores the latest persisted pick after reload.
+- Existing repository tests still pass.
+- No production code is changed unless a real bug is found.
+- No React/UI testing dependency is added.
+- No Prisma schema, migration, package dependency, or UI change is added.
 - `npm test` passes.
 - `npm run lint` passes.
-- `npm run build` passes.
+- `npm run build` passes or any environment-specific file lock is reported clearly.
 
 ## Manual Test Notes
 
-Requires a configured and migrated local database with at least two draft records for the full resume check.
+Manual QA is deferred to a later slice.
 
-Manual checks:
+This slice does not complete:
 
-- Start the app with `npm run dev`.
-- Confirm the draft history section appears.
-- Create or seed at least two persisted drafts if needed.
-- Click a non-active draft summary.
-- Confirm URL includes that draft id.
-- Confirm the draft room reflects that draft's current pick and picks.
-- Refresh the page and confirm the same draft remains loaded.
-- Draft one player, undo, and reset from the selected draft.
-- Confirm those mutations affect the selected draft, not a different history row.
-
-If the local database is unavailable:
-
-- Report manual runtime validation as blocked by database availability.
-- Do not replace persistence behavior with static fallback behavior.
+- refresh/restart manual validation
+- full 12-team persisted draft completion
+- real PostgreSQL round-trip validation
+- browser-based draft history validation
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it provides visible history and resume without draft creation, deletion, or management features.
-- Concrete enough for implementation: yes, loader behavior, query param routing, UI output, stale-state handling, tests, and validation are specified.
-- Avoids unnecessary architecture changes: yes, it reuses the repository, server-rendered page, and existing draft room.
-- Blast radius reasonable: yes, it should touch the loader, loader tests, page UI, and task tracking.
-- Review/revert comfort: yes, removing the history section and selected-id loader path would restore the latest-draft behavior.
-- Observable/testable acceptance criteria: yes, loader behavior is unit-testable and resume links are manually verifiable.
+- Smallest meaningful increment: yes, it adds one automated workflow validation test rather than trying to finish all Phase 2 QA.
+- Concrete enough for implementation: yes, the test setup, derivations, assertions, and validation commands are specified.
+- Avoids unnecessary architecture changes: yes, it stays inside existing repository tests and fake DB patterns.
+- Blast radius reasonable: yes, expected changes are limited to one test file, task tracking, and this slice document.
+- Review/revert comfort: yes, the test can be removed independently without affecting production behavior.
+- Observable/testable acceptance criteria: yes, success is measured by deterministic test assertions and standard validation commands.
