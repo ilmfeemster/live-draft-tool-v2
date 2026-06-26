@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { seedRankings } from "@/data/seedRankings";
-import { loadOrCreateDefaultDraftWorkspace } from "@/lib/draftWorkspaceLoader";
+import {
+  loadDraftWorkspace,
+  loadOrCreateDefaultDraftWorkspace,
+} from "@/lib/draftWorkspaceLoader";
 import type {
   CreateDraftWorkspaceInput,
   DraftSummary,
@@ -9,22 +12,73 @@ import type {
 import type { DraftWorkspace } from "@/types/draft";
 
 describe("draft workspace loader", () => {
-  it("loads the most recently updated persisted draft workspace", async () => {
-    const workspace = createDraftWorkspace("draft-latest");
+  it("loads a selected persisted draft workspace", async () => {
+    const selectedWorkspace = createDraftWorkspace("draft-selected");
+    const latestWorkspace = createDraftWorkspace("draft-latest");
+    const summaries = [
+      createDraftSummary("draft-latest", new Date("2026-01-02T00:00:00.000Z")),
+      createDraftSummary("draft-selected", new Date("2026-01-01T00:00:00.000Z")),
+    ];
     const repository = createFakeRepository({
-      summaries: [
-        createDraftSummary("draft-latest", new Date("2026-01-02T00:00:00.000Z")),
-        createDraftSummary("draft-older", new Date("2026-01-01T00:00:00.000Z")),
-      ],
-      workspace,
+      summaries,
+      workspacesById: {
+        "draft-latest": latestWorkspace,
+        "draft-selected": selectedWorkspace,
+      },
     });
 
-    const result = await loadOrCreateDefaultDraftWorkspace(repository);
+    const result = await loadDraftWorkspace("draft-selected", repository);
+
+    expect(repository.listDraftSummaries).toHaveBeenCalledOnce();
+    expect(repository.getDraftWorkspaceById).toHaveBeenCalledWith("draft-selected");
+    expect(repository.getDraftWorkspaceById).not.toHaveBeenCalledWith("draft-latest");
+    expect(repository.createDraftWorkspace).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      workspace: selectedWorkspace,
+      summaries,
+      selectedDraftId: "draft-selected",
+      requestedDraftMissing: false,
+    });
+  });
+
+  it("loads the most recently updated persisted draft workspace", async () => {
+    const workspace = createDraftWorkspace("draft-latest");
+    const summaries = [
+      createDraftSummary("draft-latest", new Date("2026-01-02T00:00:00.000Z")),
+      createDraftSummary("draft-older", new Date("2026-01-01T00:00:00.000Z")),
+    ];
+    const repository = createFakeRepository({
+      summaries,
+      workspacesById: {
+        "draft-latest": workspace,
+      },
+    });
+
+    const result = await loadDraftWorkspace(undefined, repository);
 
     expect(repository.listDraftSummaries).toHaveBeenCalledOnce();
     expect(repository.getDraftWorkspaceById).toHaveBeenCalledWith("draft-latest");
     expect(repository.createDraftWorkspace).not.toHaveBeenCalled();
-    expect(result).toBe(workspace);
+    expect(result).toEqual({
+      workspace,
+      summaries,
+      selectedDraftId: "draft-latest",
+      requestedDraftMissing: false,
+    });
+  });
+
+  it("uses the latest draft workspace for the default workspace compatibility wrapper", async () => {
+    const workspace = createDraftWorkspace("draft-latest");
+    const repository = createFakeRepository({
+      summaries: [createDraftSummary("draft-latest")],
+      workspacesById: {
+        "draft-latest": workspace,
+      },
+    });
+
+    await expect(
+      loadOrCreateDefaultDraftWorkspace(repository),
+    ).resolves.toBe(workspace);
   });
 
   it("creates a default persisted draft workspace when no summaries exist", async () => {
@@ -34,7 +88,7 @@ describe("draft workspace loader", () => {
       createdWorkspace: workspace,
     });
 
-    const result = await loadOrCreateDefaultDraftWorkspace(repository);
+    const result = await loadDraftWorkspace(undefined, repository);
 
     expect(repository.getDraftWorkspaceById).not.toHaveBeenCalled();
     expect(repository.createDraftWorkspace).toHaveBeenCalledWith({
@@ -43,18 +97,22 @@ describe("draft workspace loader", () => {
       rankings: seedRankings,
       userTeamId: "team-2",
     });
-    expect(result).toBe(workspace);
+    expect(result).toEqual({
+      workspace,
+      summaries: [],
+      selectedDraftId: "created-draft",
+      requestedDraftMissing: false,
+    });
   });
 
   it("creates a default persisted draft workspace when the latest summary is stale", async () => {
     const workspace = createDraftWorkspace("created-draft");
     const repository = createFakeRepository({
       summaries: [createDraftSummary("stale-draft")],
-      workspace: null,
       createdWorkspace: workspace,
     });
 
-    const result = await loadOrCreateDefaultDraftWorkspace(repository);
+    const result = await loadDraftWorkspace(undefined, repository);
 
     expect(repository.getDraftWorkspaceById).toHaveBeenCalledWith("stale-draft");
     expect(repository.createDraftWorkspace).toHaveBeenCalledWith({
@@ -63,7 +121,79 @@ describe("draft workspace loader", () => {
       rankings: seedRankings,
       userTeamId: "team-2",
     });
-    expect(result).toBe(workspace);
+    expect(result.workspace).toBe(workspace);
+    expect(result.selectedDraftId).toBe("created-draft");
+    expect(result.requestedDraftMissing).toBe(false);
+  });
+
+  it("falls back to the latest draft when a selected draft is missing", async () => {
+    const latestWorkspace = createDraftWorkspace("draft-latest");
+    const summaries = [createDraftSummary("draft-latest")];
+    const repository = createFakeRepository({
+      summaries,
+      workspacesById: {
+        "draft-latest": latestWorkspace,
+      },
+    });
+
+    const result = await loadDraftWorkspace("missing-draft", repository);
+
+    expect(repository.getDraftWorkspaceById).toHaveBeenNthCalledWith(
+      1,
+      "missing-draft",
+    );
+    expect(repository.getDraftWorkspaceById).toHaveBeenNthCalledWith(
+      2,
+      "draft-latest",
+    );
+    expect(repository.createDraftWorkspace).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      workspace: latestWorkspace,
+      summaries,
+      selectedDraftId: "draft-latest",
+      requestedDraftMissing: true,
+    });
+  });
+
+  it("creates the default draft when a selected draft is missing and no summaries exist", async () => {
+    const workspace = createDraftWorkspace("created-draft");
+    const repository = createFakeRepository({
+      summaries: [],
+      createdWorkspace: workspace,
+    });
+
+    const result = await loadDraftWorkspace("missing-draft", repository);
+
+    expect(repository.getDraftWorkspaceById).toHaveBeenCalledWith("missing-draft");
+    expect(repository.createDraftWorkspace).toHaveBeenCalledWith({
+      name: "Default Draft",
+      leagueSettings: defaultLeagueSettings,
+      rankings: seedRankings,
+      userTeamId: "team-2",
+    });
+    expect(result).toEqual({
+      workspace,
+      summaries: [],
+      selectedDraftId: "created-draft",
+      requestedDraftMissing: true,
+    });
+  });
+
+  it("treats a blank selected draft id like no selected draft id", async () => {
+    const workspace = createDraftWorkspace("draft-latest");
+    const repository = createFakeRepository({
+      summaries: [createDraftSummary("draft-latest")],
+      workspacesById: {
+        "draft-latest": workspace,
+      },
+    });
+
+    const result = await loadDraftWorkspace("  ", repository);
+
+    expect(repository.getDraftWorkspaceById).toHaveBeenCalledOnce();
+    expect(repository.getDraftWorkspaceById).toHaveBeenCalledWith("draft-latest");
+    expect(result.requestedDraftMissing).toBe(false);
+    expect(result.workspace).toBe(workspace);
   });
 
   it("throws an actionable persistence setup error when the repository cannot load summaries", async () => {
@@ -80,11 +210,11 @@ describe("draft workspace loader", () => {
 
 function createFakeRepository({
   summaries,
-  workspace = null,
+  workspacesById = {},
   createdWorkspace = createDraftWorkspace("created-draft"),
 }: {
   summaries: DraftSummary[];
-  workspace?: DraftWorkspace | null;
+  workspacesById?: Record<string, DraftWorkspace>;
   createdWorkspace?: DraftWorkspace;
 }) {
   return {
@@ -95,8 +225,7 @@ function createFakeRepository({
       },
     ),
     getDraftWorkspaceById: vi.fn(async (id: string) => {
-      void id;
-      return workspace;
+      return workspacesById[id] ?? null;
     }),
     listDraftSummaries: vi.fn(async () => summaries),
   };

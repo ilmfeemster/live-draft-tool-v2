@@ -233,7 +233,7 @@ Scope:
 - Restore the current draft to pick 1 and `NOT_STARTED`.
 - Require confirmation before resetting.
 
-### [ ] 8. Add Draft History And Resume Flow
+### [x] 8. Add Draft History And Resume Flow
 
 Goal:
 
@@ -241,10 +241,10 @@ Provide a simple way to reopen previously created drafts.
 
 Scope:
 
-- Add a draft summary list.
-- Allow selecting and loading an existing draft.
-- Show enough summary data to distinguish drafts.
-- Keep the flow single-user and local to Phase 2 scope.
+- [x] Add a draft summary list.
+- [x] Allow selecting and loading an existing draft.
+- [x] Show enough summary data to distinguish drafts.
+- [x] Keep the flow single-user and local to Phase 2 scope.
 
 Non-Goals:
 
