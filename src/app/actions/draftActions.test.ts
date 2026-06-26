@@ -3,6 +3,7 @@ import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { seedRankings } from "@/data/seedRankings";
 import {
   createDraftWorkspace as createDraftWorkspaceRepository,
+  deleteDraftWorkspace,
   draftPlayerInWorkspace,
   resetDraftWorkspace,
   undoLastPickInWorkspace,
@@ -10,6 +11,7 @@ import {
 import type { DraftWorkspace } from "@/types/draft";
 import {
   createNewDraftAction,
+  deleteDraftAction,
   draftPlayerAction,
   resetDraftAction,
   undoLastPickAction,
@@ -17,6 +19,7 @@ import {
 
 vi.mock("@/lib/draftRepository", () => ({
   createDraftWorkspace: vi.fn(),
+  deleteDraftWorkspace: vi.fn(),
   draftPlayerInWorkspace: vi.fn(),
   resetDraftWorkspace: vi.fn(),
   undoLastPickInWorkspace: vi.fn(),
@@ -25,6 +28,7 @@ vi.mock("@/lib/draftRepository", () => ({
 const createDraftWorkspaceRepositoryMock = vi.mocked(
   createDraftWorkspaceRepository,
 );
+const deleteDraftWorkspaceMock = vi.mocked(deleteDraftWorkspace);
 const draftPlayerInWorkspaceMock = vi.mocked(draftPlayerInWorkspace);
 const resetDraftWorkspaceMock = vi.mocked(resetDraftWorkspace);
 const undoLastPickInWorkspaceMock = vi.mocked(undoLastPickInWorkspace);
@@ -54,6 +58,30 @@ describe("draft mutation server actions", () => {
       userTeamId: "team-2",
     });
     expect(result).toBe(workspace);
+  });
+
+  it("delegates delete mutations to the repository", async () => {
+    deleteDraftWorkspaceMock.mockResolvedValue(true);
+
+    const result = await deleteDraftAction("draft-1");
+
+    expect(deleteDraftWorkspaceMock).toHaveBeenCalledWith("draft-1");
+    expect(result).toBe(true);
+  });
+
+  it("returns false from delete mutations when the repository cannot find the draft", async () => {
+    deleteDraftWorkspaceMock.mockResolvedValue(false);
+
+    const result = await deleteDraftAction("missing-draft");
+
+    expect(deleteDraftWorkspaceMock).toHaveBeenCalledWith("missing-draft");
+    expect(result).toBe(false);
+  });
+
+  it("does not call the repository for blank delete inputs", async () => {
+    await expect(deleteDraftAction(" ")).resolves.toBe(false);
+
+    expect(deleteDraftWorkspaceMock).not.toHaveBeenCalled();
   });
 
   it("delegates draft player mutations to the repository", async () => {

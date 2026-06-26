@@ -39,6 +39,10 @@ type DraftRepositoryDb = {
     findUnique(args: DraftFindUniqueArgs): Promise<PersistedDraftWorkspaceRecord | null>;
     findMany(args: DraftFindManyArgs): Promise<PersistedDraftSummaryRecord[]>;
     update(args: DraftUpdateArgs): Promise<unknown>;
+    delete(args: DraftDeleteArgs): Promise<unknown>;
+  };
+  rankingSnapshot: {
+    delete(args: RankingSnapshotDeleteArgs): Promise<unknown>;
   };
   draftPick: {
     create(args: DraftPickCreateArgs): Promise<unknown>;
@@ -113,6 +117,18 @@ type DraftPickDeleteManyArgs = {
   };
 };
 
+type DraftDeleteArgs = {
+  where: {
+    id: string;
+  };
+};
+
+type RankingSnapshotDeleteArgs = {
+  where: {
+    id: string;
+  };
+};
+
 type DraftWorkspaceInclude = {
   rankingSnapshot: true;
   picks: {
@@ -131,6 +147,12 @@ type PersistedDraftSummaryRecord = {
   picks: { pickNumber: number }[];
   createdAt: Date;
   updatedAt: Date;
+};
+
+type PersistedDraftDeleteRecord = PersistedDraftWorkspaceRecord & {
+  rankingSnapshot: PersistedDraftWorkspaceRecord["rankingSnapshot"] & {
+    id: string;
+  };
 };
 
 const draftWorkspaceInclude = {
@@ -330,6 +352,30 @@ export function createDraftRepository(db: DraftRepositoryDb) {
         return getWorkspaceById(tx, draftId);
       });
     },
+
+    async deleteDraftWorkspace(draftId: string): Promise<boolean> {
+      return runRepositoryTransaction(db, async (tx) => {
+        const draft = await getDraftRecordById(tx, draftId);
+
+        if (!draft) {
+          return false;
+        }
+
+        await tx.draft.delete({
+          where: {
+            id: draftId,
+          },
+        });
+
+        await tx.rankingSnapshot.delete({
+          where: {
+            id: draft.rankingSnapshot.id,
+          },
+        });
+
+        return true;
+      });
+    },
   };
 }
 
@@ -374,6 +420,11 @@ export async function resetDraftWorkspace(
     .resetDraftWorkspace(draftId);
 }
 
+export async function deleteDraftWorkspace(draftId: string): Promise<boolean> {
+  return createDraftRepository(getPrismaClient() as unknown as DraftRepositoryDb)
+    .deleteDraftWorkspace(draftId);
+}
+
 function mapDraftRecordToSummary(record: PersistedDraftSummaryRecord): DraftSummary {
   const leagueSettings = parseLeagueSettingsSnapshotJson(record.leagueSettings);
 
@@ -404,6 +455,18 @@ async function getWorkspaceById(
   }
 
   return mapDraftRecordToWorkspace(draft);
+}
+
+async function getDraftRecordById(
+  db: DraftRepositoryTransactionDb,
+  draftId: string,
+): Promise<PersistedDraftDeleteRecord | null> {
+  const draft = await db.draft.findUnique({
+    where: { id: draftId },
+    include: draftWorkspaceInclude,
+  });
+
+  return draft as PersistedDraftDeleteRecord | null;
 }
 
 async function runRepositoryTransaction<T>(

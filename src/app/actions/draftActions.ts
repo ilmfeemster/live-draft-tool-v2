@@ -6,6 +6,7 @@ import { seedRankings } from "@/data/seedRankings";
 import { formatAutomaticDraftName } from "@/lib/draftNames";
 import {
   createDraftWorkspace,
+  deleteDraftWorkspace,
   draftPlayerInWorkspace,
   resetDraftWorkspace,
   undoLastPickInWorkspace,
@@ -20,6 +21,14 @@ export async function createNewDraftAction(): Promise<DraftWorkspace> {
     rankings: seedRankings,
     userTeamId: mvpUserTeamId,
   });
+}
+
+export async function deleteDraftAction(draftId: string): Promise<boolean> {
+  if (!draftId.trim()) {
+    return false;
+  }
+
+  return deleteDraftWorkspace(draftId);
 }
 
 export async function draftPlayerAction(

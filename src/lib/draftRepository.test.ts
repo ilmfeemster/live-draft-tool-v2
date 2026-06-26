@@ -479,6 +479,67 @@ describe("draft repository", () => {
     ).resolves.toBeNull();
   });
 
+  it("deletes one draft workspace without mutating other drafts", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const leagueSettings = createLeagueSettings({ teamCount: 2, rounds: 2 });
+    const rankings = [
+      createRanking("player-1", 1, "WR"),
+      createRanking("player-2", 2, "RB"),
+      createRanking("player-3", 3, "QB"),
+    ];
+    const deletedWorkspace = await repository.createDraftWorkspace({
+      name: "Delete Me",
+      leagueSettings,
+      rankings,
+      userTeamId: "team-1",
+    });
+    const keptWorkspace = await repository.createDraftWorkspace({
+      name: "Keep Me",
+      leagueSettings,
+      rankings,
+      userTeamId: "team-2",
+    });
+    await repository.draftPlayerInWorkspace(deletedWorkspace.draft.id, "player-1");
+    await repository.draftPlayerInWorkspace(keptWorkspace.draft.id, "player-2");
+
+    const result = await repository.deleteDraftWorkspace(
+      deletedWorkspace.draft.id,
+    );
+
+    expect(result).toBe(true);
+    await expect(
+      repository.getDraftWorkspaceById(deletedWorkspace.draft.id),
+    ).resolves.toBeNull();
+    await expect(
+      repository.getDraftWorkspaceById(keptWorkspace.draft.id),
+    ).resolves.toMatchObject({
+      draft: {
+        id: keptWorkspace.draft.id,
+        currentPickNumber: 2,
+      },
+    });
+    expect(db.drafts.map((draft) => draft.id)).toEqual([keptWorkspace.draft.id]);
+    expect(db.rankingSnapshots.map((snapshot) => snapshot.id)).toEqual([
+      "ranking-snapshot-2",
+    ]);
+
+    const summaries = await repository.listDraftSummaries();
+
+    expect(summaries.map((summary) => summary.id)).toEqual([
+      keptWorkspace.draft.id,
+    ]);
+    expect(summaries[0].draftedPickCount).toBe(1);
+  });
+
+  it("returns false when deleting a missing draft", async () => {
+    const repository = createDraftRepository(createFakeDraftDb());
+
+    await expect(
+      repository.deleteDraftWorkspace("missing-draft"),
+    ).resolves.toBe(false);
+  });
+
   it("lists lightweight draft summaries without loading ranking snapshot JSON", async () => {
     const db = createFakeDraftDb();
     const repository = createDraftRepository(db);
@@ -629,6 +690,34 @@ function createFakeDraftDb() {
 
         return draft;
       },
+      async delete(args: { where: { id: string } }) {
+        const draftIndex = db.drafts.findIndex((candidate) => {
+          return candidate.id === args.where.id;
+        });
+
+        if (draftIndex === -1) {
+          throw new Error(`Draft ${args.where.id} was not found.`);
+        }
+
+        const [deletedDraft] = db.drafts.splice(draftIndex, 1);
+
+        return deletedDraft;
+      },
+    },
+    rankingSnapshot: {
+      async delete(args: { where: { id: string } }) {
+        const snapshotIndex = db.rankingSnapshots.findIndex((candidate) => {
+          return candidate.id === args.where.id;
+        });
+
+        if (snapshotIndex === -1) {
+          throw new Error(`Ranking snapshot ${args.where.id} was not found.`);
+        }
+
+        const [deletedSnapshot] = db.rankingSnapshots.splice(snapshotIndex, 1);
+
+        return deletedSnapshot;
+      },
     },
     draftPick: {
       async create(args: {
@@ -700,6 +789,7 @@ function toWorkspaceRecord(draft: FakeDraftRecord) {
     leagueSettings: draft.leagueSettings,
     userTeamId: draft.userTeamId,
     rankingSnapshot: {
+      id: draft.rankingSnapshot.id,
       rankings: draft.rankingSnapshot.rankings,
     },
     picks: [...draft.picks].sort((left, right) => left.pickNumber - right.pickNumber),

@@ -364,7 +364,7 @@ Acceptance Criteria:
 - Resume links still load the selected persisted draft.
 - Existing new draft, draft, undo, reset, recommendation, and roster behavior still works.
 
-### [ ] 12. Add Safe Draft Deletion
+### [x] 12. Add Safe Draft Deletion
 
 Goal:
 
@@ -445,7 +445,7 @@ Before Phase 2 is complete:
 - [x] Start a new persisted draft without overwriting an existing draft.
 - [x] Use distinguishable automatic names for new persisted drafts.
 - [x] Keep completed drafts separate from the active draft workflow.
-- [ ] Delete unwanted persisted drafts safely.
+- [x] Delete unwanted persisted drafts safely.
 - [ ] Verify recommendations remain derived after reload.
 - [x] Verify no raw ranking JSON reaches the Draft State Engine or Recommendation Engine.
 - [x] Verify persistence and hydration do not assume MVP league defaults.
