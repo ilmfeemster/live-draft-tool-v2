@@ -26,6 +26,21 @@ Do not read every documentation file for every task.
 
 Read only the files needed for the current level of work.
 
+## Planning Slice Updates
+
+When the user asks: `plan and update current-slice.md`
+
+- Do not browse, inspect, or re-read unrelated `AGENTS.md` files.
+- Use the already-loaded root `AGENTS.md` rules plus the current repository context.
+- Only read files directly needed to plan the next slice, typically:
+  - `docs/tasks.md`
+  - `docs/current-slice.md`
+  - `docs/project.md`
+  - `docs/decisions.md`
+  - relevant source/test files if needed
+- Do not scan the repo broadly unless the next slice cannot be planned safely without it.
+- Update only `docs/current-slice.md` unless the user explicitly asks for other files.
+
 ### Direct Implementation Work
 
 If the user asks to implement an existing task or slice, prioritize:
