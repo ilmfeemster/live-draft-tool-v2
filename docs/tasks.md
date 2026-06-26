@@ -296,7 +296,111 @@ Acceptance Criteria:
 - A completed draft shows an obvious option to start another draft.
 - Existing resume, draft, undo, and reset behavior still work.
 
-### [ ] 10. Complete Phase 2 Persistence Validation
+### [ ] 10. Use Distinguishable Automatic Draft Names
+
+Goal:
+
+Make newly created drafts easy to tell apart without adding a naming or editing workflow.
+
+The current creation flow names every user-created draft `New Draft`, while the first automatically created workspace may be named `Default Draft`. That is enough for persistence plumbing, but it becomes confusing as soon as draft history contains more than one record.
+
+Scope:
+
+- Replace generic draft names with deterministic automatic names.
+- Prefer creation date and time in the display name, such as `Draft - Jun 26, 2026, 5:42 PM`.
+- Apply the naming behavior consistently to drafts created by the default loader and the Start New Draft action.
+- Keep names readable in draft history cards.
+- Add focused test coverage for the naming behavior at the creation boundary.
+
+Non-Goals:
+
+- User-entered draft names.
+- Draft renaming.
+- Draft templates.
+- League-specific naming.
+- Backfilling or migrating existing draft names.
+
+Acceptance Criteria:
+
+- Newly created persisted drafts no longer all appear as `New Draft`.
+- Automatically created first drafts no longer rely on `Default Draft` as the long-term display pattern.
+- Draft history can distinguish multiple newly created drafts by name and timestamp.
+- Existing persisted drafts without the new naming pattern still render safely.
+- Existing create, load, resume, draft, undo, reset, and history behavior still works.
+
+### [ ] 11. Make Draft History Compact And Separate Completed Drafts
+
+Goal:
+
+Keep draft history useful without letting it push the active draft workspace down the page.
+
+Draft history is currently rendered as a growing grid above the main draft room. That works for one or two drafts, but it becomes noisy once the app supports starting multiple drafts. Completed drafts are especially different from active drafts: they are useful history, but they should not compete with the current draft workflow.
+
+Scope:
+
+- Replace the large stacked history grid with a compact history surface.
+- Use a horizontal scroll row, collapsible section, or similarly small-footprint layout for active and in-progress drafts.
+- Keep the currently loaded draft visually clear.
+- Move completed drafts into a separate completed/history section.
+- Make the completed section lower priority than active/in-progress drafts and allow it to be collapsed or visually minimized.
+- Preserve resume links through the existing `?draftId=<id>` route.
+- Preserve the summary information needed to distinguish drafts.
+
+Non-Goals:
+
+- Full draft management screen.
+- Search, filters, tags, or sorting controls beyond simple status grouping.
+- Draft deletion.
+- Draft renaming.
+- Advanced historical analytics.
+- Mobile-first redesign.
+
+Acceptance Criteria:
+
+- A growing draft history no longer pushes the main draft room far down the page.
+- Active and in-progress drafts remain easy to reopen.
+- Completed drafts are displayed separately from active/in-progress drafts.
+- The loaded draft remains obvious.
+- Resume links still load the selected persisted draft.
+- Existing new draft, draft, undo, reset, recommendation, and roster behavior still works.
+
+### [ ] 12. Add Safe Draft Deletion
+
+Goal:
+
+Allow unwanted persisted drafts to be removed intentionally so local draft history stays manageable.
+
+Reset clears the current draft's picks, but it does not remove a draft workspace. Once new draft creation exists, the app needs a separate destructive workflow for deleting accidental, test, or old drafts.
+
+Scope:
+
+- Add repository support for deleting a draft workspace and its owned persistence records.
+- Add a server action for deleting a draft by id.
+- Add delete controls in the draft history UI for current and historical drafts.
+- Require browser confirmation before deletion.
+- If the currently loaded draft is deleted, navigate to the latest remaining draft or allow the existing loader to create/load a fallback draft.
+- Keep deletion single-user and local to Phase 2.
+- Add focused repository and server-action test coverage.
+
+Non-Goals:
+
+- Bulk deletion.
+- Archive/restore.
+- Soft delete.
+- Audit log.
+- Account-aware authorization.
+- Deleting individual picks outside the existing undo/reset flows.
+
+Acceptance Criteria:
+
+- A user can delete an unwanted persisted draft from draft history.
+- Deleting a draft removes it from draft history after navigation or refresh.
+- Deleting one draft does not delete or mutate other drafts.
+- Deleting the currently loaded draft leaves the app in a valid loaded-draft state.
+- Destructive deletion requires confirmation.
+- Existing create, resume, draft, undo, reset, available-player, roster, and recommendation behavior still works.
+
+### [ ] 13. Complete Phase 2 Persistence Validation
 
 Goal:
 
@@ -339,6 +443,9 @@ Before Phase 2 is complete:
 - [ ] Resume an incomplete draft after refresh or restart.
 - [ ] Reopen a draft from draft history.
 - [x] Start a new persisted draft without overwriting an existing draft.
+- [ ] Use distinguishable automatic names for new persisted drafts.
+- [ ] Keep completed drafts separate from the active draft workflow.
+- [ ] Delete unwanted persisted drafts safely.
 - [ ] Verify recommendations remain derived after reload.
 - [x] Verify no raw ranking JSON reaches the Draft State Engine or Recommendation Engine.
 - [x] Verify persistence and hydration do not assume MVP league defaults.
@@ -370,6 +477,7 @@ Not required for Phase 2:
 - Authentication
 - Multi-user support
 - Custom league settings UI
+- Custom draft naming and renaming
 - Normalized ranking tables
 - Global player table
 - Replay tooling

@@ -57,6 +57,7 @@ Features listed here are intentionally out of scope unless promoted into active 
 - Player notes
 - Watchlist
 - Player queue
+- Custom draft naming and renaming
 - Custom rankings
 - Saved draft sessions
 - Draft history
