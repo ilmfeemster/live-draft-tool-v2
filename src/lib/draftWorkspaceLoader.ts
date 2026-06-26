@@ -1,5 +1,6 @@
 import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { seedRankings } from "@/data/seedRankings";
+import { formatAutomaticDraftName } from "@/lib/draftNames";
 import {
   createDraftWorkspace,
   type DraftSummary,
@@ -8,7 +9,6 @@ import {
 } from "@/lib/draftRepository";
 import type { DraftWorkspace } from "@/types/draft";
 
-const defaultDraftName = "Default Draft";
 const defaultUserTeamId = "team-2";
 
 type DraftWorkspaceLoaderRepository = {
@@ -76,7 +76,7 @@ export async function loadDraftWorkspace(
     }
 
     const workspace = await repository.createDraftWorkspace({
-      name: defaultDraftName,
+      name: formatAutomaticDraftName(),
       leagueSettings: defaultLeagueSettings,
       rankings: seedRankings,
       userTeamId: defaultUserTeamId,

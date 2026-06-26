@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { seedRankings } from "@/data/seedRankings";
 import {
@@ -12,6 +12,10 @@ import type {
 import type { DraftWorkspace } from "@/types/draft";
 
 describe("draft workspace loader", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("loads a selected persisted draft workspace", async () => {
     const selectedWorkspace = createDraftWorkspace("draft-selected");
     const latestWorkspace = createDraftWorkspace("draft-latest");
@@ -82,6 +86,9 @@ describe("draft workspace loader", () => {
   });
 
   it("creates a default persisted draft workspace when no summaries exist", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 26, 17, 42));
+
     const workspace = createDraftWorkspace("created-draft");
     const repository = createFakeRepository({
       summaries: [],
@@ -92,7 +99,7 @@ describe("draft workspace loader", () => {
 
     expect(repository.getDraftWorkspaceById).not.toHaveBeenCalled();
     expect(repository.createDraftWorkspace).toHaveBeenCalledWith({
-      name: "Default Draft",
+      name: "Draft - Jun 26, 2026, 5:42 PM",
       leagueSettings: defaultLeagueSettings,
       rankings: seedRankings,
       userTeamId: "team-2",
@@ -106,6 +113,9 @@ describe("draft workspace loader", () => {
   });
 
   it("creates a default persisted draft workspace when the latest summary is stale", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 26, 17, 42));
+
     const workspace = createDraftWorkspace("created-draft");
     const repository = createFakeRepository({
       summaries: [createDraftSummary("stale-draft")],
@@ -116,7 +126,7 @@ describe("draft workspace loader", () => {
 
     expect(repository.getDraftWorkspaceById).toHaveBeenCalledWith("stale-draft");
     expect(repository.createDraftWorkspace).toHaveBeenCalledWith({
-      name: "Default Draft",
+      name: "Draft - Jun 26, 2026, 5:42 PM",
       leagueSettings: defaultLeagueSettings,
       rankings: seedRankings,
       userTeamId: "team-2",
@@ -156,6 +166,9 @@ describe("draft workspace loader", () => {
   });
 
   it("creates the default draft when a selected draft is missing and no summaries exist", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 26, 17, 42));
+
     const workspace = createDraftWorkspace("created-draft");
     const repository = createFakeRepository({
       summaries: [],
@@ -166,7 +179,7 @@ describe("draft workspace loader", () => {
 
     expect(repository.getDraftWorkspaceById).toHaveBeenCalledWith("missing-draft");
     expect(repository.createDraftWorkspace).toHaveBeenCalledWith({
-      name: "Default Draft",
+      name: "Draft - Jun 26, 2026, 5:42 PM",
       leagueSettings: defaultLeagueSettings,
       rankings: seedRankings,
       userTeamId: "team-2",

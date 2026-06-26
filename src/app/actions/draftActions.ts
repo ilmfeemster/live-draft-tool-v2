@@ -3,6 +3,7 @@
 import type { DraftWorkspace } from "@/types/draft";
 import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { seedRankings } from "@/data/seedRankings";
+import { formatAutomaticDraftName } from "@/lib/draftNames";
 import {
   createDraftWorkspace,
   draftPlayerInWorkspace,
@@ -14,7 +15,7 @@ const mvpUserTeamId = "team-2";
 
 export async function createNewDraftAction(): Promise<DraftWorkspace> {
   return createDraftWorkspace({
-    name: "New Draft",
+    name: formatAutomaticDraftName(),
     leagueSettings: defaultLeagueSettings,
     rankings: seedRankings,
     userTeamId: mvpUserTeamId,

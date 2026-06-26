@@ -296,7 +296,7 @@ Acceptance Criteria:
 - A completed draft shows an obvious option to start another draft.
 - Existing resume, draft, undo, and reset behavior still work.
 
-### [ ] 10. Use Distinguishable Automatic Draft Names
+### [x] 10. Use Distinguishable Automatic Draft Names
 
 Goal:
 
@@ -443,7 +443,7 @@ Before Phase 2 is complete:
 - [ ] Resume an incomplete draft after refresh or restart.
 - [ ] Reopen a draft from draft history.
 - [x] Start a new persisted draft without overwriting an existing draft.
-- [ ] Use distinguishable automatic names for new persisted drafts.
+- [x] Use distinguishable automatic names for new persisted drafts.
 - [ ] Keep completed drafts separate from the active draft workflow.
 - [ ] Delete unwanted persisted drafts safely.
 - [ ] Verify recommendations remain derived after reload.

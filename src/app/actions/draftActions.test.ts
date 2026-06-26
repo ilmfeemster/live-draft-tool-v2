@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { seedRankings } from "@/data/seedRankings";
 import {
@@ -34,14 +34,21 @@ describe("draft mutation server actions", () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("creates a new draft workspace with MVP defaults", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 26, 17, 42));
+
     const workspace = createDraftWorkspace();
     createDraftWorkspaceRepositoryMock.mockResolvedValue(workspace);
 
     const result = await createNewDraftAction();
 
     expect(createDraftWorkspaceRepositoryMock).toHaveBeenCalledWith({
-      name: "New Draft",
+      name: "Draft - Jun 26, 2026, 5:42 PM",
       leagueSettings: defaultLeagueSettings,
       rankings: seedRankings,
       userTeamId: "team-2",
