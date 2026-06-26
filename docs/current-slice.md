@@ -1,174 +1,146 @@
-# Current Slice: Add New Draft Creation Flow
+# Current Slice: Use Distinguishable Automatic Draft Names
 
 ## Source Task
 
-Task 9: Add New Draft Creation Flow.
+Task 10: Use Distinguishable Automatic Draft Names.
 
 ## Goal
 
-Give the user an intentional way to start a fresh persisted draft without resetting, overwriting, deleting, or manually editing an existing draft.
+Make newly created persisted drafts easy to tell apart without adding user-entered names, renaming, draft templates, or a broader draft management screen.
 
-This slice closes the product gap between "resume an old draft" and "reset this same draft." Reset remains a manual QA tool for clearing the current draft. New draft creation is the user-facing workflow for saving the current draft in history and moving on to another draft.
+This slice fixes the immediate product friction created by multiple drafts named `New Draft` or `Default Draft`. Future naming and renaming can become a real product feature later, but Phase 2 only needs automatic names that make history readable.
 
 ## User-Visible Increment
 
-- A user can start a new persisted draft from the draft room.
-- If the current draft is complete, the draft room shows a clear prompt to start another draft.
-- The new draft loads immediately through the existing `?draftId=<id>` route.
-- The previous draft remains visible in draft history.
+- Newly created drafts show a date/time-based name in draft history.
+- The first auto-created draft and later `Start New Draft` drafts use the same naming pattern.
+- Existing drafts with old names still render normally.
 
 ## Problem
 
-The app can persist, resume, reset, draft, and undo, but it does not yet provide a normal "start another draft" workflow. A user who finishes a draft, or simply wants to begin a separate draft, currently has no clear product action. Reset is destructive to the current draft's pick history and should not be used as a substitute for creating a new saved draft.
+The app can now create multiple persisted drafts, but the name field does not help the user distinguish them. The initial workspace uses `Default Draft`, and every new draft created through the explicit action uses `New Draft`. Once several drafts exist, draft history becomes ambiguous.
 
 ## Goals
 
-- Add a server action that creates a new persisted draft workspace.
-- Use current MVP defaults for the new draft:
-  - default league settings
-  - seed ranking snapshot
-  - current MVP user team id
-- Add a visible `Start New Draft` control in the draft room status area.
-- Show an inline completed-draft prompt with a `Start New Draft` action when `isDraftComplete` is true.
-- After creating the draft, navigate to `/?draftId=<newDraftId>`.
-- Preserve the existing draft and its pick history.
-- Prevent duplicate creates while the create action is pending.
-- Keep existing draft, undo, reset, resume, recommendation, and history behavior intact.
-- Add focused server-action test coverage for the new create action.
+- Add one shared helper for automatic draft display names.
+- Use the helper in both creation paths:
+  - `loadDraftWorkspace` fallback creation
+  - `createNewDraftAction`
+- Format names with local creation date and time, using a simple pattern such as `Draft - Jun 26, 2026, 5:42 PM`.
+- Keep the format deterministic and covered by focused tests.
+- Preserve existing create, load, resume, draft, undo, reset, recommendation, and history behavior.
 - Update task tracking after implementation.
 
 ## Non-Goals
 
-- Custom league setup UI.
-- Ranking import or ranking selection UI.
-- Draft templates.
-- Draft duplication.
-- Draft deletion.
+- User-entered draft names.
 - Draft renaming.
-- Accounts or multi-user draft ownership.
-- Changing the existing auto-save behavior.
-- Changing the draft history list into a full management screen.
-- Adding a modal flow for this slice.
+- Draft templates.
+- League-specific naming.
+- Draft deletion.
+- Draft history layout changes.
+- Backfilling or migrating existing draft names.
 - Prisma schema or migration changes.
 - New package dependencies.
 
 ## Expected Files
 
+- `src/lib/draftNames.ts`
+- `src/lib/draftNames.test.ts`
+- `src/lib/draftWorkspaceLoader.ts`
+- `src/lib/draftWorkspaceLoader.test.ts`
 - `src/app/actions/draftActions.ts`
 - `src/app/actions/draftActions.test.ts`
-- `src/components/DraftRoom.tsx`
-- `src/components/DraftStatusPanel.tsx`
 - `docs/tasks.md`
 - `docs/current-slice.md`
 
-Avoid changing repository APIs, Prisma schema, route structure, recommendation logic, ranking seed data, or unrelated UI layout unless implementation reveals a real blocker.
+Avoid changing repository APIs, Prisma schema, route structure, draft history layout, recommendation logic, ranking seed data, or unrelated UI behavior unless implementation reveals a real blocker.
 
-## Server Action Shape
+## Naming Helper Shape
 
-Add a new server action in `src/app/actions/draftActions.ts`:
+Add a small helper in `src/lib/draftNames.ts`:
 
 ```ts
-export async function createNewDraftAction()
+export function formatAutomaticDraftName(createdAt = new Date()): string
 ```
 
 Expected behavior:
 
-- Call the existing repository create function.
-- Pass MVP defaults explicitly:
-  - `defaultLeagueSettings`
-  - `seedRankings`
-  - MVP user team id, currently `team-2`
-  - a simple name such as `New Draft`
-- Return the created `DraftWorkspace` so the client can navigate using `workspace.draft.id`.
+- Return a string beginning with `Draft - `.
+- Include month abbreviation, day, year, hour, and minute.
+- Use local time components.
+- Use 12-hour time with `AM`/`PM`.
+- Zero-pad minutes.
 
-Keep the action small. Do not add a general draft setup abstraction in this slice.
+Example:
 
-## UI Behavior
+```ts
+formatAutomaticDraftName(new Date(2026, 5, 26, 17, 42))
+// "Draft - Jun 26, 2026, 5:42 PM"
+```
 
-Add the new-draft control to the existing draft room/status flow.
-
-### Always-Available Control
-
-- Render a `Start New Draft` button in the draft status panel near the existing undo/reset controls.
-- Disable it while another draft mutation is pending.
-- On click, call `createNewDraftAction`.
-- On success, navigate to `/?draftId=<newDraftId>` using Next navigation.
-
-### In-Progress Draft Safety
-
-If the current draft has one or more picks and is not complete:
-
-- Ask for browser confirmation before creating and navigating to a new draft.
-- Make the confirmation copy clear that the existing draft will be saved in history, not reset or deleted.
-- If the user cancels, do not call the server action.
-
-### Completed Draft Prompt
-
-When `isDraftComplete` is true:
-
-- Show an inline completion prompt in `DraftStatusPanel`.
-- Include a `Start New Draft` button in that prompt.
-- Reuse the same create handler and pending state.
-- Do not add a modal for this slice.
+Keep this helper presentation-focused and dependency-free. Do not introduce a date library.
 
 ## Implementation Steps
 
-1. Add the create action.
-   - Import `createDraftWorkspace`, `defaultLeagueSettings`, and `seedRankings`.
-   - Add a local constant for the MVP user team id if no shared constant already exists.
-   - Return the created workspace.
+1. Add the naming helper.
+   - Create `src/lib/draftNames.ts`.
+   - Add `formatAutomaticDraftName(createdAt = new Date())`.
+   - Use a local month abbreviation array and local `Date` getters.
+   - Handle midnight/noon correctly:
+     - `0` hours should display as `12:xx AM`.
+     - `12` hours should display as `12:xx PM`.
+     - `13` hours should display as `1:xx PM`.
 
-2. Test the create action.
-   - Extend `src/app/actions/draftActions.test.ts`.
-   - Mock the repository create function.
-   - Assert `createNewDraftAction` delegates with default settings, seed rankings, user team id, and draft name.
-   - Assert the created workspace is returned.
-   - Keep existing action tests unchanged.
+2. Test the helper.
+   - Create `src/lib/draftNames.test.ts`.
+   - Add exact-output tests for:
+     - afternoon time, e.g. `Draft - Jun 26, 2026, 5:42 PM`
+     - midnight
+     - noon
+     - zero-padded minutes
 
-3. Wire the client handler.
-   - In `DraftRoom`, import `createNewDraftAction`.
-   - Use `useRouter` from `next/navigation`.
-   - Add a handler that:
-     - confirms when the current draft is in progress
-     - sets pending mutation state
-     - calls the create action
-     - pushes `/?draftId=<createdWorkspace.draft.id>`
-     - clears pending state if navigation does not immediately replace the component
+3. Update default workspace creation.
+   - In `src/lib/draftWorkspaceLoader.ts`, replace `defaultDraftName` with `formatAutomaticDraftName()`.
+   - Keep the existing MVP default settings, seed rankings, and user team id unchanged.
+   - Do not change load/fallback behavior.
 
-4. Extend `DraftStatusPanel` props.
-   - Add an `onCreateNewDraft` callback.
-   - Add an `isNewDraftDisabled` or reuse the existing pending/disabled shape.
-   - Render the always-available `Start New Draft` control.
-   - Render the completed-draft prompt when `isDraftComplete` is true.
+4. Update loader tests.
+   - In `src/lib/draftWorkspaceLoader.test.ts`, update tests that expect `Default Draft`.
+   - Use fake timers or another deterministic approach so expected names are stable.
+   - Assert the repository receives the automatic name while preserving existing expectations for league settings, rankings, and user team id.
+   - Restore timers after tests if fake timers are used.
 
-5. Preserve existing controls.
-   - Keep undo behavior unchanged.
-   - Keep reset behavior unchanged.
-   - Keep current draft status display unchanged except for the new prompt/control.
-   - Do not remove existing draft history links.
+5. Update explicit new draft creation.
+   - In `src/app/actions/draftActions.ts`, replace `"New Draft"` with `formatAutomaticDraftName()`.
+   - Keep the action small and continue returning the created workspace.
 
-6. Update task tracking.
-   - In `docs/tasks.md`, mark Task 9 complete only if all acceptance criteria are satisfied.
-   - Check `Start a new persisted draft without overwriting an existing draft` in the Phase 2 validation checklist if validated.
+6. Update action tests.
+   - In `src/app/actions/draftActions.test.ts`, update the create action test to expect the automatic name.
+   - Use the same deterministic clock strategy as the loader tests where practical.
+   - Keep existing mutation tests unchanged.
+
+7. Update task tracking.
+   - In `docs/tasks.md`, mark Task 10 complete only if all acceptance criteria are satisfied.
+   - Check `Use distinguishable automatic names for new persisted drafts` in the Phase 2 validation checklist if validated.
    - Do not mark unrelated Phase 2 validation items complete.
 
-7. Validate.
+8. Validate.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npm run build`.
-   - Manually verify the new draft workflow in the browser if a dev server is already available or can be started locally.
+   - If a dev server is already running or can be started locally, manually create a new draft and confirm draft history shows the generated date/time name.
 
 ## Acceptance Criteria
 
-- A user can intentionally create a new persisted draft from the draft room.
-- Creating a new draft does not overwrite, reset, or delete the current draft.
-- The app navigates to the newly created draft at `/?draftId=<newDraftId>`.
-- The new draft starts at pick 1 with MVP default settings and seed rankings.
-- The previous draft remains available in draft history.
-- A completed draft shows an obvious option to start another draft.
-- In-progress drafts ask for confirmation before navigating away to a new draft.
-- Existing resume, draft, undo, reset, available-player, roster, and recommendation behavior still work.
-- Server-action tests cover the new create action.
+- Newly created persisted drafts no longer all appear as `New Draft`.
+- Automatically created first drafts no longer rely on `Default Draft`.
+- The fallback loader and explicit `Start New Draft` action use the same automatic naming helper.
+- Draft names include enough date/time information to distinguish multiple new drafts.
+- Existing persisted drafts with old names still render safely.
+- Existing create, load, resume, draft, undo, reset, available-player, roster, and recommendation behavior still works.
+- Focused tests cover the automatic naming helper.
+- Existing loader and server-action tests cover automatic names at creation boundaries.
 - `npm test` passes.
 - `npm run lint` passes.
 - `npm run build` passes or any environment-specific blocker is reported clearly.
@@ -177,18 +149,17 @@ When `isDraftComplete` is true:
 
 Recommended manual checks after implementation:
 
-- Create a new draft from an empty draft.
-- Make at least one pick, start a new draft, confirm, and verify the old draft is still in history.
-- Complete or simulate completing a draft enough to see the completed-draft prompt.
-- Start a new draft from the completed prompt.
-- Reopen the previous draft from history and confirm its picks remain intact.
-- Verify undo and reset still affect only the currently selected draft.
+- Start the app with no existing drafts and confirm the auto-created draft has a date/time name.
+- Use `Start New Draft` and confirm the new draft has a date/time name.
+- Create more than one new draft and confirm draft history names are distinguishable.
+- Reopen an older draft named `Default Draft` or `New Draft`, if present, and confirm it still renders.
+- Verify drafting, undo, reset, and resume still operate on the selected draft.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes, it adds only the missing new-draft workflow.
-- Concrete enough for implementation: yes, action shape, UI placement, state handling, tests, and validation are specified.
-- Avoids unnecessary architecture changes: yes, it reuses the existing repository create function and `?draftId=` route.
-- Blast radius reasonable: yes, expected changes are limited to two action files, two draft room UI files, and task tracking.
-- Review/revert comfort: yes, the workflow can be reverted without schema or repository contract changes.
-- Observable/testable acceptance criteria: yes, creation, navigation, history preservation, prompt visibility, and regression behavior can all be checked.
+- Smallest meaningful increment: yes, it addresses only automatic naming and leaves layout/deletion for later tasks.
+- Concrete enough for implementation: yes, files, helper shape, expected format, tests, and validation are specified.
+- Avoids unnecessary architecture changes: yes, it adds one small shared helper because two creation paths need the same rule.
+- Blast radius reasonable: yes, expected changes are limited to one helper, two creation callers, their tests, and task tracking.
+- Review/revert comfort: yes, the change can be reverted without schema, repository, or route changes.
+- Observable/testable acceptance criteria: yes, created draft names can be asserted in tests and seen in draft history.
