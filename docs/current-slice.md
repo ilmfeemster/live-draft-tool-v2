@@ -1,139 +1,207 @@
-# Current Slice: Align Phase 3 Recommendation Architecture Docs
+# Current Slice: Define Recommendation Engine Contract
 
 ## Source Task
 
-Task 1: Align Phase 3 Architecture Documentation.
+Task 2: Define Recommendation Engine Contract.
 
 ## Goal
 
-Update project-level architecture and decision documentation so it reflects the approved Phase 3 Recommendation Engine design before implementation begins.
+Create the domain-facing Recommendation Engine boundary and output model without coupling it to UI, persistence, or draft sources.
 
-This slice is documentation-only. It should make the design durable in the core project docs without creating implementation code, implementation tasks, or a new design document.
+This slice should establish the contract that later Phase 3 scoring tasks will build on. It should not implement the full bounded additive scoring model or contextual modifiers yet.
 
 ## User-Visible Increment
 
-- The project has a clear architecture-level description of the Phase 3 Recommendation Engine.
-- Future implementation slices can rely on `docs/architecture.md` and `docs/decisions.md` without reinterpreting `docs/design/recommendation-engine.md`.
-- Phase 3 boundaries are explicit before code work begins.
+- The codebase has a pure Recommendation Engine entry point that accepts full draft context.
+- Recommendation output has the score, component, and reason structure needed by later scoring and explanation work.
+- The engine excludes drafted players from recommendation results using draft state rather than relying on callers to pre-filter rankings.
 
 ## Current Context
 
-`docs/tasks.md` defines Phase 3 as the active focus. The first task is documentation alignment because `docs/design/recommendation-engine.md` says architecture and decision docs should be updated before implementation task planning begins.
+`docs/tasks.md` defines Task 2 as the next Phase 3 implementation task after architecture documentation alignment.
 
-The approved design establishes:
+Existing recommendation behavior lives in:
+
+- `src/types/draft.ts`
+- `src/lib/recommendations.ts`
+- `src/lib/recommendations.test.ts`
+
+The existing `generateTopRecommendations` helper takes already-filtered rankings plus limited roster options. This slice should add the new Phase 3 contract in a way that does not force the UI to adopt it yet.
+
+The approved Phase 3 design establishes:
 
 - A pure Recommendation Engine boundary.
-- A bounded additive scoring model.
-- Rank-derived base player value.
-- Bounded context modifiers.
-- Score-backed recommendation reasons.
-- No persisted recommendation output.
-- No AI reasoning, simulations, opponent modeling, live provider logic, or Phase 6 insight strategy.
-- Continued support for dynamic league settings, roster settings, and draft configuration.
+- Inputs that include typed draft state, rankings, league settings, and user team identity.
+- Outputs that include total score, base score, context score, score components, and reasons.
+- Recommendation output is derived, not persisted.
+- Recommendation logic must not depend on Prisma, server actions, React state, or database records.
 
 ## Scope
 
 ### Goals
 
-- Update `docs/architecture.md` with the Phase 3 Recommendation Engine boundary.
-- Update `docs/architecture.md` with the bounded additive scoring model at architecture level.
-- Update `docs/architecture.md` to state that recommendation explanations come from scoring components.
-- Update `docs/architecture.md` to preserve independence from persistence, UI rendering, and draft sources.
-- Update `docs/decisions.md` with the Phase 3 bounded additive scoring decision.
-- Update `docs/decisions.md` with the Phase 3 score-backed explanation decision.
-- Update `docs/decisions.md` with deferred alternatives that affect future development.
+- Add domain-facing recommendation input and output types.
+- Add score component and reason types that later scoring tasks can populate.
+- Add an engine-level tuning configuration type and default tuning config.
+- Add a pure recommendation entry point that accepts draft, rankings, league settings, and user team id.
+- Exclude drafted players inside the new engine entry point.
+- Return deterministic output for identical inputs.
+- Keep the new entry point independent from persistence, React, server actions, and draft sources.
+- Add focused unit tests for the new contract.
+- Preserve existing `generateTopRecommendations` behavior unless a small compatibility adjustment is required.
 
 ### Non-Goals
 
-- Implementing recommendation code.
-- Creating or updating implementation tests.
+- Implementing the Phase 3 base score formula.
+- Implementing roster fit, timing, value opportunity, tier-drop risk, scarcity, or run-pressure modifiers.
+- Replacing the existing UI recommendation call site.
+- Changing `DraftRoom` or recommendation presentation.
+- Persisting recommendation output.
+- Reading from Prisma, server actions, or repository code inside the engine.
+- Introducing a generic modifier registry.
+- Redesigning the approved recommendation engine.
 - Updating `docs/tasks.md`.
-- Updating `docs/project.md`.
-- Creating another design document.
-- Redesigning the recommendation engine.
-- Adding AI reasoning, simulations, opponent modeling, strategy profiles, or live provider behavior.
-- Changing persistence, draft state, or UI architecture.
+- Updating project, architecture, decision, or design docs.
 
 ## Expected Files
 
 - `docs/current-slice.md`
-- `docs/architecture.md`
-- `docs/decisions.md`
+- `src/types/draft.ts`
+- `src/lib/recommendations.ts`
+- `src/lib/recommendations.test.ts`
 
-Do not modify `docs/tasks.md` during this slice unless the user explicitly asks for task tracking updates after implementation.
+Do not modify UI, persistence, Prisma, package, or task files during this slice unless a direct compile blocker requires a very small local adjustment.
 
 ## Implementation Steps
 
-1. Review the approved design and active task.
-   - Read `docs/design/recommendation-engine.md`.
+1. Review the active context.
+   - Read `docs/current-slice.md`.
    - Read `docs/tasks.md`.
-   - Read `docs/architecture.md`.
-   - Read `docs/decisions.md`.
+   - Read `docs/design/recommendation-engine.md`.
+   - Read `src/types/draft.ts`.
+   - Read `src/lib/recommendations.ts`.
+   - Read `src/lib/recommendations.test.ts`.
 
-2. Update `docs/architecture.md`.
-   - Expand the Recommendation Engine section.
-   - State that the engine is a pure domain layer that consumes typed draft state, rankings, league settings, and user team identity.
-   - State that the engine does not read persistence, mutate draft state, depend on React, or depend on manual/live draft sources.
-   - Document the bounded additive scoring shape:
+2. Add recommendation contract types.
+   - In `src/types/draft.ts`, add a new `RecommendationInput` type with:
+     - `draft: Draft`
+     - `rankings: RankingEntry[]`
+     - `leagueSettings: LeagueSettings`
+     - `userTeamId: string`
+   - Add `RecommendationScoreComponent` with fields sufficient for later modifiers:
+     - stable component id
+     - numeric delta
+     - direction
+     - optional priority
+     - optional reason data or evidence
+   - Add `RecommendationReason` with fields sufficient for later reason selection:
+     - stable reason id
+     - text
+     - source component id
+     - priority
+   - Add `PlayerRecommendation` with:
+     - `ranking`
+     - `playerId`
+     - `totalScore`
+     - `baseScore`
+     - `contextScore`
+     - `components`
+     - `reasons`
+   - Add `RecommendationTuningConfig` for engine-level constants.
+   - Keep the existing `Recommendation` type in place for current UI compatibility.
 
-```txt
-recommendation score =
-base player value
-+ bounded context modifiers
-```
+3. Add default tuning configuration.
+   - In `src/lib/recommendations.ts`, export a `defaultRecommendationTuningConfig`.
+   - Include placeholders for values named by the design, such as base score coefficient, context caps, urgency cap, and reason thresholds.
+   - Do not use these values for full scoring behavior yet unless needed to satisfy type shape.
 
-   - Name the initial scoring inputs: rank-derived base value, roster fit and timing, value opportunity, tier-drop risk, positional scarcity, and observed run pressure.
-   - Document guardrails at architecture level: bounded modifiers, capped context score, deterministic tie breaking, and no persisted recommendation output.
-   - State that explanations are selected from scoring components.
-   - Preserve existing MVP non-goals and explicitly keep AI/ML, simulations, opponent modeling, and Phase 6 insight behavior out of Phase 3.
+4. Add the new pure engine entry point.
+   - In `src/lib/recommendations.ts`, add a function such as `generatePlayerRecommendations`.
+   - Accept `RecommendationInput` and optional settings such as `limit` and `tuning`.
+   - Build the drafted player id set from `input.draft.picks`.
+   - Filter `input.rankings` to available players.
+   - Return `PlayerRecommendation[]`.
+   - For this contract slice, keep scoring intentionally minimal:
+     - `baseScore: 0`
+     - `contextScore: 0`
+     - `totalScore: 0`
+     - empty `components`
+     - empty `reasons`
+   - Sort deterministically by existing ranking fields while Task 3 is still pending:
+     - `overallRank`
+     - `positionRank`
+     - `player.id`
+   - Apply the requested recommendation limit after sorting.
+   - Do not call persistence, server actions, React APIs, or mutate the draft.
 
-3. Update `docs/decisions.md`.
-   - Add a dated Phase 3 decision for the bounded additive scoring model.
-   - Add a dated Phase 3 decision for score-backed explanation generation.
-   - Add a dated Phase 3 decision to keep the engine pure and derived rather than persisted.
-   - Record deferred alternatives where useful: projections/VORP, opponent modeling, draft simulations, AI-generated explanations, and a generic modifier registry.
-   - Keep each decision concise and focused on future development impact.
+5. Preserve existing recommendation helper behavior.
+   - Keep `generateTopRecommendations` available for current UI/tests.
+   - Do not force existing UI components to consume `PlayerRecommendation` in this slice.
+   - If shared helpers are extracted, keep the change small and local to `src/lib/recommendations.ts`.
 
-4. Validate documentation consistency.
-   - Confirm `docs/architecture.md` does not contradict `docs/design/recommendation-engine.md`.
-   - Confirm `docs/decisions.md` records decisions rather than implementation details.
-   - Confirm the docs preserve dynamic league settings, roster settings, and draft configuration support.
-   - Confirm no implementation tasks, code changes, or tests were added.
+6. Add focused contract tests.
+   - Add or extend tests in `src/lib/recommendations.test.ts`.
+   - Verify the new engine excludes drafted players from `draft.picks`.
+   - Verify identical input produces identical recommendation ordering.
+   - Verify the new engine accepts non-default league settings without default roster assumptions.
+   - Verify output includes the new score fields, component array, and reason array.
+   - Verify the function does not mutate the input draft.
 
-5. Stop after documentation alignment.
-   - Do not begin Task 2.
-   - Do not update `docs/current-slice.md` again unless the slice needs correction.
-   - Summarize files changed and any design/documentation conflicts found.
+7. Run validation.
+   - Run `npm test -- src/lib/recommendations.test.ts` if the test runner accepts a file argument.
+   - If that command does not work, run `npm test`.
+   - Run `npm run lint`.
+   - If validation fails due to issues caused by this slice, fix only those issues.
+   - If validation fails for unrelated pre-existing reasons, document the blocker and stop.
+
+8. Stop after Task 2.
+   - Do not start Task 3 base ranking scoring.
+   - Do not update `docs/tasks.md`.
+   - Do not update the UI to use the new engine.
 
 ## Acceptance Criteria
 
-- `docs/architecture.md` describes the Recommendation Engine as a pure domain layer.
-- `docs/architecture.md` documents the bounded additive scoring model at architecture level.
-- `docs/architecture.md` states that explanations come directly from scoring components.
-- `docs/architecture.md` keeps recommendation logic independent from persistence, UI rendering, and draft sources.
-- `docs/decisions.md` records the Phase 3 scoring model decision.
-- `docs/decisions.md` records the Phase 3 explanation model decision.
-- `docs/decisions.md` records the pure/derived engine boundary or equivalent architecture decision.
-- Deferred alternatives are documented without promoting them into Phase 3 scope.
-- No implementation code is changed.
-- `docs/tasks.md` is not modified.
-- `docs/project.md` is not modified.
+- `RecommendationInput` or equivalent domain-facing input type exists.
+- `PlayerRecommendation` or equivalent output type includes total score, base score, context score, score components, and reasons.
+- A default recommendation tuning config exists for future scoring tasks.
+- A pure Recommendation Engine entry point accepts draft state, rankings, league settings, and user team id.
+- The new entry point excludes drafted players from recommendation results.
+- The same input produces the same output ordering.
+- The new entry point can be called with non-default league settings.
+- Existing `generateTopRecommendations` behavior remains available for current UI compatibility.
+- No persistence, server action, React, or Prisma dependency is introduced into the engine.
+- No UI files are changed.
+- No recommendation output is persisted.
+
+## Suggested Tests
+
+- Unit test that the new engine returns only available players.
+- Unit test that identical inputs produce identical ordering.
+- Unit test that the new engine accepts a non-default league setting fixture.
+- Unit test that output contains score fields, component data, and reason data.
+- Unit test that the input draft is not mutated.
 
 ## Validation Notes
 
-This is a documentation slice. Automated tests are not required.
+Expected validation commands:
 
-Suggested validation:
+```txt
+npm test -- src/lib/recommendations.test.ts
+npm run lint
+```
 
-- Review the diff for `docs/architecture.md`.
-- Review the diff for `docs/decisions.md`.
-- Confirm the diff contains no source code, tests, package, or task changes.
+If targeted test execution is unsupported, run:
+
+```txt
+npm test
+npm run lint
+```
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It aligns the core docs required before Phase 3 implementation work.
-- Concrete enough for implementation: yes. The target files and exact documentation topics are listed.
-- Avoids unnecessary architecture changes: yes. It documents the approved design without changing code architecture.
-- Blast radius reasonable: yes. Expected changes are limited to two project docs plus this planning file.
-- Review/revert comfort: yes. The slice is documentation-only and can be reviewed as a focused diff.
-- Observable/testable acceptance criteria: yes. Criteria can be verified through document review and diff inspection.
+- Smallest meaningful increment: yes. It establishes the engine contract without implementing scoring behavior from later tasks.
+- Concrete enough for implementation: yes. The target files, types, function behavior, and tests are specified.
+- Avoids unnecessary architecture changes: yes. It preserves current UI usage and does not introduce abstractions beyond the approved contract.
+- Blast radius reasonable: yes. Expected changes are limited to recommendation types, recommendation library code, and recommendation tests.
+- Review/revert comfort: yes. The slice can be reviewed independently before scoring logic is added.
+- Observable/testable acceptance criteria: yes. Contract behavior is covered by focused unit tests and linting.
