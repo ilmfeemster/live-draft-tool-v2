@@ -260,7 +260,43 @@ Acceptance Criteria:
 - Reopened drafts restore picks, available players, roster, and recommendations.
 - Draft history does not require loading full ranking snapshot JSON for every row.
 
-### [ ] 9. Complete Phase 2 Persistence Validation
+### [ ] 9. Add New Draft Creation Flow
+
+Goal:
+
+Provide a clear way to start a fresh persisted draft without manually editing the database or relying on reset.
+
+The app currently persists and resumes drafts, but it does not give the user an intentional workflow for creating a new draft after completion or by choice. Reset is useful for manual QA, but it is not the same product action as saving a completed draft and starting another one.
+
+Scope:
+
+- Add a server action that creates a new persisted draft using the current MVP default settings and seed ranking snapshot.
+- Add a visible "New Draft" or "Start New Draft" control to the draft page or draft history area.
+- After creation, navigate to the newly created draft using the existing `?draftId=<id>` resume flow.
+- Preserve existing completed drafts in draft history.
+- When the current draft is complete, show a clear completion prompt with an option to start a new draft.
+- Keep the flow single-user and local to Phase 2 scope.
+
+Non-Goals:
+
+- Custom league setup UI.
+- Ranking import or ranking selection UI.
+- Draft templates.
+- Draft duplication.
+- Deleting completed drafts.
+- Accounts or multi-user draft ownership.
+- Changing the current auto-save behavior.
+
+Acceptance Criteria:
+
+- A user can intentionally create a new persisted draft.
+- Creating a new draft does not overwrite, reset, or delete the current draft.
+- The new draft appears in draft history.
+- The app navigates to the newly created draft.
+- A completed draft shows an obvious option to start another draft.
+- Existing resume, draft, undo, and reset behavior still work.
+
+### [ ] 10. Complete Phase 2 Persistence Validation
 
 Goal:
 
@@ -302,6 +338,7 @@ Before Phase 2 is complete:
 - [x] Hydrate `Draft` from settings, ranking snapshot, and pick history.
 - [ ] Resume an incomplete draft after refresh or restart.
 - [ ] Reopen a draft from draft history.
+- [ ] Start a new persisted draft without overwriting an existing draft.
 - [ ] Verify recommendations remain derived after reload.
 - [x] Verify no raw ranking JSON reaches the Draft State Engine or Recommendation Engine.
 - [x] Verify persistence and hydration do not assume MVP league defaults.
