@@ -4,6 +4,7 @@ import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import type {
   Draft,
+  LeagueSettings,
   PlayerRecommendation,
   Position,
   RankingEntry,
@@ -93,15 +94,19 @@ function createScenarioDraft({
   };
 }
 
-function createScenarioInput(draft: Draft, rankings: RankingEntry[]): RecommendationInput {
+function createScenarioInput(
+  draft: Draft,
+  rankings: RankingEntry[],
+  leagueSettings: LeagueSettings = {
+    ...defaultLeagueSettings,
+    teamCount: draft.teamCount,
+    rounds: draft.rounds,
+  },
+): RecommendationInput {
   return {
     draft,
     rankings,
-    leagueSettings: {
-      ...defaultLeagueSettings,
-      teamCount: draft.teamCount,
-      rounds: draft.rounds,
-    },
+    leagueSettings,
     userTeamId: draft.userTeamId,
   };
 }
@@ -873,5 +878,101 @@ describe("late-roster recommendation scenarios", () => {
     expect(recommendations.some((recommendation) => {
       return recommendation.playerId === "late-filled-user-k";
     })).toBe(false);
+  });
+});
+
+describe("recommendation boundary scenarios", () => {
+  it("follows a configured third WR starter instead of default roster assumptions", () => {
+    const userPlayers: DraftedScenarioPlayer[] = [
+      { id: "config-user-qb", position: "QB" },
+      { id: "config-user-rb", position: "RB" },
+      { id: "config-user-wr-1", position: "WR" },
+      { id: "config-user-wr-2", position: "WR" },
+    ];
+    const opponentPlayers = createOpponentPlayers(4, "config-opponent");
+    const draft = createScenarioDraft({
+      userPlayerIds: userPlayers.map((player) => player.id),
+      opponentPlayerIds: opponentPlayers.map((player) => player.id),
+    });
+    const rankings = [
+      ...createDraftedRankings(userPlayers, 200),
+      ...createDraftedRankings(opponentPlayers, 300),
+      createScenarioRanking("config-rb", 19, "RB", 1),
+      createScenarioRanking("config-wr", 20, "WR", 1),
+      createScenarioRanking("nearby-config-rb-1", 21, "RB", 2),
+      createScenarioRanking("nearby-config-wr-1", 22, "WR", 2),
+      createScenarioRanking("nearby-config-rb-2", 23, "RB", 3),
+      createScenarioRanking("nearby-config-wr-2", 24, "WR", 3),
+      createScenarioRanking("nearby-config-rb-3", 25, "RB", 4),
+      createScenarioRanking("nearby-config-wr-3", 26, "WR", 4),
+    ];
+    const defaultInput = createScenarioInput(draft, rankings);
+    const threeWideReceiverSettings: LeagueSettings = {
+      teamCount: draft.teamCount,
+      rounds: draft.rounds,
+      draftType: "SNAKE",
+      scoringFormat: "PPR",
+      rosterSlots: [
+        { id: "qb-1", label: "QB", eligiblePositions: ["QB"] },
+        { id: "rb-1", label: "RB", eligiblePositions: ["RB"] },
+        { id: "wr-1", label: "WR", eligiblePositions: ["WR"] },
+        { id: "wr-2", label: "WR", eligiblePositions: ["WR"] },
+        { id: "wr-3", label: "WR", eligiblePositions: ["WR"] },
+        { id: "flex-1", label: "FLEX", eligiblePositions: ["RB", "WR", "TE"] },
+        {
+          id: "bench-1",
+          label: "BENCH",
+          eligiblePositions: ["QB", "RB", "WR", "TE", "DST", "K"],
+        },
+        {
+          id: "bench-2",
+          label: "BENCH",
+          eligiblePositions: ["QB", "RB", "WR", "TE", "DST", "K"],
+        },
+      ],
+    };
+    const customInput = createScenarioInput(draft, rankings, threeWideReceiverSettings);
+    const defaultSettingsBefore = JSON.parse(
+      JSON.stringify(defaultInput.leagueSettings),
+    ) as LeagueSettings;
+    const customSettingsBefore = JSON.parse(
+      JSON.stringify(threeWideReceiverSettings),
+    ) as LeagueSettings;
+
+    const defaultRecommendations = generateDeterministicScenario(defaultInput, 12);
+    const customRecommendations = generateDeterministicScenario(customInput, 12);
+    const defaultRunningBack = getRecommendation(defaultRecommendations, "config-rb");
+    const defaultWideReceiver = getRecommendation(defaultRecommendations, "config-wr");
+    const customRunningBack = getRecommendation(customRecommendations, "config-rb");
+    const customWideReceiver = getRecommendation(customRecommendations, "config-wr");
+
+    expectPlayerBefore(defaultRecommendations, "config-rb", "config-wr");
+    expectPlayerBefore(customRecommendations, "config-wr", "config-rb");
+    expect(getRosterFitComponent(defaultRunningBack)).toMatchObject({
+      delta: 10,
+      evidence: expect.objectContaining({ timing: "direct_starter_need" }),
+    });
+    expect(getRosterFitComponent(defaultWideReceiver)).toMatchObject({
+      delta: 5,
+      evidence: expect.objectContaining({ timing: "flex_need" }),
+    });
+    expect(getRosterFitComponent(customWideReceiver)).toMatchObject({
+      delta: 10,
+      direction: "positive",
+      evidence: expect.objectContaining({ timing: "direct_starter_need" }),
+    });
+    expect(getRosterFitComponent(customRunningBack)).toMatchObject({
+      delta: 5,
+      direction: "positive",
+      evidence: expect.objectContaining({ timing: "flex_need" }),
+    });
+    expect(customWideReceiver.reasons).toContainEqual(
+      expect.objectContaining({
+        id: "roster_fit:direct_starter_need",
+        text: "Fills an open WR starter slot.",
+      }),
+    );
+    expect(defaultInput.leagueSettings).toEqual(defaultSettingsBefore);
+    expect(threeWideReceiverSettings).toEqual(customSettingsBefore);
   });
 });

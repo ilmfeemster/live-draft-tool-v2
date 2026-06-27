@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { createDraftRepository } from "@/lib/draftRepository";
 import { isValidDraftState } from "@/lib/draftInvariants";
+import { draftPlayerInDraft } from "@/lib/draftState";
 import { serializeLeagueSettingsSnapshot } from "@/lib/leagueSettingsSnapshot";
 import { serializeRankingSnapshot } from "@/lib/rankingSnapshot";
-import { generateTopRecommendations } from "@/lib/recommendations";
+import {
+  generatePlayerRecommendations,
+  generateTopRecommendations,
+} from "@/lib/recommendations";
 import type {
   Draft,
   LeagueSettings,
@@ -90,6 +94,69 @@ describe("draft repository", () => {
       "player-1",
       "player-2",
     ]);
+  });
+
+  it("preserves recommendation output across persistence hydration", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const leagueSettings = createLeagueSettings({ teamCount: 2, rounds: 4 });
+    const rankings = [
+      createRanking("player-1", 1, "WR"),
+      createRanking("player-2", 2, "RB"),
+      createRanking("player-3", 3, "QB"),
+      createRanking("player-4", 4, "TE"),
+      createRanking("player-5", 5, "RB"),
+      createRanking("player-6", 6, "WR"),
+      createRanking("player-7", 7, "QB"),
+      createRanking("player-8", 8, "TE"),
+    ];
+    const draftedPlayerIds = ["player-1", "player-2", "player-3"];
+    const workspace = await repository.createDraftWorkspace({
+      leagueSettings,
+      rankings,
+      userTeamId: "team-1",
+    });
+    const inMemoryDraft = draftedPlayerIds.reduce((draft, playerId) => {
+      return draftPlayerInDraft(draft, playerId);
+    }, workspace.draft);
+    const expectedRecommendations = generatePlayerRecommendations({
+      draft: inMemoryDraft,
+      rankings: workspace.rankings,
+      leagueSettings: workspace.leagueSettings,
+      userTeamId: workspace.draft.userTeamId,
+    });
+
+    for (const playerId of draftedPlayerIds) {
+      await repository.draftPlayerInWorkspace(workspace.draft.id, playerId);
+    }
+
+    const reloadedWorkspace = await repository.getDraftWorkspaceById(workspace.draft.id);
+
+    if (!reloadedWorkspace) {
+      throw new Error("Expected persisted draft workspace to reload.");
+    }
+
+    const reloadedInput = {
+      draft: reloadedWorkspace.draft,
+      rankings: reloadedWorkspace.rankings,
+      leagueSettings: reloadedWorkspace.leagueSettings,
+      userTeamId: reloadedWorkspace.draft.userTeamId,
+    };
+    const reloadedRecommendations = generatePlayerRecommendations(reloadedInput);
+    const repeatedReloadedRecommendations = generatePlayerRecommendations(reloadedInput);
+    const draftedPlayerIdSet = new Set(draftedPlayerIds);
+
+    expect(reloadedWorkspace.draft).toEqual(inMemoryDraft);
+    expect(reloadedWorkspace.rankings).toEqual(workspace.rankings);
+    expect(reloadedWorkspace.leagueSettings).toEqual(workspace.leagueSettings);
+    expect(reloadedRecommendations).toEqual(expectedRecommendations);
+    expect(repeatedReloadedRecommendations).toEqual(reloadedRecommendations);
+    expect(expectedRecommendations.every((recommendation) => {
+      return !draftedPlayerIdSet.has(recommendation.playerId);
+    })).toBe(true);
+    expect(reloadedRecommendations.every((recommendation) => {
+      return !draftedPlayerIdSet.has(recommendation.playerId);
+    })).toBe(true);
   });
 
   it("returns null when loading a missing draft", async () => {
