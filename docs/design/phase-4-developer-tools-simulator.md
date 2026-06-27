@@ -113,7 +113,10 @@ Phase4Scenario
     name
     description
     tags
-    createdAt (optional and non-deterministic)
+    provenance (optional and informational)
+      source kind
+      source id (optional)
+      exported at
   leagueSettings
   draftConfiguration
     draftType
@@ -140,8 +143,11 @@ The implementation should reuse existing domain input types when their meaning m
 - `schemaVersion` identifies the scenario contract version and is required.
 - Phase 4 starts with one explicitly supported version.
 - Unsupported versions are rejected with a clear error; Phase 4 does not require migrations for future versions.
-- Metadata provides stable developer-facing identification and discovery.
-- Descriptive metadata and timestamps must not affect draft state or recommendation output.
+- Metadata requires a scenario ID and name; description and tags are optional.
+- The exporter supplies safe default metadata and may accept a lightweight name override. Phase 4 does not require a metadata editor.
+- Optional provenance records whether the export came from a manual, persisted, or scenario session, its source ID when one exists, and the export timestamp.
+- Provenance is informational and must not be used to look up source records, hydrate a draft, or affect replay.
+- Descriptive metadata, provenance, and timestamps must not affect draft state or recommendation output.
 
 #### League Settings and Draft Configuration
 
@@ -207,8 +213,14 @@ The parser should reject:
 - Incorrect primitive or collection types.
 - An absent, malformed, or unsupported scenario version.
 - A replay target that is not an integer or falls outside the pick-history range.
+- A raw scenario file larger than 1 MiB.
+- More than 1,000 ranking entries.
+- A configured draft capacity or pick history greater than 1,000 picks.
+- More than 50 metadata tags.
 
 Errors should identify the affected field or section without exposing implementation internals.
+
+The limits are Phase 4 browser-safety limits, not league defaults. Team count, rounds, and roster shape remain dynamic inside those bounds. The 1 MiB file limit is checked before JSON parsing; the array and draft-capacity limits are checked after structural parsing. Phase 5 may revisit ranking-scale limits when ranking management becomes active, but Phase 4 should not add configurable limits or large-file processing.
 
 ### Cross-Reference and Configuration Validation
 
@@ -288,7 +300,7 @@ An intermediate target installs the state after the configured number of picks w
 
 A completed target is valid only when the applied-pick count reaches the configured draft capacity. The resulting state uses existing Draft State Engine completion behavior; replay does not set completion directly.
 
-Phase 4 does not require real-time playback. Immediate replay to a target is the primary workflow. Step-by-step replay may be added only if it materially improves debugging and can reuse the same coordinator without introducing a second execution model.
+Phase 4 uses immediate replay to the scenario's declared target. The MVP does not include step-forward, step-back, pause, timing, or animation controls. After replay, the developer can explore forward with normal local manual picks or change the scenario target in the source file and reload it. Step controls may be reconsidered only after a concrete debugging need appears, and any future control must reuse the same coordinator rather than introduce a second execution model.
 
 ---
 
@@ -300,6 +312,8 @@ Scenario import accepts a local UTF-8 JSON file through the developer workbench.
 
 Import is local and explicit. It does not create a database record, upload a file to a service, or add the scenario permanently to the curated library.
 
+The browser rejects files over 1 MiB before parsing. Parsed scenarios remain subject to the ranking-entry, draft-capacity, pick-history, and metadata limits defined by scenario validation.
+
 ### Export
 
 Export creates a portable scenario from canonical domain-facing inputs:
@@ -309,11 +323,14 @@ Export creates a portable scenario from canonical domain-facing inputs:
 - The user-team identity.
 - The ordered pick history.
 - A chosen replay target, defaulting to the active applied-pick count.
-- Developer-provided or generated metadata.
+- Generated metadata with an optional lightweight name override.
+- Optional informational provenance for the source session.
 
 Export must reconstruct source inputs from typed application/domain data. It must not serialize raw React state, Prisma records, hydrated database shapes, derived rosters, available-player collections, or recommendation output.
 
-A manually created or hydrated persisted draft may be exported only after its typed configuration, ranking context, user-team context, and ordered picks can satisfy the same scenario contract. Exporting a persisted draft does not alter that draft.
+The existing `DraftWorkspace` boundary already contains the league settings, ranking snapshot, user-team identity, teams, and generated pick list needed for export. A narrow pure mapper should accept those typed workspace values, filter assigned picks into ordered history, and add scenario metadata. It should not query the repository or inspect React state.
+
+A manually created or hydrated persisted draft may be exported when its typed workspace satisfies the scenario contract. A transient scenario session can use the same mapper because it carries the same typed draft, ranking, and settings inputs. Exporting never alters or saves the source draft.
 
 ### Round-Trip Expectations
 
@@ -361,7 +378,11 @@ For each recommendation, the debugger should be able to present engine-owned inf
 
 The debugger may format labels, group fields, expand details, and select a player for inspection. It must preserve the Recommendation Engine's ordering and numeric values.
 
-If an existing recommendation result does not expose enough structured information to explain a displayed total, the engine-facing output contract should be extended at the Recommendation Engine boundary. The UI must not fill the gap by duplicating formulas or inferring reasons from draft state.
+The existing Phase 3 result already exposes ranking data, total score, base score, applied context score, raw score components, and score-backed reasons. However, urgency and total-context caps can make the sum of raw component deltas differ from the final total. Phase 4 should add an engine-owned `scoreAdjustments` collection, or an equivalently small structured field, that records applied urgency-cap and context-cap adjustments. Component deltas plus adjustment deltas must reconcile exactly to the final total.
+
+No additional tie-break model is required for the MVP. The engine's returned array order is authoritative, and the existing result already contains total score, base score, overall rank, position rank, and player ID. The debugger may display those values and the returned position but must not re-sort them or reproduce the comparator.
+
+If any other diagnostic detail proves necessary, it must be added to structured Recommendation Engine output. The UI must not fill gaps by duplicating formulas or inferring reasons from draft state.
 
 Recommendations are recomputed after replay, reset, restart, import, persisted hydration, and manual picks. They are never imported as authoritative scenario content and are never required for scenario export.
 
@@ -372,6 +393,12 @@ The debugger remains read-only. Changing modifier values, live-tuning weights, c
 ## 8. Reset, Restart, and Simulator Iteration
 
 Reset and restart are intentionally distinct operations.
+
+### Scenario Session Persistence Boundary
+
+Imported and curated scenarios run as transient local sessions. Replay, exploratory picks, and undo use the existing pure Draft State Engine transitions in memory and do not call draft repository mutations. Existing manual and hydrated persisted drafts retain their current server-action and persistence behavior.
+
+This separation prevents scenario experiments from overwriting saved drafts while preserving one owner for draft transitions. Export is the explicit way to keep a transient scenario or its exploratory progress. Phase 4 does not add scenario autosave or a new scenario table.
 
 ### Reset Scenario
 
@@ -386,6 +413,8 @@ Reset is available for an active scenario session. It:
 
 Reset should use the same staged replay path as initial loading. It must not restore a cached fabricated final state.
 
+If exploratory local picks or undo have moved the active scenario away from its replay target, reset requires a lightweight native confirmation. An unchanged scenario resets immediately.
+
 ### Restart Configured Draft
 
 Restart creates a fresh draft at zero applied picks using the active league settings, draft configuration, ranking snapshot, and user-team context. It:
@@ -395,6 +424,10 @@ Restart creates a fresh draft at zero applied picks using the active league sett
 - Recomputes recommendations for the new draft.
 - Establishes a normal manual draft session rather than a scenario-target baseline.
 - Does not overwrite or delete persisted data unless the developer later invokes an existing explicit persistence action.
+
+Restart requires confirmation only when it would discard unexported local scenario changes. Restarting a transient scenario creates a transient manual session and does not call the persisted-draft reset action.
+
+Replacing a dirty transient session by selecting or importing another scenario uses the same lightweight confirmation. Phase 4 does not add a global browser `beforeunload` prompt, autosave, or draft-recovery system. Persisted manual drafts keep their existing confirmation and save behavior.
 
 ### Focused Simulator Improvements
 
@@ -564,12 +597,53 @@ Checked-in scenarios must pass through the same parser, validator, and replay pa
 
 This makes curated scenarios representative of real portability and regression behavior.
 
-### Open Questions
+#### Recommendation Diagnostics Add Only Cap Adjustments
 
-1. **Recommendation diagnostic completeness:** Does the existing Phase 3 recommendation result expose applied caps, penalties, and deterministic tie-break information clearly enough for the debugger, or does its structured output need a small additive extension?
-2. **Current state provenance:** Do the manual and persisted draft workflows retain all canonical inputs needed for scenario export, especially ordered pick history, user-team identity, and the exact ranking snapshot, or is a narrow domain-facing export mapper required?
-3. **Replay controls:** Is immediate replay-to-target sufficient for the first Phase 4 increment, or does a concrete debugging case justify step-forward controls? Real-time playback and animation are not justified.
-4. **Unsaved-change handling:** Should reset, restart, and scenario replacement require a lightweight confirmation after exploratory manual picks, or is immediate replacement preferable for the developer-only workbench?
-5. **Import limits:** What practical local file-size and ranking-entry limits should protect the browser from accidental oversized imports without rejecting realistic embedded ranking snapshots?
+The existing recommendation result remains the debugger contract, with one additive engine-owned adjustment collection for urgency and context caps. Raw components remain intact as evidence, and adjustments make the arithmetic reconcile to the final total. The returned order remains authoritative, so Phase 4 does not add a separate tie-break model.
 
-Before implementation tasks are created, these questions should be resolved by mapping this design to the existing domain types, recommendation output, simulator state ownership, and persistence hydration boundary. That review should remain narrow and should not reopen the Phase 4 product scope.
+Tradeoff: the output type grows slightly, but the debugger can explain capped totals without duplicating formulas. This preserves Recommendation Engine ownership and does not affect Draft State, persistence, rankings, or future provider inputs.
+
+#### Export Uses Typed Workspace Provenance
+
+Export uses a pure domain-facing mapper over the typed workspace values already available to manual, hydrated persisted, and transient scenario sessions. Required scenario metadata receives safe defaults and an optional name override. Optional source kind, source ID, and export time are informational only.
+
+Tradeoff: provenance can become stale after a file is copied or edited, so replay never relies on it. The mapper stays outside Prisma and React, introduces no ranking-management behavior, and has no relationship to future live-provider IDs.
+
+#### Replay-to-Target Is the Only Phase 4 Playback Control
+
+Loading, importing, or resetting a scenario immediately replays it to `appliedPickCount`. Step controls, timing, and animation are deferred until a real debugging case justifies them.
+
+Tradeoff: inspecting every historical transition may require changing the target and reloading. The simpler model preserves deterministic Draft State Engine transitions and avoids prematurely resembling Phase 7 event streaming.
+
+#### Dirty Transient Sessions Receive Targeted Confirmation
+
+Scenario sessions are transient and become dirty only after local exploratory picks or undo diverge from their baseline. Reset, restart, or scenario replacement asks for confirmation only when it would discard those changes. Export remains the explicit preservation mechanism.
+
+Tradeoff: the workbench must track a small amount of session provenance and dirty state. It avoids autosave and new persistence while protecting useful experiments; existing persisted-draft behavior remains unchanged.
+
+#### Scenario Imports Have Fixed MVP Safety Limits
+
+Phase 4 accepts at most 1 MiB of JSON, 1,000 ranking entries, 1,000 configured or historical picks, and 50 metadata tags. Limits are fixed constants with clear validation errors.
+
+Tradeoff: unusually large synthetic scenarios are rejected, but realistic fantasy drafts and embedded ranking snapshots retain ample headroom. The limits protect local browser parsing without introducing streaming, configuration UI, Phase 5 ranking-scale architecture, or Phase 7 event-volume assumptions.
+
+#### Scenario Sessions Are Transient
+
+Imported and curated scenarios do not create or mutate database records. Replay and exploratory actions use existing pure draft transitions locally; manual and persisted draft sessions retain their existing repository workflow.
+
+Tradeoff: scenario changes disappear unless exported, but persistence stays simple and experiments cannot corrupt saved drafts. A future need for saved scenario collections should be planned separately rather than folded into Phase 4.
+
+### Boundary Verification
+
+| Finalized decision | Draft State Engine | Recommendation Engine | Persistence | Phase 5 rankings | Phase 7 integrations |
+| --- | --- | --- | --- | --- | --- |
+| Cap adjustment diagnostics | No draft behavior changes. | Engine calculates and exposes adjustments. | Output remains derived and unpersisted. | Ranking snapshot remains an input. | Output remains source-agnostic. |
+| Typed export mapper and provenance | Exports input history, not derived final state. | Recommendations are excluded. | Reads typed workspace data without repository access or writes. | Embedded snapshots are read-only scenario context. | Provenance is not a provider ID contract. |
+| Immediate replay-to-target | Every pick uses the canonical transition. | Recommendations are recomputed after replay. | Candidate replay is local and atomic. | No ranking editing or source parsing is added. | No event timing or provider abstraction is introduced. |
+| Dirty-only confirmation | Local transitions remain unchanged. | Recomputed output remains derived. | No autosave or scenario persistence is added. | No ranking behavior changes. | No synchronization or recovery model is implied. |
+| Fixed import limits | Dynamic valid settings work inside safety bounds. | Ranking inputs remain validated before scoring. | No storage or migration impact. | Limits are Phase 4 safety constraints, not ranking-product rules. | Limits do not define provider event volume. |
+| Transient scenario sessions | Local and persisted paths share pure transitions. | Both paths call the same pure engine. | Existing persisted workflows remain isolated. | Embedded snapshots are not managed ranking sets. | Local scenario state is not a live Draft Source interface. |
+
+### Remaining Open Questions
+
+None. Implementation may make local naming and file-placement choices within these decisions without reopening the architecture.

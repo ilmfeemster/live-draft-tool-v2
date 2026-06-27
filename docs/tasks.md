@@ -2,530 +2,466 @@
 
 ## Current Focus
 
-Phase 3: Completion Validation.
+Phase 4: Developer Tools & Simulator.
 
-Phase 2 persistence is complete, and Phase 3 Tasks 1-10 have implemented and wired the deterministic, explainable Recommendation Engine. Task 11 is the remaining phase-exit gate: rerun the automated evidence and complete the short manual draft-room QA before Phase 3 is marked complete.
+Phase 4 adds a local development workbench around the existing Draft State Engine and Recommendation Engine. The work should make draft scenarios portable, deterministic, fast to replay, and easy to inspect without changing the ownership of draft rules, recommendation scoring, or persisted drafts.
 
 The source documents for this task plan are:
 
 - `docs/project.md`
-- `docs/design/recommendation-engine.md`
+- `docs/design/phase-4-developer-tools-simulator.md`
 - `docs/architecture.md`
 - `docs/testing.md`
+- `docs/roadmap.md` for phase boundaries only
 
-Completed Phase 1 and Phase 2 task history remains archived in `docs/completed-tasks.md`.
+Completed Phase 1 and Phase 2 task history remains archived in `docs/completed-tasks.md`. Phase 3 engine implementation and automated coverage are complete; its former completion task was not marked complete in the previous plan, so Phase 4 completion validation must retain full manual and persisted-workflow regression coverage rather than assume that evidence.
 
 ---
 
-## Phase 3 Task Ordering
+## Phase 4 Task Ordering
 
-The tasks are ordered to preserve architecture boundaries:
+The tasks are ordered to establish one reusable scenario path before adding workbench controls:
 
-1. Align architecture and decision documentation before implementation begins.
-2. Establish the pure recommendation engine contract and tuning configuration.
-3. Build the base scoring pipeline and deterministic ordering.
-4. Add bounded modifiers one at a time.
-5. Add reason selection once scoring components exist.
-6. Add scenario validation after the core behavior is present.
-7. Wire the engine into the existing manual and persisted draft workflow.
+1. Define the portable scenario contract and serialization boundary.
+2. Validate untrusted scenarios and enforce fixed MVP safety limits.
+3. Replay validated pick history through the existing Draft State Engine.
+4. Add typed import/export mapping and prove semantic round trips.
+5. Build the curated scenario library on the public scenario path.
+6. Make Recommendation Engine totals fully inspectable and display them read-only.
+7. Add transient scenario-session, reset, restart, and dirty-state behavior.
+8. Integrate the focused developer workbench controls.
+9. Complete cross-feature regression and Phase 4 exit validation.
 
 Do not promote multiple unrelated tasks into `docs/current-slice.md` at once.
 
 ---
 
-## Task 1 - Align Phase 3 Architecture Documentation
-
-- [x] Complete
-
-### Goal
-
-Reflect the approved Recommendation Engine design in the project-level architecture and decision documents before code implementation begins.
-
-### Scope
-
-- Update `docs/architecture.md` to describe the pure Recommendation Engine boundary.
-- Update `docs/architecture.md` with the bounded additive scoring model at a high level.
-- Update `docs/architecture.md` to state that explanations come directly from scoring components.
-- Update `docs/decisions.md` with the Phase 3 scoring model decision.
-- Update `docs/decisions.md` with the Phase 3 reason-generation decision.
-- Record deferred alternatives from the design where they affect future development.
-
-### Non-Goals
-
-- Do not implement recommendation code.
-- Do not update `docs/current-slice.md`.
-- Do not redesign the scoring model.
-- Do not add implementation tasks beyond documentation alignment.
-
-### Acceptance Criteria
-
-- `docs/architecture.md` matches the approved design at architecture level.
-- `docs/decisions.md` records the meaningful Phase 3 decisions.
-- The documentation keeps AI reasoning, simulations, opponent modeling, and Phase 6 insight strategy out of Phase 3.
-- The documentation preserves dynamic league settings, roster settings, and draft configuration support.
-
-### Suggested Tests
-
-- Documentation review only.
-
----
-
-## Task 2 - Define Recommendation Engine Contract
-
-- [x] Complete
-
-### Goal
-
-Create the domain-facing Recommendation Engine boundary and output model without coupling it to UI, persistence, or draft sources.
-
-### Scope
-
-- Define recommendation input types that consume typed draft state, rankings, league settings, and user team identity.
-- Define recommendation output types for player recommendations, total score, base score, context score, score components, and reasons.
-- Define a recommendation tuning configuration for engine-level constants.
-- Add a pure engine entry point that can return deterministic recommendations.
-- Ensure recommendation results only consider available players.
-
-### Non-Goals
-
-- Do not add scoring modifiers beyond what is needed to support the contract.
-- Do not persist recommendation output.
-- Do not read from Prisma or server actions inside the engine.
-- Do not introduce a generic plugin or modifier registry.
-- Do not change draft state transition behavior.
-- Do not change UI presentation.
-
-### Acceptance Criteria
-
-- Recommendation code accepts typed domain inputs rather than database records or React state.
-- Recommendation output includes score fields, component data, and reason fields needed by later tasks.
-- The engine can be called with dynamic league and roster settings.
-- The same input produces the same output ordering.
-- Drafted players are excluded from recommendation results.
-
-### Suggested Tests
-
-- Unit test that the engine returns only available players.
-- Unit test that identical inputs produce identical ordering.
-- Unit test that the engine accepts a non-default league setting fixture.
-- Type or compile validation for the public recommendation types.
-
----
-
-## Task 3 - Implement Base Ranking Scoring
-
-- [x] Complete
-
-### Goal
-
-Implement the rank-derived base player value score and deterministic recommendation ordering.
-
-### Scope
-
-- Score each available player using the approved base value formula from `overallRank`.
-- Sort recommendations by total score, base score, overall rank, position rank, and player id.
-- Include a base-value score component for each recommendation.
-- Keep context score at zero until modifier tasks add behavior.
-- Preserve output stability for the same ranking snapshot.
-
-### Non-Goals
-
-- Do not add roster need, scarcity, tier, run-pressure, or value-opportunity modifiers.
-- Do not add UI changes.
-- Do not normalize rankings or introduce projection data.
-- Do not use ADP as the base score source.
-
-### Acceptance Criteria
-
-- Base recommendations are ordered by the rank-derived score.
-- Higher-ranked available players generally score above lower-ranked available players.
-- Tie-breaking is deterministic.
-- The base score curve keeps top-ranked players meaningfully separated while compressing later players.
-- Recommendation results remain independent from persistence implementation details.
-
-### Suggested Tests
-
-- Unit test for the base score formula.
-- Unit test for deterministic tie-break ordering.
-- Unit test that drafted players are not scored.
-- Unit test that a lower-ranked player does not outrank a higher-ranked player when no context modifiers apply.
-
----
-
-## Task 4 - Add Roster Fit And Timing Modifier
-
-- [x] Complete
-
-### Goal
-
-Add the primary team-context modifier for starter needs, FLEX needs, bench depth, saturation, and DEF/K timing.
-
-### Scope
-
-- Derive roster need from configured roster slots and eligible positions.
-- Reward open required starter needs.
-- Account for FLEX-eligible positions without hard-coding MVP defaults.
-- Add bench-depth credit after starters are mostly filled.
-- Penalize saturated positions.
-- Apply early timing penalties for DEF and K.
-- Add roster-fit score components that later reason generation can use.
-
-### Non-Goals
-
-- Do not add positional scarcity, run pressure, tier cliffs, or value opportunity.
-- Do not hard-code 12 teams, 16 rounds, default starter counts, or default bench size.
-- Do not introduce strategy profiles.
-- Do not change roster derivation in the Draft State Engine unless a genuine bug blocks the modifier.
-
-### Acceptance Criteria
-
-- Open starter slots increase recommendations for eligible positions.
-- Saturated positions are de-emphasized without fully hiding elite value.
-- FLEX settings affect positional need in observable ways.
-- DEF/K are heavily de-emphasized before the late phase and become valid needs when their configured slots remain empty late.
-- Non-default roster configurations influence scoring correctly.
-
-### Suggested Tests
-
-- Unit test for open starter need.
-- Unit test for FLEX eligibility affecting need.
-- Unit test for position saturation penalty.
-- Unit test for early DEF/K timing penalty.
-- Unit test using a non-default roster configuration.
-
----
-
-## Task 5 - Add Value Opportunity Modifier
-
-- [x] Complete
-
-### Goal
-
-Reward players who have fallen relative to the current pick and lightly penalize unsupported reaches.
-
-### Scope
-
-- Compare candidate overall rank against current pick number.
-- Add bounded positive score components for falling value.
-- Add bounded negative score components for clear reaches without contextual support.
-- Keep value opportunity separate from base ranking value.
-- Use existing ranking fields only.
-
-### Non-Goals
-
-- Do not add projections or value-over-replacement.
-- Do not make ADP a required dependency.
-- Do not add UI-only labels.
-- Do not let value opportunity override the total context caps.
-
-### Acceptance Criteria
-
-- Players who have fallen meaningfully receive a bounded positive modifier.
-- Clear reaches can receive a small negative modifier.
-- Value opportunity does not duplicate or replace base score.
-- The modifier behaves deterministically for the same current pick and rankings.
-- The modifier works with loaded persisted drafts because it only depends on typed draft state.
-
-### Suggested Tests
-
-- Unit test for small, clear, and major value opportunities.
-- Unit test for clear reach penalty.
-- Unit test that base score still anchors ordering when value opportunity is absent.
-- Unit test that value opportunity remains within configured bounds.
-
----
-
-## Task 6 - Add Tier-Drop Risk Modifier
-
-- [x] Complete
-
-### Goal
-
-Reward players near meaningful positional tier cliffs when the position still matters to the roster.
-
-### Scope
-
-- Detect remaining available players in the candidate's position and tier.
-- Compare current tier depth with the next available tier.
-- Consider distance to the user's next pick when calculating tier pressure.
-- Scale tier pressure by roster relevance.
-- Add bounded tier score components.
-
-### Non-Goals
-
-- Do not simulate future picks.
-- Do not predict specific opponent behavior.
-- Do not introduce Phase 6 strategy advice.
-- Do not let tier pressure stack beyond the combined urgency cap.
-
-### Acceptance Criteria
-
-- Last-few-in-tier situations increase recommendations for relevant positions.
-- Tier pressure is reduced when the position is already solved or low-value for the roster.
-- Tier pressure cannot move a much lower-value player above an elite player by itself.
-- Tier score components include the data needed for reason generation.
-
-### Suggested Tests
-
-- Unit test for mild tier pressure.
-- Unit test for major tier cliff at a needed position.
-- Unit test that filled positions reduce tier impact.
-- Unit test that the scarcity plus tier combined cap is respected once scarcity exists.
-
----
-
-## Task 7 - Add Positional Scarcity And Run Pressure Modifier
-
-- [x] Complete
-
-### Goal
-
-Reward positions where useful remaining options are thinning, including observed positional runs, without predicting future opponent behavior.
-
-### Scope
-
-- Measure remaining available quality by position.
-- Detect recent observed positional runs from draft pick history.
-- Apply scarcity pressure only when the candidate position remains relevant to the user's roster.
-- Combine scarcity and tier pressure through the approved urgency cap.
-- Add scarcity and run-pressure score components.
-
-### Non-Goals
-
-- Do not model opponents.
-- Do not simulate future draft rooms.
-- Do not let positional runs force bad picks.
-- Do not make provider-specific assumptions.
-- Do not replace tier-drop risk.
-
-### Acceptance Criteria
-
-- Thin remaining positional quality creates bounded scarcity credit.
-- Recent positional runs add pressure only when tied to roster relevance.
-- A run at a solved position has minimal or no effect.
-- Scarcity plus tier pressure respects the combined cap.
-- The modifier remains independent from manual, replay, or future live draft sources.
-
-### Suggested Tests
-
-- Unit test for mild and clear scarcity.
-- Unit test for observed run pressure at a needed position.
-- Unit test that run pressure is ignored or minimized for solved positions.
-- Unit test that scarcity does not overpower a large base-value gap.
-- Unit test that combined urgency is capped.
-
----
-
-## Task 8 - Add Explanation Selection
-
-- [x] Complete
-
-### Goal
-
-Generate concise, deterministic recommendation reasons directly from scoring components.
-
-### Scope
-
-- Convert score components into reason candidates.
-- Return up to three reasons per recommendation.
-- Prioritize strongest positive context, tier or scarcity pressure, base value or value opportunity, and one meaningful negative caveat when relevant.
-- Apply reason thresholds from the tuning configuration.
-- Ensure reason text or reason data reflects actual scoring inputs.
-
-### Non-Goals
-
-- Do not generate AI-written explanations.
-- Do not add unsupported strategic claims.
-- Do not predict opponent behavior.
-- Do not create a long-form insight system.
-- Do not change scoring values solely to make reasons easier to display.
-
-### Acceptance Criteria
-
-- Each displayed reason traces back to a score component.
-- Recommendations return no more than three reasons.
-- Reasons are stable for the same input.
-- Meaningful roster need, tier cliff, scarcity, value, and negative caveat reasons can be selected.
-- Generic or unsupported advice is not generated.
-
-### Suggested Tests
-
-- Unit test that only score-backed reasons are emitted.
-- Unit test reason priority ordering.
-- Unit test reason count limit.
-- Unit test negative caveat selection when a player remains recommended despite a penalty.
-- Unit test that low-impact components below threshold do not produce reasons.
-
----
-
-## Task 9 - Add Recommendation Scenario Validation
-
-- [x] Complete
-
-### Goal
-
-Create deterministic scenario coverage for representative draft situations from the approved design.
-
-### Scope
-
-- Add scenario fixtures for heavy RB start.
-- Add scenario fixtures for heavy WR start.
-- Add scenario fixtures for ignoring QB early.
-- Add scenario fixtures for positional runs.
-- Add scenario fixtures for tier cliffs.
-- Add scenario fixtures for starter positions filled.
-- Add scenario fixtures for bench depth decisions.
-- Add scenario fixtures for late-round DEF/K strategy.
-- Add scenario fixtures for at least one non-default roster configuration.
-- Add persisted-draft parity coverage where the existing persistence boundary makes this practical.
-
-### Non-Goals
-
-- Do not assert every player in a full ranking list.
-- Do not depend on fragile UI rendering.
-- Do not add live-provider or replay tooling.
-- Do not redesign scoring during scenario creation unless a scenario exposes a direct contradiction.
-
-### Acceptance Criteria
-
-- Scenario tests assert top recommendation sets or important relative ordering.
-- Scenario tests assert key reasons where explanations are part of the expected behavior.
-- Scenarios prove recommendations remain deterministic.
-- Scenarios prove recommendation results only contain available players.
-- At least one scenario validates dynamic roster settings rather than MVP defaults.
-
-### Suggested Tests
-
-- Scenario tests for each required scenario listed in scope.
-- Regression tests for any scoring behavior fixed during scenario validation.
-- Integration-style test for persisted draft parity if an existing hydrated draft fixture is available.
-
----
-
-## Task 10 - Wire Recommendation Engine Into Draft Workflow
-
-- [x] Complete
-
-### Goal
-
-Use the Phase 3 Recommendation Engine in the existing manual and persisted draft workflows.
-
-### Scope
-
-- Replace any basic recommendation scaffolding with the new engine output.
-- Feed the engine typed draft state, ranking snapshot data, league settings, and user team identity.
-- Display ordered recommendations in the existing draft workflow.
-- Display concise score-backed reasons using existing UI surfaces where practical.
-- Preserve recommendation updates after manual picks, undo, draft load, and persisted draft resume.
-
-### Non-Goals
-
-- Do not redesign the draft room UI.
-- Do not add a new recommendation window product surface.
-- Do not persist recommendation output.
-- Do not add live provider integration.
-- Do not add AI explanations or Phase 6 insights.
-- Do not change persistence storage shape unless an existing mapper bug blocks typed engine input.
-
-### Acceptance Criteria
-
-- Manual pick entry updates recommendations through the new engine.
-- Loaded persisted drafts recompute recommendations from hydrated state.
-- Recommendation output remains independent from database storage details.
-- Reasons displayed in the UI match score-backed engine reasons.
-- Existing draft invariants remain true after pick and undo flows.
-- The workflow still supports dynamic league settings and roster configuration.
-
-### Suggested Tests
-
-- Integration test that drafting a player updates recommendation ordering.
-- Integration test that undo restores prior recommendation behavior.
-- Integration or regression test that a loaded draft produces the same recommendations as the same in-memory state.
-- Existing draft workflow tests should continue to pass.
-- Manual QA for a short draft flow with recommendation reasons visible.
-
----
-
-## Task 11 - Phase 3 Completion Validation
+## Task 1 - Define the Scenario V1 Contract
 
 - [ ] Complete
 
 ### Goal
 
-Validate that Phase 3 meets the project success criteria before the phase is marked complete.
+Create the typed, versioned, self-contained scenario contract that later Phase 4 work can validate, replay, import, and export.
 
 ### Scope
 
-- Confirm recommendations differ from static rankings when context justifies it.
-- Confirm base value still anchors elite recommendations.
-- Confirm roster need, positional scarcity, tier-drop risk, and value opportunity are observable.
-- Confirm explanations are score-backed.
-- Confirm manual and persisted workflows both use the same engine.
-- Confirm representative scenario tests pass.
-- Update task status when each Phase 3 task is completed.
+- Define the Phase 4 scenario v1 shape for metadata, optional informational provenance, league settings, draft configuration, embedded ranking context, user-team identity, ordered pick history, and `appliedPickCount`.
+- Reuse existing domain types where their meaning matches the scenario contract.
+- Represent optional expected pick-number and team assertions without making them authoritative draft commands.
+- Define deterministic serialization for an already-valid typed scenario.
+- Keep the contract capable of representing supported dynamic league settings.
+- Exclude rosters, availability, active pick, completion flags, recommendations, database rows, and React state from authoritative scenario data.
 
 ### Non-Goals
 
-- Do not add new recommendation features during completion validation.
-- Do not weaken scenario expectations to make validation pass.
-- Do not start Phase 4 replay or simulator tooling.
-- Do not add Phase 6 insight behavior.
+- Do not validate untrusted JSON yet.
+- Do not replay picks.
+- Do not add import/export UI.
+- Do not add database storage for scenarios.
+- Do not introduce ranking management or a generic Draft Source interface.
 
 ### Acceptance Criteria
 
-- All Phase 3 task acceptance criteria are satisfied.
-- Relevant automated tests pass.
-- Manual validation confirms recommendations update during draft workflow.
-- Recommendation results remain deterministic for identical inputs.
-- No Phase 3 non-goals were introduced.
+- The contract has one explicit supported schema version.
+- A scenario embeds the ranking snapshot needed for deterministic recommendation input.
+- Metadata and provenance cannot affect reconstructed draft state or recommendation output.
+- Replay target semantics are unambiguous for zero, intermediate, and completed pick counts.
+- The contract supports a valid non-default league configuration without 12-team or 16-round assumptions.
+- Serialized scenarios contain source inputs rather than fabricated derived state.
 
 ### Suggested Tests
 
-- Run the relevant automated test suite.
-- Run focused recommendation scenario tests.
-- Complete a short manual QA draft flow.
+- Type or compile validation for the public scenario types.
+- Unit test for deterministic serialization of a representative typed scenario.
+- Unit test that a non-default league fixture can be represented.
+- Unit test that optional provenance does not alter serialized domain inputs.
+
+---
+
+## Task 2 - Add Scenario Parsing and Validation
+
+- [ ] Complete
+
+### Goal
+
+Reject malformed, incompatible, unsafe, or internally inconsistent scenarios before they can reach replay or replace active state.
+
+### Scope
+
+- Parse untrusted scenario JSON into the v1 contract.
+- Validate required fields, supported version, metadata, settings, draft configuration, ranking entries, user-team identity, pick references, optional assertions, and replay-target bounds.
+- Reject duplicate ranking players, duplicate drafted players, invalid pick references, inconsistent team configuration, and history beyond draft capacity.
+- Reuse existing league and draft validation rules where available instead of duplicating domain logic.
+- Enforce the fixed Phase 4 limits: 1 MiB JSON, 1,000 ranking entries, 1,000 configured or historical picks, and 50 metadata tags.
+- Return clear structured failures without mutating current or persisted draft state.
+
+### Non-Goals
+
+- Do not semantically apply the pick sequence yet.
+- Do not migrate unsupported scenario versions.
+- Do not make safety limits configurable.
+- Do not parse external ranking formats or add Phase 5 ranking features.
+- Do not add UI beyond error data needed by later work.
+
+### Acceptance Criteria
+
+- Valid v1 scenarios produce typed scenario data.
+- Malformed JSON and unsupported versions fail clearly.
+- Missing ranking context, invalid user-team references, duplicate players, invalid pick assertions, and out-of-range targets fail clearly.
+- Dynamic valid league settings pass within the fixed safety limits.
+- Oversized or over-complex scenarios fail before replay.
+- Validation has no side effects on active or persisted drafts.
+
+### Suggested Tests
+
+- Unit tests for malformed JSON, missing fields, and unsupported versions.
+- Unit tests for duplicate players, bad references, inconsistent settings, and invalid targets.
+- Boundary tests for file size, rankings, picks, and metadata tags.
+- Unit test for a valid non-default league configuration.
+
+---
+
+## Task 3 - Add Deterministic Replay Infrastructure
+
+- [ ] Complete
+
+### Goal
+
+Reconstruct zero-pick, intermediate, and completed draft states by applying validated scenario history through the existing Draft State Engine.
+
+### Scope
+
+- Add a small replay coordinator that creates a fresh base draft from scenario settings and configuration.
+- Apply every ordered pick through the canonical pure draft transition.
+- Capture the state at `appliedPickCount` while continuing to validate the full supplied history.
+- Return the target state only after the complete history succeeds.
+- Treat rejected or no-op transitions as replay failures with the relevant pick index and reason.
+- Recompute recommendations from the reconstructed state, embedded rankings, league settings, and user-team identity.
+- Prove equivalent manual and replay inputs produce equivalent domain state and recommendation output.
+- Support immediate replay-to-target only.
+
+### Non-Goals
+
+- Do not inject rosters, availability, current pick, or completion directly.
+- Do not add step controls, timing, animation, or real-time playback.
+- Do not write replay picks to persistence.
+- Do not introduce an event bus, provider adapter, or Phase 7 normalization model.
+- Do not change draft rules to accommodate invalid scenarios.
+
+### Acceptance Criteria
+
+- Replay uses the existing Draft State Engine transition for every pick.
+- Zero, intermediate, and completed targets reconstruct valid domain state.
+- The entire history must validate even when the target is intermediate.
+- Repeated replay of identical input produces identical draft and recommendation output.
+- Manual and replay paths are equivalent for the same inputs.
+- A replay failure returns no partially reconstructed active state.
+
+### Suggested Tests
+
+- Unit tests for zero, intermediate, and completed replay targets.
+- Integration test comparing manual and replay state field by field.
+- Integration test comparing deterministic recommendation output.
+- Regression test that a late invalid pick rejects the whole scenario.
+- Replay test using a non-default league configuration.
+
+---
+
+## Task 4 - Add Portable Import and Export Round Trips
+
+- [ ] Complete
+
+### Goal
+
+Convert typed manual, persisted, and transient workspaces into portable scenarios and reconstruct them without crossing persistence or UI boundaries.
+
+### Scope
+
+- Add a pure domain-facing export mapper over typed workspace data.
+- Extract league settings, team configuration, user-team identity, embedded rankings, and ordered assigned picks without serializing derived state.
+- Generate safe default scenario metadata, accept a lightweight name override, and include optional informational source provenance.
+- Import through the shared parser, validator, and replay coordinator.
+- Preserve `appliedPickCount`, defaulting export to the active drafted-pick count.
+- Prove export/import semantic round trips for manual, hydrated persisted, and transient scenario states.
+- Keep import and export local and explicit.
+
+### Non-Goals
+
+- Do not query Prisma or server actions from the mapper.
+- Do not persist imported scenarios or exported recommendation output.
+- Do not require byte-for-byte equality after re-export.
+- Do not add arbitrary ranking-file import, tier editing, or ranking collections.
+- Do not add final workbench controls yet.
+
+### Acceptance Criteria
+
+- The mapper consumes typed workspace values rather than database records or React state.
+- Exported files contain canonical source inputs and no authoritative derived state.
+- Importing an exported scenario reproduces equivalent domain state and recommendation input.
+- Informational provenance can be removed or changed without changing replay output.
+- Exporting a hydrated persisted draft performs no persistence mutation.
+- Round trips preserve dynamic league configuration and ordered pick history.
+
+### Suggested Tests
+
+- Unit test for workspace-to-scenario mapping.
+- Round-trip test for an in-memory manual workspace.
+- Round-trip test for a hydrated persisted workspace.
+- Round-trip test after transient scenario exploration.
+- Test that derived rosters, availability, and recommendations are absent from export.
+
+---
+
+## Task 5 - Add the Curated Scenario Library
+
+- [ ] Complete
+
+### Goal
+
+Provide a small version-controlled library of representative draft situations that uses the same contract and replay path as imported scenarios.
+
+### Scope
+
+- Add curated v1 scenarios for an early baseline, roster need, tier or scarcity pressure, observed run pressure, a late or completed draft, and a non-default league configuration.
+- Load curated files through the public scenario parser, validator, and replay coordinator.
+- Give each scenario concise metadata that explains the behavior it is intended to reproduce.
+- Assert stable draft state and important recommendation behavior for each curated scenario.
+- Keep the library deliberately small and regression-oriented.
+
+### Non-Goals
+
+- Do not add a special hard-coded setup path for curated scenarios.
+- Do not build user scenario collections, search infrastructure, cloud storage, or exhaustive combinatorial coverage.
+- Do not add new recommendation behavior merely to make a curated scenario interesting.
+- Do not turn the library into ranking management.
+- Do not add the final scenario-selector UI yet.
+
+### Acceptance Criteria
+
+- Every curated file passes the same validation as an imported file.
+- Every curated file replays deterministically through the existing Draft State Engine.
+- The library covers representative draft-state and recommendation cases without duplicating setup logic.
+- At least one scenario proves dynamic non-default settings.
+- Scenario assertions are exact where behavior is deterministic.
+
+### Suggested Tests
+
+- Parameterized validation and replay test for every curated scenario.
+- Exact invariant checks for reconstructed draft state.
+- Recommendation ordering, total, component, or reason checks appropriate to each scenario.
+- Repeated-replay determinism test.
+
+---
+
+## Task 6 - Add Recommendation Diagnostics and Debugger
+
+- [ ] Complete
+
+### Goal
+
+Make Recommendation Engine scoring fully reconcilable and inspectable without moving recommendation logic into the UI.
+
+### Scope
+
+- Extend structured Recommendation Engine output with engine-owned urgency-cap and context-cap adjustments when they apply.
+- Ensure raw component deltas plus adjustment deltas reconcile exactly to the final total.
+- Preserve existing base score, context score, components, penalties, reasons, ranking data, and authoritative returned order.
+- Add a read-only developer debugger that displays totals, raw components, modifiers, penalties, cap adjustments, and score-backed reasons.
+- Display returned position and existing tie-break values without re-sorting recommendations in the UI.
+- Make the debugger usable for current manual and hydrated persisted drafts so the same view can later serve scenario sessions.
+
+### Non-Goals
+
+- Do not calculate scores, caps, reasons, or sort order in the UI.
+- Do not add weight editing, live tuning, strategy profiles, or AI explanations.
+- Do not persist diagnostics or recommendation output.
+- Do not change scoring behavior except to expose existing applied adjustments.
+- Do not redesign the draft room.
+
+### Acceptance Criteria
+
+- Every displayed recommendation total can be reconciled from engine-owned structured output.
+- Capped and uncapped examples expose the correct adjustments.
+- Negative modifiers and penalties remain visible.
+- Debugger reasons exactly match Recommendation Engine reasons.
+- The UI preserves engine ordering and adds no parallel recommendation rules.
+- Existing recommendation output remains deterministic.
+
+### Suggested Tests
+
+- Unit tests for urgency-cap and context-cap adjustment output.
+- Unit test that components plus adjustments equal total score.
+- Regression tests proving recommendation order and reasons are unchanged.
+- Component test for debugger rendering of positive, negative, and capped scores.
+
+---
+
+## Task 7 - Add Transient Scenario Sessions and Reset/Restart
+
+- [ ] Complete
+
+### Goal
+
+Allow safe local exploration of replayed scenarios with distinct reset and restart behavior while preserving existing persisted-draft actions.
+
+### Scope
+
+- Introduce a transient scenario-session mode around a successful replay result.
+- Route scenario picks and undo through existing pure Draft State Engine transitions without repository writes.
+- Keep manual and hydrated persisted draft sessions on their existing server-action and repository path.
+- Track the loaded scenario baseline and whether local exploratory changes have diverged from it.
+- Reset a scenario by validating and replaying its source back to its target.
+- Restart with the same settings, rankings, and user-team identity at zero picks as a transient manual session.
+- Confirm reset, restart, or scenario replacement only when it would discard dirty local changes.
+- Recompute recommendations after every local transition, reset, and restart.
+
+### Non-Goals
+
+- Do not autosave scenarios or add scenario persistence tables.
+- Do not call persisted reset or pick actions from a transient scenario session.
+- Do not add a global browser navigation warning or recovery system.
+- Do not change existing persisted-draft confirmation or save behavior.
+- Do not add final workbench layout polish.
+
+### Acceptance Criteria
+
+- Scenario exploration creates no database writes.
+- Local picks and undo use the same pure transitions as persisted draft operations.
+- Reset restores the declared replay target rather than a cached final state.
+- Restart produces a valid zero-pick transient draft with the same configuration and rankings.
+- Dirty destructive actions require confirmation; unchanged sessions proceed immediately.
+- Existing manual and persisted draft actions behave as before.
+
+### Suggested Tests
+
+- Integration test proving scenario picks and undo avoid repository actions.
+- Integration test for reset after exploratory picks.
+- Integration test for restart at zero picks.
+- Tests for dirty and unchanged confirmation behavior.
+- Regression tests for existing persisted pick, undo, and reset flows.
+
+---
+
+## Task 8 - Integrate the Developer Workbench Controls
+
+- [ ] Complete
+
+### Goal
+
+Expose the completed scenario, replay, export, debugger, reset, and restart capabilities in one focused simulator workflow.
+
+### Scope
+
+- Add a compact curated-scenario selector.
+- Add local JSON import and export controls.
+- Replay selected or imported scenarios immediately to their declared target.
+- Show active scenario name, source, replay target, applied-pick count, and dirty state.
+- Surface concise validation and replay errors without replacing the active draft on failure.
+- Expose scenario reset and configured-draft restart actions with the finalized confirmation behavior.
+- Keep recommendation details accessible in the same workflow.
+- Preserve normal manual and persisted draft navigation and actions.
+
+### Non-Goals
+
+- Do not add step playback, animation, timelines, or event streaming.
+- Do not add scenario editing, cloud storage, ranking editing, or user collections.
+- Do not add consumer onboarding, mobile-first polish, or a broad design-system refactor.
+- Do not add new services, queues, workers, or deployment infrastructure.
+- Do not introduce Phase 7 provider controls.
+
+### Acceptance Criteria
+
+- A developer can select or import a scenario and reach its target state within seconds.
+- Invalid import leaves the current draft unchanged and shows a useful error.
+- Export is available for manual, persisted, and transient scenario states.
+- Reset, restart, local picks, undo, and debugger inspection work from the scenario workflow.
+- Workbench controls clearly distinguish transient scenario behavior from persisted draft behavior.
+- Existing draft workflows remain usable without entering scenario mode.
+
+### Suggested Tests
+
+- Component or integration test for curated scenario selection and immediate replay.
+- Component or integration test for successful and failed file import.
+- Component test for source, target, count, and dirty-state indicators.
+- Component test for export action and destructive confirmation behavior.
+- Focused manual QA of the complete workbench loop.
+
+---
+
+## Task 9 - Complete Phase 4 Regression and Exit Validation
+
+- [ ] Complete
+
+### Goal
+
+Prove the finished workbench meets Phase 4 success criteria and has not regressed the Draft State Engine, Recommendation Engine, or persistence workflows.
+
+### Scope
+
+- Run and complete deterministic unit, integration, scenario, and regression coverage across the Phase 4 path.
+- Confirm replay equivalence, import/export round trips, validation failure isolation, reset/restart behavior, and recommendation determinism.
+- Confirm draft invariants after replay, local exploration, reset, restart, and completed scenarios.
+- Confirm the curated library covers intermediate, completed, recommendation-focused, and non-default configurations.
+- Re-run existing manual draft, recommendation, hydration, repository, and persisted-workflow coverage.
+- Complete focused manual QA for scenario load, import, export, debugger inspection, dirty confirmation, reset, restart, and persisted-draft preservation.
+- Verify the developer can recreate representative target states within seconds.
+
+### Non-Goals
+
+- Do not add new Phase 4 features during exit validation.
+- Do not weaken existing assertions or change expected recommendation behavior without an approved product decision.
+- Do not optimize for synthetic scale beyond the approved safety limits.
+- Do not begin Phase 5 ranking work or Phase 7 provider work.
+- Do not expand UI polish beyond a direct usability blocker.
+
+### Acceptance Criteria
+
+- All Phase 4 task acceptance criteria are satisfied.
+- Relevant focused and full automated suites pass.
+- Manual QA confirms the end-to-end developer workflow.
+- Manual and replay inputs produce equivalent domain state and recommendation output.
+- Invalid scenarios never partially replace active state or mutate persistence.
+- Existing manual and persisted draft workflows pass regression validation.
+- No Phase 4 non-goals or future-phase architecture were introduced.
+
+### Suggested Tests
+
+- Run the full automated test suite and project validation commands.
+- Run every curated scenario through validation and replay.
+- Complete the focused Phase 4 manual QA checklist.
+- Repeat one scenario after a reset and compare exact recommendation output.
+- Export and import one hydrated persisted draft without mutating its source record.
 
 ---
 
 ## Testing Status
 
-Phase 1 testing is complete for the manual draft simulator scope. Automated coverage includes draft order, draft state transitions, invariants, recommendation updates, small workflow integration, full small-draft completion, undo after completion, and recommendation modifier behavior. Manual QA coverage is captured in `docs/manual-full-draft-qa.md`.
+Phase 1 manual simulator coverage and Phase 2 persistence validation are complete and archived.
 
-Phase 2 persistence validation is complete. Completed validation history is archived in `docs/completed-tasks.md`.
+Phase 3 implementation and automated coverage are complete for deterministic recommendation scoring, bounded modifiers, ordering, explanations, representative scenarios, workflow integration, and persisted parity. The previous task plan did not record completion of its final manual validation gate; Phase 4 Task 9 therefore retains explicit manual and persisted-workflow regression checks.
 
-Phase 3 implementation and automated coverage are complete for recommendation scoring, modifier behavior and bounds, deterministic ordering, explanation generation, representative scenarios, manual draft transitions, persisted parity, workspace loading, and Draft Room presentation wiring.
-
-The remaining Phase 3 validation is Task 11:
-
-- Re-run the focused and full automated validation commands.
-- Complete the short manual QA flow for visible recommendation updates, undo restoration, and persisted refresh/resume behavior.
-- Mark Task 11 complete only when both automated and manual evidence pass.
+Phase 4 implementation has not started. Tasks 1-9 are pending.
 
 ---
 
 ## Backlog
 
-Not required for Phase 3:
+Not required for Phase 4:
 
-- Authentication
-- Multi-user support
-- Custom league settings UI
-- Normalized ranking tables
-- Global player table
-- Replay tooling
-- Live provider integrations
-- Opponent modeling
-- Draft simulations
-- AI-generated reasoning
-- Strategy profiles
-- Phase 6 insight engine behavior
-- Recommendation window product surface
-- Keyboard shortcuts
-- Improved search UX
-- Player notes
-- Watchlist
-- Player queue
-- Draft recap grading
-- Historical draft analysis
+- Authentication or multi-user support
+- Scenario database storage, cloud sync, or user collections
+- Runtime ranking management or multiple managed ranking sets
+- Arbitrary ranking-source import or tier editing
+- Generic Draft Source or live-provider interfaces
+- ESPN, Yahoo, or Sleeper integration
+- Polling, WebSockets, reconnect behavior, or provider event normalization
+- Step-by-step or animated replay
+- Opponent modeling or draft simulation
+- AI-generated reasoning or Phase 6 insights
+- Recommendation weight-editing UI
+- Polished consumer draft-room expansion
+- Mobile-first redesign
+- New services, queues, workers, or deployment infrastructure
 
-See `future_ideas.md` for additional ideas.
+See `future_ideas.md` for additional deferred ideas.
