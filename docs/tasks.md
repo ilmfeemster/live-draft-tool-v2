@@ -134,7 +134,7 @@ Use the shared league-setup builder at the server boundary so valid configured d
 
 ## Task 3 - Add the Draft Setup Workflow
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
