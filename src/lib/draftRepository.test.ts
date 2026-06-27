@@ -664,6 +664,7 @@ type FakeDraftRecord = {
   leagueSettings: unknown;
   userTeamId: string;
   rankingSnapshot: {
+    id: string;
     rankings: unknown;
   };
   picks: {

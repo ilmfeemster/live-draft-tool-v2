@@ -191,7 +191,9 @@ function getRosterFitComponent(recommendation: PlayerRecommendation) {
     return candidate.id === "roster_fit";
   });
 
-  expect(component, `Expected roster_fit for ${recommendation.playerId}`).toBeDefined();
+  if (!component) {
+    throw new Error(`Expected roster_fit for ${recommendation.playerId}`);
+  }
 
   return component;
 }
@@ -201,7 +203,9 @@ function getScoreComponent(recommendation: PlayerRecommendation, componentId: st
     return candidate.id === componentId;
   });
 
-  expect(component, `Expected ${componentId} for ${recommendation.playerId}`).toBeDefined();
+  if (!component) {
+    throw new Error(`Expected ${componentId} for ${recommendation.playerId}`);
+  }
 
   return component;
 }

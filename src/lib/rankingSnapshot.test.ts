@@ -45,8 +45,20 @@ describe("ranking snapshot mappers", () => {
     const snapshot = serializeRankingSnapshot(rankings);
 
     expect(snapshot).toEqual(rankings);
-    expect(snapshot[0]).not.toBe(rankings[0]);
-    expect(snapshot[0].player).not.toBe(rankings[0].player);
+    const firstRanking = snapshot[0];
+
+    if (!firstRanking || typeof firstRanking !== "object" || Array.isArray(firstRanking)) {
+      throw new Error("Expected serialized rankings to contain a ranking object.");
+    }
+
+    const player = firstRanking.player;
+
+    if (!player || typeof player !== "object" || Array.isArray(player)) {
+      throw new Error("Expected serialized ranking to contain a player object.");
+    }
+
+    expect(firstRanking).not.toBe(rankings[0]);
+    expect(player).not.toBe(rankings[0].player);
   });
 
   it("rejects non-array snapshots", () => {

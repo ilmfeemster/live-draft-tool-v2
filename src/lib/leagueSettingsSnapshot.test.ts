@@ -18,8 +18,30 @@ describe("league settings snapshot mappers", () => {
 
     expect(snapshot).toEqual(defaultLeagueSettings);
     expect(snapshot).not.toBe(defaultLeagueSettings);
-    expect(snapshot.rosterSlots[0]).not.toBe(defaultLeagueSettings.rosterSlots[0]);
-    expect(snapshot.rosterSlots[0].eligiblePositions).not.toBe(
+
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new Error("Expected serialized league settings to be an object.");
+    }
+
+    const rosterSlots = snapshot.rosterSlots;
+    const firstRosterSlot = Array.isArray(rosterSlots) ? rosterSlots[0] : undefined;
+
+    if (
+      !firstRosterSlot ||
+      typeof firstRosterSlot !== "object" ||
+      Array.isArray(firstRosterSlot)
+    ) {
+      throw new Error("Expected serialized league settings to contain a roster slot.");
+    }
+
+    const eligiblePositions = firstRosterSlot.eligiblePositions;
+
+    if (!Array.isArray(eligiblePositions)) {
+      throw new Error("Expected serialized roster slot positions to be an array.");
+    }
+
+    expect(firstRosterSlot).not.toBe(defaultLeagueSettings.rosterSlots[0]);
+    expect(eligiblePositions).not.toBe(
       defaultLeagueSettings.rosterSlots[0].eligiblePositions,
     );
   });
