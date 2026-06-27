@@ -76,6 +76,24 @@ Do not read every documentation file for every task.
 
 Read only the files needed for the current level of work.
 
+### 6.0 Documentation Reuse
+
+Within the same conversation, treat previously read project documentation as available and authoritative.
+
+Do not reread documentation solely to refresh context, verify instructions, or increase confidence.
+
+Reuse previously loaded context whenever possible.
+
+Only reread a document when:
+
+- the file has changed,
+- the user explicitly requests a reread,
+- conversation compaction or context loss has occurred,
+- the task requires the latest file contents before editing,
+- or the required information was not included in the previous read.
+
+When a document has already been read and none of the above conditions apply, continue using the existing conversation context instead of issuing another file read.
+
 ### 6.1 Direct Implementation Work
 
 If the user asks to implement an existing task or slice, prioritize:
