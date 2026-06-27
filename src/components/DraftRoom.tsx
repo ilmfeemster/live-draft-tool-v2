@@ -12,15 +12,21 @@ import {
   resetDraftAction,
   undoLastPickAction,
 } from "@/app/actions/draftActions";
-import { generateTopRecommendations } from "@/lib/recommendations";
-import type { Draft, RankingEntry, UserRosterPlayer } from "@/types/draft";
+import { generatePlayerRecommendations } from "@/lib/recommendations";
+import type {
+  Draft,
+  LeagueSettings,
+  RankingEntry,
+  UserRosterPlayer,
+} from "@/types/draft";
 
 type DraftRoomProps = {
   draft: Draft;
+  leagueSettings: LeagueSettings;
   rankings: RankingEntry[];
 };
 
-export function DraftRoom({ draft, rankings }: DraftRoomProps) {
+export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   const router = useRouter();
   const [activeDraft, setActiveDraft] = useState<Draft>(draft);
   const [isMutationPending, setIsMutationPending] = useState(false);
@@ -59,10 +65,13 @@ export function DraftRoom({ draft, rankings }: DraftRoomProps) {
   }, [activeDraft.picks, activeDraft.userTeamId, rankings]);
 
   const recommendations = useMemo(() => {
-    return generateTopRecommendations(availableRankings, {
-      rosterPlayers: userRosterPlayers,
+    return generatePlayerRecommendations({
+      draft: activeDraft,
+      rankings,
+      leagueSettings,
+      userTeamId: activeDraft.userTeamId,
     });
-  }, [availableRankings, userRosterPlayers]);
+  }, [activeDraft, leagueSettings, rankings]);
 
   const currentPick = activeDraft.picks.find(
     (pick) => pick.pickNumber === activeDraft.currentPickNumber,

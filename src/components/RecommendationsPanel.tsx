@@ -1,9 +1,9 @@
-import type { Recommendation } from "@/types/draft";
+import type { PlayerRecommendation } from "@/types/draft";
 
 type RecommendationsPanelProps = {
   isDraftComplete: boolean;
   isUserPick: boolean;
-  recommendations: Recommendation[];
+  recommendations: PlayerRecommendation[];
   onDraftPlayer: (playerId: string) => void;
 };
 
@@ -24,7 +24,7 @@ export function RecommendationsPanel({
       <div className="flex flex-col gap-1">
         <h2 className="text-xl font-semibold text-zinc-950">Recommendations</h2>
         <p className="text-sm text-zinc-600">
-          Ranking-based suggestions from available players.
+          Context-aware suggestions from the current draft state.
         </p>
       </div>
 
@@ -35,7 +35,7 @@ export function RecommendationsPanel({
       ) : (
         <div className="mt-4 grid gap-2">
           {recommendations.map((recommendation, index) => {
-            const { ranking, reasons, score } = recommendation;
+            const { ranking, reasons, totalScore } = recommendation;
 
             return (
               <div
@@ -57,16 +57,16 @@ export function RecommendationsPanel({
 
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
                     <span>Overall #{ranking.overallRank}</span>
-                    <span>Score {score}</span>
+                    <span>Score {totalScore.toFixed(1)}</span>
                   </div>
 
                   <ul className="mt-2 flex flex-wrap gap-1">
                     {reasons.map((reason) => (
                       <li
-                        key={reason}
+                        key={reason.id}
                         className="rounded bg-zinc-100 px-2 py-1 text-xs text-zinc-600"
                       >
-                        {reason}
+                        {reason.text}
                       </li>
                     ))}
                   </ul>

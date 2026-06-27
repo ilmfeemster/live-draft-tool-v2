@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import { isValidDraftState } from "@/lib/draftInvariants";
-import { draftPlayerInDraft } from "@/lib/draftState";
-import { generateTopRecommendations } from "@/lib/recommendations";
+import { draftPlayerInDraft, undoLastDraftPick } from "@/lib/draftState";
+import { generatePlayerRecommendations } from "@/lib/recommendations";
 import type { Draft, Position, RankingEntry, UserRosterPlayer } from "@/types/draft";
 
 function createRanking(
@@ -67,7 +68,22 @@ function getUserRosterPlayers(rankings: RankingEntry[], draft: Draft): UserRoste
     .sort((a, b) => a.pickNumber - b.pickNumber);
 }
 
-function getRecommendationPlayerIds(recommendations: ReturnType<typeof generateTopRecommendations>) {
+function createRecommendationInput(draft: Draft, rankings: RankingEntry[]) {
+  return {
+    draft,
+    rankings,
+    leagueSettings: {
+      ...defaultLeagueSettings,
+      teamCount: draft.teamCount,
+      rounds: draft.rounds,
+    },
+    userTeamId: draft.userTeamId,
+  };
+}
+
+function getRecommendationPlayerIds(
+  recommendations: ReturnType<typeof generatePlayerRecommendations>,
+) {
   return recommendations.map((recommendation) => recommendation.ranking.player.id);
 }
 
@@ -88,17 +104,19 @@ describe("draft workflow", () => {
     const initialDraft = createTestDraft();
     const initialAvailableRankings = getAvailableRankings(rankings, initialDraft);
     const initialUserRosterPlayers = getUserRosterPlayers(rankings, initialDraft);
-    const initialRecommendationPlayerIds = getRecommendationPlayerIds(
-      generateTopRecommendations(initialAvailableRankings, {
-        rosterPlayers: initialUserRosterPlayers,
-      }),
+    const initialRecommendations = generatePlayerRecommendations(
+      createRecommendationInput(initialDraft, rankings),
     );
+    const initialRecommendationPlayerIds = getRecommendationPlayerIds(initialRecommendations);
 
     expect(initialDraft.currentPickNumber).toBe(1);
     expect(getRankingPlayerIds(initialAvailableRankings)).toEqual(
       getRankingPlayerIds(rankings),
     );
     expect(initialRecommendationPlayerIds[0]).toBe("player-rb-1");
+    expect(initialRecommendations.some((recommendation) => {
+      return recommendation.reasons.length > 0;
+    })).toBe(true);
     expect(initialUserRosterPlayers).toEqual([]);
 
     const afterPick1 = draftPlayerInDraft(initialDraft, "player-rb-1");
@@ -107,9 +125,7 @@ describe("draft workflow", () => {
     const availableAfterPick3 = getAvailableRankings(rankings, afterPick3);
     const userRosterAfterPick3 = getUserRosterPlayers(rankings, afterPick3);
     const recommendationPlayerIdsAfterPick3 = getRecommendationPlayerIds(
-      generateTopRecommendations(availableAfterPick3, {
-        rosterPlayers: userRosterAfterPick3,
-      }),
+      generatePlayerRecommendations(createRecommendationInput(afterPick3, rankings)),
     );
 
     expect(afterPick3.currentPickNumber).toBe(4);
@@ -138,9 +154,7 @@ describe("draft workflow", () => {
     const availableAfterPick5 = getAvailableRankings(rankings, afterPick5);
     const userRosterAfterPick5 = getUserRosterPlayers(rankings, afterPick5);
     const recommendationPlayerIdsAfterPick5 = getRecommendationPlayerIds(
-      generateTopRecommendations(availableAfterPick5, {
-        rosterPlayers: userRosterAfterPick5,
-      }),
+      generatePlayerRecommendations(createRecommendationInput(afterPick5, rankings)),
     );
 
     expect(afterPick5.currentPickNumber).toBe(6);
@@ -175,9 +189,9 @@ describe("draft workflow", () => {
       return draftPlayerInDraft(draft, ranking.player.id);
     }, createTestDraft());
     const availableRankings = getAvailableRankings(rankings, completedDraft);
-    const recommendations = generateTopRecommendations(availableRankings, {
-      rosterPlayers: getUserRosterPlayers(rankings, completedDraft),
-    });
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput(completedDraft, rankings),
+    );
 
     expect(completedDraft.currentPickNumber).toBe(6);
     expect(completedDraft.picks).toHaveLength(6);
@@ -186,5 +200,37 @@ describe("draft workflow", () => {
     expect(isValidDraftState({ draft: completedDraft, availableRankings })).toBe(true);
     expect(availableRankings).toEqual([]);
     expect(recommendations).toEqual([]);
+  });
+
+  it("restores exact recommendation output after undo", () => {
+    const rankings = [
+      createRanking("player-rb-1", 1, "RB"),
+      createRanking("player-qb-1", 2, "QB"),
+      createRanking("player-wr-1", 3, "WR"),
+      createRanking("player-te-1", 4, "TE"),
+      createRanking("player-rb-2", 5, "RB"),
+      createRanking("player-wr-2", 6, "WR"),
+    ];
+    const afterPick1 = draftPlayerInDraft(createTestDraft(), "player-rb-1");
+    const beforeAdditionalPick = draftPlayerInDraft(afterPick1, "player-qb-1");
+    const recommendationsBeforeAdditionalPick = generatePlayerRecommendations(
+      createRecommendationInput(beforeAdditionalPick, rankings),
+    );
+    const afterAdditionalPick = draftPlayerInDraft(beforeAdditionalPick, "player-wr-1");
+    const recommendationsAfterAdditionalPick = generatePlayerRecommendations(
+      createRecommendationInput(afterAdditionalPick, rankings),
+    );
+
+    expect(getRecommendationPlayerIds(recommendationsAfterAdditionalPick)).not.toContain(
+      "player-wr-1",
+    );
+
+    const restoredDraft = undoLastDraftPick(afterAdditionalPick);
+    const restoredRecommendations = generatePlayerRecommendations(
+      createRecommendationInput(restoredDraft, rankings),
+    );
+
+    expect(restoredDraft).toEqual(beforeAdditionalPick);
+    expect(restoredRecommendations).toEqual(recommendationsBeforeAdditionalPick);
   });
 });

@@ -73,6 +73,7 @@ export default async function Home({ searchParams }: HomeProps) {
         <DraftRoom
           key={workspace.draft.id}
           draft={workspace.draft}
+          leagueSettings={workspace.leagueSettings}
           rankings={workspace.rankings}
         />
       </div>
