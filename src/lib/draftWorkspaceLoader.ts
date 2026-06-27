@@ -1,6 +1,10 @@
-import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { seedRankings } from "@/data/seedRankings";
 import { formatAutomaticDraftName } from "@/lib/draftNames";
+import {
+  buildLeagueSetup,
+  defaultLeagueSetupInput,
+  type LeagueSetupValidationError,
+} from "@/lib/leagueSetup";
 import {
   createDraftWorkspace,
   type DraftSummary,
@@ -8,8 +12,6 @@ import {
   listDraftSummaries,
 } from "@/lib/draftRepository";
 import type { DraftWorkspace } from "@/types/draft";
-
-const defaultUserTeamId = "team-2";
 
 type DraftWorkspaceLoaderRepository = {
   createDraftWorkspace: typeof createDraftWorkspace;
@@ -75,11 +77,12 @@ export async function loadDraftWorkspace(
       }
     }
 
+    const setup = getDefaultLeagueSetup();
     const workspace = await repository.createDraftWorkspace({
       name: formatAutomaticDraftName(),
-      leagueSettings: defaultLeagueSettings,
+      leagueSettings: setup.leagueSettings,
       rankings: seedRankings,
-      userTeamId: defaultUserTeamId,
+      userTeamId: setup.userTeamId,
     });
 
     return {
@@ -94,4 +97,22 @@ export async function loadDraftWorkspace(
       { cause: error },
     );
   }
+}
+
+function getDefaultLeagueSetup() {
+  const result = buildLeagueSetup(defaultLeagueSetupInput, seedRankings.length);
+
+  if (!result.ok) {
+    throw new Error(formatInvalidDefaultSetupMessage(result.errors));
+  }
+
+  return result;
+}
+
+function formatInvalidDefaultSetupMessage(
+  errors: LeagueSetupValidationError[],
+): string {
+  return `Default league setup is invalid: ${errors
+    .map((error) => `${error.field}: ${error.message}`)
+    .join("; ")}`;
 }

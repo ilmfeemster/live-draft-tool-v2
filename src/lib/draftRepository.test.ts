@@ -3,6 +3,7 @@ import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { createDraftRepository } from "@/lib/draftRepository";
 import { isValidDraftState } from "@/lib/draftInvariants";
 import { draftPlayerInDraft } from "@/lib/draftState";
+import { buildLeagueSetup } from "@/lib/leagueSetup";
 import { serializeLeagueSettingsSnapshot } from "@/lib/leagueSettingsSnapshot";
 import { serializeRankingSnapshot } from "@/lib/rankingSnapshot";
 import {
@@ -48,23 +49,74 @@ describe("draft repository", () => {
     expect(isValidDraftState({ draft: workspace.draft })).toBe(true);
   });
 
-  it("creates and returns a valid non-default draft workspace", async () => {
+  it("round-trips a generated non-default draft workspace", async () => {
     const db = createFakeDraftDb();
     const repository = createDraftRepository(db);
-    const leagueSettings = createLeagueSettings({ teamCount: 4, rounds: 3 });
-
-    const workspace = await repository.createDraftWorkspace({
-      leagueSettings,
-      rankings: [createRanking("player-1", 1, "QB")],
-      userTeamId: "team-3",
+    const rankings = Array.from({ length: 12 }, (_, index) => {
+      return createRanking(`player-${index + 1}`, index + 1, "QB");
     });
+    const setup = buildLeagueSetup(
+      {
+        teamCount: 4,
+        userDraftPosition: 3,
+        draftType: "SNAKE",
+        scoringFormat: "PPR",
+        rosterSlotCounts: {
+          QB: 1,
+          RB: 0,
+          WR: 0,
+          TE: 0,
+          FLEX: 1,
+          DST: 0,
+          K: 0,
+          BENCH: 1,
+        },
+      },
+      rankings.length,
+    );
 
-    expect(workspace.leagueSettings.teamCount).toBe(4);
-    expect(workspace.leagueSettings.rounds).toBe(3);
-    expect(workspace.draft.teams).toHaveLength(4);
-    expect(workspace.draft.picks).toHaveLength(12);
-    expect(workspace.draft.userTeamId).toBe("team-3");
-    expect(isValidDraftState({ draft: workspace.draft })).toBe(true);
+    if (!setup.ok) {
+      throw new Error(`Expected valid setup: ${JSON.stringify(setup.errors)}`);
+    }
+
+    const createdWorkspace = await repository.createDraftWorkspace({
+      leagueSettings: setup.leagueSettings,
+      rankings,
+      userTeamId: setup.userTeamId,
+    });
+    const loadedWorkspace = await repository.getDraftWorkspaceById(
+      createdWorkspace.draft.id,
+    );
+
+    expect(db.drafts[0].picks).toEqual([]);
+    expect(loadedWorkspace?.leagueSettings).toEqual(setup.leagueSettings);
+    expect(loadedWorkspace?.draft.userTeamId).toBe("team-3");
+    expect(loadedWorkspace?.draft.teams).toEqual([
+      { id: "team-1", name: "Team 1", draftPosition: 1 },
+      { id: "team-2", name: "Team 2", draftPosition: 2 },
+      { id: "team-3", name: "Team 3", draftPosition: 3 },
+      { id: "team-4", name: "Team 4", draftPosition: 4 },
+    ]);
+    expect(loadedWorkspace?.draft.rounds).toBe(3);
+    expect(loadedWorkspace?.draft.picks).toHaveLength(12);
+    expect(loadedWorkspace?.draft.picks.map((pick) => pick.teamId)).toEqual([
+      "team-1",
+      "team-2",
+      "team-3",
+      "team-4",
+      "team-4",
+      "team-3",
+      "team-2",
+      "team-1",
+      "team-1",
+      "team-2",
+      "team-3",
+      "team-4",
+    ]);
+    expect(loadedWorkspace?.rankings).toEqual(rankings);
+    expect(
+      loadedWorkspace && isValidDraftState({ draft: loadedWorkspace.draft }),
+    ).toBe(true);
   });
 
   it("loads an existing draft as a typed draft workspace", async () => {

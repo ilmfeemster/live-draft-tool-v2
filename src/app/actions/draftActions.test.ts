@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { seedRankings } from "@/data/seedRankings";
 import {
+  buildLeagueSetup,
+  defaultLeagueSetupInput,
+  type LeagueSetupInput,
+} from "@/lib/leagueSetup";
+import {
   createDraftWorkspace as createDraftWorkspaceRepository,
   deleteDraftWorkspace,
   draftPlayerInWorkspace,
@@ -10,6 +15,7 @@ import {
 } from "@/lib/draftRepository";
 import type { DraftWorkspace } from "@/types/draft";
 import {
+  createConfiguredDraftAction,
   createNewDraftAction,
   deleteDraftAction,
   draftPlayerAction,
@@ -58,6 +64,94 @@ describe("draft mutation server actions", () => {
       userTeamId: "team-2",
     });
     expect(result).toBe(workspace);
+  });
+
+  it("creates a configured draft workspace from validated setup input", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 26, 17, 42));
+
+    const workspace = createDraftWorkspace();
+    const input = createConfiguredInput();
+    const expectedSetup = buildLeagueSetup(input, seedRankings.length);
+    createDraftWorkspaceRepositoryMock.mockResolvedValue(workspace);
+
+    if (!expectedSetup.ok) {
+      throw new Error("Expected configured test setup to be valid.");
+    }
+
+    const result = await createConfiguredDraftAction(input);
+
+    expect(createDraftWorkspaceRepositoryMock).toHaveBeenCalledOnce();
+    expect(createDraftWorkspaceRepositoryMock).toHaveBeenCalledWith({
+      name: "Draft - Jun 26, 2026, 5:42 PM",
+      leagueSettings: expectedSetup.leagueSettings,
+      rankings: seedRankings,
+      userTeamId: "team-3",
+    });
+    expect(result).toEqual({ ok: true, workspace });
+  });
+
+  it("returns validation errors without creating an invalid configured draft", async () => {
+    const input = createConfiguredInput({ teamCount: 1 });
+
+    const result = await createConfiguredDraftAction(input);
+
+    expect(result).toEqual({
+      ok: false,
+      errors: [
+        {
+          field: "teamCount",
+          message: "Team count must be an integer from 2 through 20.",
+        },
+      ],
+    });
+    expect(createDraftWorkspaceRepositoryMock).not.toHaveBeenCalled();
+  });
+
+  it("returns capacity errors without creating a configured draft", async () => {
+    const input = createConfiguredInput({
+      teamCount: 20,
+      userDraftPosition: 20,
+      rosterSlotCounts: {
+        QB: 1,
+        RB: 0,
+        WR: 0,
+        TE: 0,
+        FLEX: 0,
+        DST: 0,
+        K: 0,
+        BENCH: 29,
+      },
+    });
+
+    const result = await createConfiguredDraftAction(input);
+
+    expect(result).toEqual({
+      ok: false,
+      errors: [
+        {
+          field: "rankingPlayerCount",
+          message: `Draft requires 600 players, but only ${seedRankings.length} ranking players are available.`,
+        },
+      ],
+    });
+    expect(createDraftWorkspaceRepositoryMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps repository failures as rejected configured-creation errors", async () => {
+    const repositoryError = new Error("database unavailable");
+    createDraftWorkspaceRepositoryMock.mockRejectedValue(repositoryError);
+
+    await expect(
+      createConfiguredDraftAction(createConfiguredInput()),
+    ).rejects.toBe(repositoryError);
+  });
+
+  it("keeps repository failures as rejected default-creation errors", async () => {
+    const repositoryError = new Error("database unavailable");
+    createDraftWorkspaceRepositoryMock.mockRejectedValue(repositoryError);
+
+    await expect(createNewDraftAction()).rejects.toBe(repositoryError);
   });
 
   it("delegates delete mutations to the repository", async () => {
@@ -229,5 +323,28 @@ function createDraftWorkspace(): DraftWorkspace {
         },
       ],
     },
+  };
+}
+
+function createConfiguredInput(
+  overrides: Omit<Partial<LeagueSetupInput>, "rosterSlotCounts"> & {
+    rosterSlotCounts?: LeagueSetupInput["rosterSlotCounts"];
+  } = {},
+): LeagueSetupInput {
+  return {
+    ...defaultLeagueSetupInput,
+    teamCount: 4,
+    userDraftPosition: 3,
+    rosterSlotCounts: {
+      QB: 1,
+      RB: 1,
+      WR: 1,
+      TE: 0,
+      FLEX: 0,
+      DST: 0,
+      K: 0,
+      BENCH: 0,
+    },
+    ...overrides,
   };
 }

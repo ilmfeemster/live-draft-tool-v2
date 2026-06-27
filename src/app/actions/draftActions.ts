@@ -1,9 +1,14 @@
 "use server";
 
 import type { DraftWorkspace } from "@/types/draft";
-import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { seedRankings } from "@/data/seedRankings";
 import { formatAutomaticDraftName } from "@/lib/draftNames";
+import {
+  buildLeagueSetup,
+  defaultLeagueSetupInput,
+  type LeagueSetupInput,
+  type LeagueSetupValidationError,
+} from "@/lib/leagueSetup";
 import {
   createDraftWorkspace,
   deleteDraftWorkspace,
@@ -12,15 +17,30 @@ import {
   undoLastPickInWorkspace,
 } from "@/lib/draftRepository";
 
-const mvpUserTeamId = "team-2";
+export type CreateConfiguredDraftActionResult =
+  | {
+      ok: true;
+      workspace: DraftWorkspace;
+    }
+  | {
+      ok: false;
+      errors: LeagueSetupValidationError[];
+    };
 
 export async function createNewDraftAction(): Promise<DraftWorkspace> {
-  return createDraftWorkspace({
-    name: formatAutomaticDraftName(),
-    leagueSettings: defaultLeagueSettings,
-    rankings: seedRankings,
-    userTeamId: mvpUserTeamId,
-  });
+  const result = await createDraftFromSetup(defaultLeagueSetupInput);
+
+  if (!result.ok) {
+    throw new Error(formatInvalidDefaultSetupMessage(result.errors));
+  }
+
+  return result.workspace;
+}
+
+export async function createConfiguredDraftAction(
+  input: LeagueSetupInput,
+): Promise<CreateConfiguredDraftActionResult> {
+  return createDraftFromSetup(input);
 }
 
 export async function deleteDraftAction(draftId: string): Promise<boolean> {
@@ -60,4 +80,31 @@ export async function resetDraftAction(
   }
 
   return resetDraftWorkspace(draftId);
+}
+
+async function createDraftFromSetup(
+  input: LeagueSetupInput,
+): Promise<CreateConfiguredDraftActionResult> {
+  const setup = buildLeagueSetup(input, seedRankings.length);
+
+  if (!setup.ok) {
+    return setup;
+  }
+
+  const workspace = await createDraftWorkspace({
+    name: formatAutomaticDraftName(),
+    leagueSettings: setup.leagueSettings,
+    rankings: seedRankings,
+    userTeamId: setup.userTeamId,
+  });
+
+  return { ok: true, workspace };
+}
+
+function formatInvalidDefaultSetupMessage(
+  errors: LeagueSetupValidationError[],
+): string {
+  return `Default league setup is invalid: ${errors
+    .map((error) => `${error.field}: ${error.message}`)
+    .join("; ")}`;
 }

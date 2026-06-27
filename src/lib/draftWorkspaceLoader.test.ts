@@ -213,11 +213,19 @@ describe("draft workspace loader", () => {
     const repository = createFakeRepository({
       summaries: [],
     });
-    repository.listDraftSummaries.mockRejectedValue(new Error("connection refused"));
+    const cause = new Error("connection refused");
+    repository.listDraftSummaries.mockRejectedValue(cause);
 
-    await expect(loadOrCreateDefaultDraftWorkspace(repository)).rejects.toThrow(
-      "Unable to load the persisted draft workspace.",
-    );
+    try {
+      await loadOrCreateDefaultDraftWorkspace(repository);
+      throw new Error("Expected workspace loading to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain(
+        "Unable to load the persisted draft workspace.",
+      );
+      expect((error as Error).cause).toBe(cause);
+    }
   });
 });
 

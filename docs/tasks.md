@@ -88,7 +88,7 @@ Create one pure, deterministic boundary that validates supported league-setup in
 
 ## Task 2 - Create and Persist Configured Drafts
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
