@@ -1,250 +1,192 @@
-# Current Slice: Wire Recommendation Engine Into Draft Room
+# Current Slice: Restore Clean TypeScript Validation
 
-## Source Task
+## Source Context
 
 Task 10: Wire Recommendation Engine Into Draft Workflow.
 
-This is the first Task 10 slice. It replaces the legacy UI compatibility path with the completed Recommendation Engine and updates the existing pure workflow regression coverage.
+The first Task 10 wiring slice is implemented and passes its targeted tests, the full Vitest suite, and lint. Its required `npx tsc --noEmit` validation is blocked by four pre-existing test-only typing issues outside the wiring files.
+
+This slice removes that validation blocker before Task 10 presentation/load validation continues.
 
 ## Goal
 
-Make the current Draft Room compute and display ordered, context-aware `PlayerRecommendation` output from the active typed draft, ranking snapshot, league settings, and user team identity.
+Restore a clean TypeScript validation baseline by fixing only the reported test-type mismatches, without changing production behavior, weakening assertions, or broadening into runtime refactors.
 
-The slice should preserve the existing draft-room layout and actions while replacing static-style recommendations with scored recommendations and score-backed reasons.
+## Current TypeScript Failures
 
-## User-Visible Increment
+`npx tsc --noEmit` currently reports:
 
-- The Recommendations panel responds to roster fit, value, tier, scarcity, and observed run context rather than the legacy basic modifiers.
-- Recommendation scores come from the Phase 3 engine.
-- Displayed reasons are the deterministic score-backed reason text produced by the engine.
-- Manual picks, undo, reset, and loaded drafts recompute from the active draft state already owned by `DraftRoom`.
+1. `src/lib/draftRepository.test.ts`
+   - The fake workspace mapper reads `draft.rankingSnapshot.id`, but `FakeDraftRecord` declares only `rankingSnapshot.rankings` even though fake records already store an id.
+2. `src/lib/leagueSettingsSnapshot.test.ts`
+   - The test accesses `snapshot.rosterSlots` directly even though the serializer intentionally returns a recursive JSON-value union.
+3. `src/lib/rankingSnapshot.test.ts`
+   - The test accesses `snapshot[0].player` directly even though each serialized array element is intentionally typed as a recursive JSON-value union.
+4. `src/lib/recommendations.scenario.test.ts`
+   - Component lookup helpers use a Vitest assertion for existence, but TypeScript cannot use that matcher to narrow the returned value before direct `.delta` access.
 
-## Current Context
-
-- `generatePlayerRecommendations` is the completed pure Phase 3 engine.
-- `generateTopRecommendations` remains the legacy compatibility function.
-- `DraftRoom` currently calls `generateTopRecommendations` with separately derived available rankings and user roster players.
-- `DraftRoom` already receives the active typed draft and ranking snapshot, updates its local draft after server actions, and recomputes memoized derived data.
-- The loaded page already owns `workspace.leagueSettings` but does not pass it into `DraftRoom`.
-- `RecommendationsPanel` currently accepts legacy `Recommendation[]`, a numeric `score`, and string reasons.
-- `PlayerRecommendation` provides `totalScore`, `components`, and typed reasons with stable ids and text.
-- Persisted workspace parity and dynamic roster behavior are already validated at the engine/repository boundary.
+These failures are in test support code. The newly wired page, Draft Room, Recommendations panel, and workflow test report no TypeScript errors.
 
 ## Scope
 
 ### Goals
 
-- Pass typed league settings from the loaded workspace into `DraftRoom`.
-- Replace the legacy recommendation call in `DraftRoom` with `generatePlayerRecommendations`.
-- Feed the engine the full ranking snapshot and active draft; let the engine own drafted-player filtering.
-- Keep the existing available-player and user-roster derivations for their current UI panels.
-- Adapt `RecommendationsPanel` to accept `PlayerRecommendation[]`.
-- Display `totalScore` and typed reason text.
-- Preserve recommendation order returned by the engine.
-- Migrate the existing pure draft-workflow tests to `generatePlayerRecommendations`.
-- Add an undo regression proving recommendation output returns to the prior state.
-- Keep UI layout and draft actions otherwise unchanged.
+- Align the fake repository record type with the fake record shape it already creates.
+- Add explicit runtime narrowing in snapshot tests before accessing serialized JSON properties.
+- Make scenario component helpers return a definitely present score component.
+- Preserve the meaning and strength of every existing assertion.
+- Run focused tests for all affected files.
+- Restore a clean full test, lint, and TypeScript validation baseline.
 
 ### Non-Goals
 
-- Redesigning the Draft Room or Recommendations panel.
-- Displaying component-level score breakdowns.
-- Adding new recommendation controls, filters, windows, or strategy settings.
-- Persisting recommendation output.
-- Changing Recommendation Engine scoring, tuning, reasons, or types.
-- Changing server actions, repository mapping, Prisma, schema, or draft transitions.
-- Adding browser automation or manual QA in this slice.
-- Removing `generateTopRecommendations`; focused legacy tests may continue to cover it.
-- Checking off Task 10; presentation/load validation remains a follow-up slice.
-- Updating documentation other than `docs/current-slice.md`.
+- Changing production serializers, repository code, recommendation code, types, or runtime behavior.
+- Broadening JSON serializer return types.
+- Replacing meaningful reference-identity assertions with weaker existence assertions.
+- Using `any`, `@ts-ignore`, `@ts-expect-error`, or unchecked double casts to silence errors.
+- Refactoring fake database infrastructure.
+- Adding new product behavior or UI validation.
+- Checking off Task 10.
+- Updating `docs/tasks.md` or other planning documents.
 
 ## Expected Files
 
 - `docs/current-slice.md`
-- `src/app/page.tsx`
-- `src/components/DraftRoom.tsx`
-- `src/components/RecommendationsPanel.tsx`
-- `src/lib/draftWorkflow.test.ts`
+- `src/lib/draftRepository.test.ts`
+- `src/lib/leagueSettingsSnapshot.test.ts`
+- `src/lib/rankingSnapshot.test.ts`
+- `src/lib/recommendations.scenario.test.ts`
 
-Do not modify production recommendation, persistence, server-action, or draft-state files.
+Do not modify production files.
 
 ## Implementation Details
 
-### Page Boundary
+### Fake Repository Record
 
-Update the existing `<DraftRoom>` call in `src/app/page.tsx`:
+In `src/lib/draftRepository.test.ts`:
 
-- Pass `workspace.leagueSettings` as a new `leagueSettings` prop.
-- Keep the existing `key`, `draft`, and `rankings` props.
-- Do not move recommendation generation into the server page; it must continue responding immediately to local active-draft updates after actions.
+- Add `id: string` to the nested `rankingSnapshot` property of `FakeDraftRecord`.
+- Do not change fake record creation or mapping behavior; both already create and consume the id.
+- Do not loosen `rankingSnapshot` to `unknown` or an index signature.
 
-### DraftRoom Boundary
+### League Settings Snapshot Narrowing
 
-In `src/components/DraftRoom.tsx`:
+In the `serializes to fresh objects instead of reusing input references` test:
 
-- Add `leagueSettings: LeagueSettings` to `DraftRoomProps`.
-- Import and call `generatePlayerRecommendations` instead of `generateTopRecommendations`.
-- Build recommendations with:
+- Keep assertions that:
+  - the serialized snapshot deeply equals the source settings;
+  - the root snapshot is a fresh object;
+  - the first roster slot is a fresh object;
+  - its `eligiblePositions` array is fresh.
+- Narrow the serialized JSON shape before nested access:
+  1. Confirm the snapshot is a non-null, non-array object.
+  2. Read `rosterSlots` through the narrowed record.
+  3. Confirm `rosterSlots` is an array and the first entry is a non-null, non-array object.
+  4. Confirm the first entry's `eligiblePositions` is an array.
+  5. Perform the existing reference-identity assertions on those narrowed values.
+- Throw explicit test errors if an expected serialized shape is absent. Do not rely on casts alone.
 
-```ts
-generatePlayerRecommendations({
-  draft: activeDraft,
-  rankings,
-  leagueSettings,
-  userTeamId: activeDraft.userTeamId,
-})
-```
+### Ranking Snapshot Narrowing
 
-- Memoize from `activeDraft`, `rankings`, and `leagueSettings`.
-- Do not pass prefiltered rankings or the separately derived user roster into the engine.
-- Keep `availableRankings` for `AvailablePlayersTable`.
-- Keep `userRosterPlayers` for `UserRosterPanel`.
-- Preserve existing action handlers and active-draft state updates. Those updates should naturally trigger recommendation recomputation.
+In the equivalent fresh-object test:
 
-### RecommendationsPanel Contract
+- Keep assertions that:
+  - the serialized snapshot deeply equals the source rankings;
+  - the first serialized ranking is a fresh object;
+  - its nested player is a fresh object.
+- Narrow the first serialized JSON entry before nested access:
+  1. Read the first entry.
+  2. Confirm it is a non-null, non-array object.
+  3. Read its `player` property through the narrowed record.
+  4. Confirm `player` is a non-null, non-array object.
+  5. Perform the existing reference-identity assertions.
+- Throw explicit test errors for unexpected shape. Do not weaken the serializer test.
 
-In `src/components/RecommendationsPanel.tsx`:
+### Scenario Component Helpers
 
-- Change the recommendation prop type from `Recommendation[]` to `PlayerRecommendation[]`.
-- Preserve the existing recommendation ordering and row layout.
-- Replace legacy `score` display with `totalScore` formatted to one decimal place.
-- Render `reason.text` for each typed reason.
-- Use `reason.id` as the reason list key within each recommendation row.
-- Keep player rank, team, position, draft button behavior, empty state, current-pick emphasis, and disabled behavior unchanged.
-- Update the subtitle from `Ranking-based suggestions from available players.` to `Context-aware suggestions from the current draft state.`
-- Do not expose raw component evidence or internal tuning values.
+In `src/lib/recommendations.scenario.test.ts`:
 
-## Workflow Regression Migration
-
-Update `src/lib/draftWorkflow.test.ts` to exercise the engine now used by the Draft Room.
-
-### Test Helpers
-
-- Import `defaultLeagueSettings`.
-- Import `generatePlayerRecommendations` instead of `generateTopRecommendations`.
-- Import `undoLastDraftPick` alongside `draftPlayerInDraft`.
-- Add a small helper that returns `RecommendationInput` from a draft and the full ranking snapshot using:
-  - league settings copied from `defaultLeagueSettings` with `teamCount` and `rounds` aligned to the test draft;
-  - `userTeamId` from the draft.
-- Update recommendation-id helper typing to use `generatePlayerRecommendations` output.
-- Keep available-player and user-roster helpers because those assertions validate independent workflow state.
-
-### Existing Manual Draft Test
-
-- Replace each legacy recommendation call with `generatePlayerRecommendations` using the full rankings and current draft state.
-- Continue asserting:
-  - initial recommendations exist;
-  - drafted players disappear;
-  - recommendations contain only available players;
-  - user roster derivation remains correct;
-  - the final remaining player is recommended.
-- Add an assertion that at least one returned recommendation contains a typed, score-backed reason.
-- Do not rewrite expected order unless the Phase 3 engine intentionally differs from the legacy helper; assert only behavior required by the workflow.
-
-### Completed Draft Test
-
-- Generate recommendations from the completed draft and full rankings through the Phase 3 engine.
-- Continue expecting an empty result and valid draft invariants.
-
-### Undo Regression
-
-Add one focused test:
-
-1. Create a small typed draft and ranking snapshot.
-2. Apply enough picks to produce a non-empty recommendation state.
-3. Capture recommendations immediately before one additional pick.
-4. Apply that pick and confirm the drafted player disappears from recommendations.
-5. Undo with `undoLastDraftPick`.
-6. Assert the restored draft equals the prior draft state.
-7. Assert the restored full recommendation output exactly equals the pre-pick output, including scores, components, and reasons.
-
-This test should remain pure and must not introduce repository or React dependencies.
+- Update both `getRosterFitComponent` and `getScoreComponent`.
+- After `.find`, use an explicit `if (!component) { throw new Error(...) }` guard.
+- Return `component` after the guard so TypeScript infers `RecommendationScoreComponent` rather than `RecommendationScoreComponent | undefined`.
+- Preserve the current descriptive error messages.
+- Remove the redundant `expect(...).toBeDefined()` matcher if the explicit guard replaces it.
+- Do not change scenario data or assertions.
 
 ## Implementation Steps
 
-1. Review the active workflow context.
+1. Review the exact reported failures.
    - Read `docs/current-slice.md`.
-   - Read Task 10 in `docs/tasks.md`.
-   - Read `src/app/page.tsx`.
-   - Read `src/components/DraftRoom.tsx`.
-   - Read `src/components/RecommendationsPanel.tsx`.
-   - Read `src/lib/draftWorkflow.test.ts`.
+   - Read only the affected ranges in the four test files.
+   - Read serializer return types only as needed to implement correct narrowing.
 
-2. Pass league settings through the page boundary.
-   - Add the new `DraftRoom` prop from `workspace.leagueSettings`.
+2. Align the fake repository type.
+   - Add the existing snapshot id field to `FakeDraftRecord`.
 
-3. Replace Draft Room recommendation generation.
-   - Update imports, props, and the recommendation memo.
-   - Preserve independent available-player and roster derivations for their panels.
-   - Do not change action behavior.
+3. Narrow serialized JSON values in tests.
+   - Add explicit object/array guards in the league-settings and ranking snapshot fresh-reference tests.
+   - Preserve all original deep-equality and reference-identity assertions.
 
-4. Adapt the Recommendations panel.
-   - Switch to `PlayerRecommendation[]`.
-   - Render one-decimal total scores and typed reason text with stable ids.
-   - Update only the descriptive subtitle.
+4. Make scenario component lookups definite.
+   - Replace matcher-only existence checks with explicit throwing guards.
 
-5. Migrate workflow regressions.
-   - Replace legacy calls with full typed engine input.
-   - Preserve workflow-state assertions.
-   - Add reason-shape coverage and the exact undo restoration regression.
+5. Run focused validation.
+   - Run `npm test -- src/lib/draftRepository.test.ts src/lib/leagueSettingsSnapshot.test.ts src/lib/rankingSnapshot.test.ts src/lib/recommendations.scenario.test.ts`.
+   - Run `npx tsc --noEmit`.
+   - If TypeScript reports a new error caused by these edits, fix only that error.
 
-6. Run validation.
-   - Run `npm test -- src/lib/draftWorkflow.test.ts`.
+6. Run full validation.
    - Run `npm test`.
    - Run `npm run lint`.
-   - Run `npx tsc --noEmit`.
-   - Fix only failures caused by this slice.
-   - If validation reveals an unrelated pre-existing failure, document it and stop rather than broadening scope.
+   - Run `npx tsc --noEmit` again after final edits.
+   - Stop if any unrelated new blocker appears; do not broaden scope.
 
-7. Stop after this wiring slice.
-   - Do not begin the follow-up presentation/load validation slice.
+7. Stop after restoring the validation baseline.
+   - Do not begin Task 10 presentation/load validation.
    - Do not check off Task 10.
 
 ## Acceptance Criteria
 
-- `DraftRoom` uses `generatePlayerRecommendations`; no UI call site uses `generateTopRecommendations`.
-- The engine receives active draft state, the full ranking snapshot, hydrated league settings, and active user team identity.
-- Manual pick, undo, and reset state changes naturally recompute recommendations from `activeDraft`.
-- A loaded persisted workspace supplies its own league settings to recommendation generation.
-- RecommendationsPanel displays engine ordering, one-decimal total scores, and score-backed reason text.
-- Available-player and user-roster panels retain their current behavior.
-- Pure workflow tests exercise the same Recommendation Engine used by the UI.
-- Undo restores exact prior recommendation output.
-- Completed drafts return no recommendations.
-- Existing draft invariants remain valid.
-- No recommendation output is persisted.
-- No scoring, persistence, server-action, schema, or draft-transition behavior changes.
+- `npx tsc --noEmit` exits successfully.
+- All four affected test files pass.
+- The full Vitest suite passes.
+- Lint passes.
+- Snapshot tests still prove deep equality and fresh nested references.
+- Scenario tests retain all existing behavior assertions.
+- Fake repository runtime behavior is unchanged.
+- No `any`, suppression comments, unchecked double casts, or weakened assertions are introduced.
+- No production files are changed.
 
 ## Suggested Tests
 
-- Workflow test for recommendation updates after manual picks.
-- Workflow test proving drafted players remain excluded.
-- Workflow test proving completed drafts return no recommendations.
-- Workflow regression proving undo restores exact recommendation output.
-- Type validation for page, DraftRoom, and panel prop contracts.
+- Focused Vitest run for the four affected test files.
+- Full Vitest regression suite.
+- ESLint.
+- TypeScript no-emit validation.
 
 ## Validation Notes
 
-Expected validation commands:
+Expected commands:
 
 ```txt
-npm test -- src/lib/draftWorkflow.test.ts
+npm test -- src/lib/draftRepository.test.ts src/lib/leagueSettingsSnapshot.test.ts src/lib/rankingSnapshot.test.ts src/lib/recommendations.scenario.test.ts
+npx tsc --noEmit
 npm test
 npm run lint
 npx tsc --noEmit
 ```
 
-## Follow-Up Task 10 Slice
+## Follow-Up Slice
 
-Do not implement this in the current slice:
+After this validation baseline is clean:
 
-- Add focused presentation/load validation for rendered score-backed reasons and hydrated-workspace wiring, complete any necessary manual QA, then check Task 10 complete.
+- Complete Task 10 presentation/load validation for rendered score-backed reasons and hydrated-workspace wiring, then check Task 10 complete if all acceptance criteria pass.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It is the vertical replacement of the legacy UI recommendation path.
-- Concrete enough for implementation: yes. Props, engine input, panel contract, display formatting, workflow migration, undo behavior, and validation commands are explicit.
-- Avoids unnecessary architecture changes: yes. It uses the completed pure engine and existing Draft Room state flow.
-- Blast radius reasonable: yes. Expected implementation changes are limited to four source/test files.
-- Review/revert comfort: yes. The legacy helper remains intact and the wiring change is localized.
-- Observable/testable acceptance criteria: yes. UI contract, workflow updates, reasons, drafted-player filtering, completion, undo restoration, lint, and type checking are verifiable.
+- Smallest meaningful increment: yes. It removes the exact blocker preventing clean validation of the completed wiring slice.
+- Concrete enough for implementation: yes. Each error, narrowing rule, preserved assertion, and validation command is explicit.
+- Avoids unnecessary architecture changes: yes. It is test-only type hygiene with no runtime changes.
+- Blast radius reasonable: yes. Four focused test files are affected.
+- Review/revert comfort: yes. Changes are local declarations and guards.
+- Observable/testable acceptance criteria: yes. Focused tests, full tests, lint, and TypeScript validation provide direct evidence.
