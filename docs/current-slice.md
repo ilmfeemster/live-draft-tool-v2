@@ -1,200 +1,208 @@
-# Current Slice: Create and Persist Configured Drafts
+# Current Slice: Add the Draft Setup Workflow
 
 ## Source Context
 
-Phase 4 Task 2: Create and Persist Configured Drafts.
+Phase 4 Task 3: Add the Draft Setup Workflow.
 
-Task 1 is complete. `buildLeagueSetup` now validates setup input, enforces ranking capacity, generates deterministic `LeagueSettings`, and derives `userTeamId`.
+Tasks 1 and 2 are complete. The application now has a shared client-safe setup validator/builder and a server action that validates and persists configured drafts. The remaining milestone work is to expose that path through a compact developer-facing setup workflow.
 
-The repository already accepts typed `LeagueSettings`, rankings, and user-team identity, persists settings as JSON, and hydrates a dynamic draft workspace. The missing work is to place the completed builder at both creation entry points: explicit configured creation and automatic first-run/default creation.
+The existing Draft Room owns the `Start New Draft` actions and routing. Its current tests use server-rendered markup without a browser DOM dependency, so this slice should preserve that test strategy and use focused manual QA for interactions.
 
 ## Goal
 
-Add a validated configured-draft server action and route all default creation through `buildLeagueSetup`, while preserving the existing repository schema, existing UI-facing `createNewDraftAction()` contract, and existing draft workflows.
+Replace immediate fixed-default creation in the Draft Room with an inline, cancellable setup mode that supports all approved configuration fields, validates locally and on the server, creates a persisted draft, and routes to the new workspace without changing existing draft behavior.
 
 ## Scope
 
 ### Goals
 
-- Add an explicit server action that accepts `LeagueSetupInput`.
-- Validate configured creation with `buildLeagueSetup(input, seedRankings.length)` before repository access.
-- Return structured setup errors without calling the repository for invalid input.
-- Create valid configured drafts through the existing `createDraftWorkspace` repository function.
-- Continue using the seed ranking snapshot and automatic draft naming.
-- Preserve the existing no-argument `createNewDraftAction(): Promise<DraftWorkspace>` contract used by the current Draft Room.
-- Route `createNewDraftAction()` through the same builder using `defaultLeagueSetupInput`.
-- Route automatic first-run and stale-summary fallback creation through the same default builder.
-- Prove a non-default configured draft persists and hydrates with identical settings, team order, pick order, and user-team identity.
-- Preserve all existing pick, undo, reset, delete, history, and load behavior.
+- Open a compact setup form from either existing `Start New Draft` button.
+- Preserve the existing confirmation before leaving an in-progress draft.
+- Keep the current draft loaded and unchanged while setup is open.
+- Prefill the current MVP configuration from `defaultLeagueSetupInput`.
+- Provide inputs for team count, user draft position, and every supported roster category.
+- Show `SNAKE` and `PPR` as fixed supported values.
+- Convert transient form strings into `LeagueSetupInput` without changing the domain contract.
+- Validate with `buildLeagueSetup(input, rankings.length)` before calling the server action.
+- Display client and authoritative server validation errors.
+- Submit valid input through `createConfiguredDraftAction`.
+- Route to the newly created draft on success.
+- Allow cancel without creating a draft or changing the active workspace.
+- Disable duplicate submission and cancel while creation is pending.
+- Preserve existing recommendations, picks, undo, reset, history, and loaded non-default behavior.
+- Add focused component/render regression coverage and complete one manual non-default workflow.
 
 ### Non-Goals
 
-- Adding or changing the draft setup UI.
-- Modifying `DraftRoom`, `DraftStatusPanel`, page routing, or client behavior.
-- Changing repository production code, repository interfaces, hydration, or snapshot formats.
-- Adding a Prisma migration or normalized settings columns.
-- Editing settings on an existing draft or migrating picks.
-- Changing rankings or adding ranking selection/management.
-- Changing Draft State Engine or Recommendation Engine behavior.
-- Adding alternate draft or scoring formats.
-- Adding package dependencies.
-- Beginning Phase 4 Task 3.
+- Editing an existing draft's settings.
+- Adding custom draft names, ranking selection, saved presets, or setup persistence.
+- Adding arbitrary roster-slot eligibility or custom positions.
+- Adding unsupported draft types or scoring formats.
+- Changing `LeagueSetupInput`, validation limits, server-action contracts, repository behavior, hydration, or Prisma.
+- Redesigning the Draft Room or introducing a new route.
+- Adding a modal framework, form library, DOM test dependency, or package dependency.
+- Changing recommendation, pick, undo, reset, or delete behavior.
+- Beginning Phase 4 Task 4.
 
-## Configured Creation Contract
+## User Workflow
 
-In `src/app/actions/draftActions.ts`, add an exported discriminated result for configured creation:
+### Open Setup
 
-```ts
-export type CreateConfiguredDraftActionResult =
-  | {
-      ok: true;
-      workspace: DraftWorkspace;
-    }
-  | {
-      ok: false;
-      errors: LeagueSetupValidationError[];
-    };
+1. The developer clicks either existing `Start New Draft` button.
+2. If the current draft is in progress, retain the current confirmation text and behavior.
+3. Canceling that confirmation keeps the Draft Room unchanged.
+4. Accepting it, or starting from a not-started/completed draft, opens setup mode without creating a draft.
+5. Setup mode replaces the Draft Room grid inside the existing page; it does not navigate or discard the active component state.
 
-export async function createConfiguredDraftAction(
-  input: LeagueSetupInput,
-): Promise<CreateConfiguredDraftActionResult>;
-```
+### Configure
 
-The action should:
+- Show a `New Draft Setup` heading and a short explanation that the existing draft remains in history.
+- Prefill all values from `defaultLeagueSetupInput`.
+- Use numeric inputs with step `1` for:
+  - Team count.
+  - Draft position.
+  - QB, RB, WR, TE, FLEX, DST, K, and BENCH counts.
+- Apply the documented min/max attributes where a direct bound exists, but rely on `buildLeagueSetup` for authoritative client validation.
+- Show Draft Type as `Snake` and Scoring as `PPR` in read-only display fields rather than fake selectors.
+- Show a derived summary when numeric values permit it:
+  - Rounds equal total roster slots.
+  - Total picks equal team count multiplied by rounds.
 
-1. Call `buildLeagueSetup(input, seedRankings.length)`.
-2. Return `{ ok: false, errors }` immediately when validation fails.
-3. Avoid calling `createDraftWorkspace` on failure, which also prevents draft and nested ranking-snapshot writes.
-4. On success, call `createDraftWorkspace` once with:
-   - `name: formatAutomaticDraftName()`
-   - the generated `leagueSettings`
-   - `rankings: seedRankings`
-   - the generated `userTeamId`
-5. Return `{ ok: true, workspace }`.
+### Submit
 
-Repository and unexpected infrastructure errors should continue to reject rather than be converted into setup-validation errors. Only `buildLeagueSetup` failures belong in the action's error branch.
+1. Convert form strings to numbers, using `NaN` for blank or non-numeric values so shared validation reports them.
+2. Build a `LeagueSetupInput` with fixed `SNAKE` and `PPR` values.
+3. Call `buildLeagueSetup(input, rankingPlayerCount)` locally.
+4. On local failure, display its errors and do not call `onSubmit`.
+5. On local success, call the Draft Room's async submit callback with the typed input.
+6. The Draft Room calls `createConfiguredDraftAction` and sets the existing pending state.
+7. On server validation failure, remain in setup mode and display the returned errors.
+8. On success, route to `/?draftId=<encoded id>`.
+9. On unexpected action failure, log the existing-style concise error and show a form-level message so the developer is not left with a silent no-op.
 
-## Default Action Compatibility
+### Cancel
 
-Keep the current exported signature:
+- Cancel closes setup mode and clears local/server setup errors.
+- Cancel performs no server action and restores the existing Draft Room view with its current in-memory state.
+- Cancel is disabled while configured creation is pending.
 
-```ts
-export async function createNewDraftAction(): Promise<DraftWorkspace>;
-```
+## Component Boundary
 
-It must build `defaultLeagueSetupInput` against `seedRankings.length` and use the generated settings and user-team identity for repository creation.
+Add `src/components/DraftSetupForm.tsx` as a client component.
 
-The current Draft Room expects a `DraftWorkspace`, so do not change this action to return a discriminated result in this slice. If the committed default setup unexpectedly fails validation, throw an internal configuration error containing the validation messages. Do not silently fall back to the old hard-coded values.
-
-The configured and default actions may share a private helper inside `draftActions.ts`, but do not add a general service abstraction or another file for two straightforward call sites.
-
-## First-Run Loader Behavior
-
-Update `src/lib/draftWorkspaceLoader.ts` so automatic creation when no usable draft exists also calls:
+Use a small prop contract equivalent to:
 
 ```ts
-buildLeagueSetup(defaultLeagueSetupInput, seedRankings.length)
+type DraftSetupFormProps = {
+  rankingPlayerCount: number;
+  isPending: boolean;
+  serverErrors: LeagueSetupValidationError[];
+  onCancel: () => void;
+  onSubmit: (input: LeagueSetupInput) => Promise<void>;
+};
 ```
 
-Use its generated settings and user-team identity in the existing injected repository call. Remove direct creation-time dependence on `defaultLeagueSettings` and the hard-coded `defaultUserTeamId`.
+The component should:
 
-The loader must retain:
+- Own transient string values initialized from `defaultLeagueSetupInput`.
+- Keep form values separate from persisted/domain state.
+- Run shared validation on submit before invoking `onSubmit`.
+- After a failed submit, revalidate on edits so visible errors update promptly.
+- Clear stale local errors after a valid local build.
+- Prefer current server errors until the developer edits a field, then clear them through a small callback or by having the Draft Room clear them when it receives the next submitted input. Keep this coordination simple; do not introduce form context or reducers.
+- Render errors close to matching fields when the error has a field-specific path.
+- Render `rosterSlotCounts`, `rankingPlayerCount`, and unexpected-action errors in a concise form-level summary.
+- Include `Create Draft` and `Cancel` buttons with clear pending/disabled behavior.
 
-- Selected draft loading.
-- Latest draft fallback.
-- Stale summary handling.
-- Existing automatic naming.
-- Existing repository injection used by focused tests.
-- Existing actionable persistence error boundary and original error as its cause.
+The exact prop contract may add one narrow `onEdit`/`onClearServerErrors` callback if needed to clear stale server messages. Do not add broader abstractions.
 
-If the committed default setup is invalid, throw an internal configuration error rather than reverting to hard-coded settings. The loader's existing outer error boundary may wrap that error, but the cause must remain available.
+## Draft Room Integration
 
-## Persistence Boundary
+Update `src/components/DraftRoom.tsx` to:
 
-Do not change `CreateDraftWorkspaceInput`, repository production code, Prisma schema, or snapshot mappers.
+- Import `DraftSetupForm` and `createConfiguredDraftAction`.
+- Stop calling `createNewDraftAction` from `Start New Draft`.
+- Add local setup-open and setup-error state.
+- Retain the existing in-progress confirmation before opening setup.
+- Render `DraftSetupForm` instead of the normal grid while setup mode is active.
+- Pass `rankings.length` for capacity validation.
+- Submit typed input to `createConfiguredDraftAction`.
+- Preserve the current `isMutationPending` guard across setup submission.
+- Route only after a successful configured action result.
+- Remain in setup mode after validation or unexpected errors.
+- Close setup without mutating `activeDraft`.
 
-The existing repository path remains authoritative:
+Do not alter the props or rendering behavior of `DraftStatusPanel`. Its existing buttons already call the callback supplied by Draft Room.
 
-```text
-LeagueSetupInput
-      |
-buildLeagueSetup
-      |
-LeagueSettings + userTeamId
-      |
-createDraftWorkspace
-      |
-JSON settings snapshot + ranking snapshot
-      |
-typed workspace hydration
-```
+## Error Presentation
 
-Strengthen existing repository coverage to prove that a non-default settings object generated by `buildLeagueSetup` survives create and reload without losing:
+Use errors from the shared builder/server action rather than recreating validation rules in the component.
 
-- Team count.
-- Derived rounds.
-- Ordered roster slots and eligibility.
-- Draft type and scoring format.
-- User-team identity.
-- Generated teams and snake pick order.
+At minimum:
 
-This is a test-only repository change. If the existing repository cannot round-trip the generated settings, stop and report the discrepancy rather than changing storage architecture inside this slice.
+- `teamCount` appears with Team Count.
+- `userDraftPosition` appears with Draft Position.
+- `rosterSlotCounts.<CATEGORY>` appears with that category input.
+- Aggregate `rosterSlotCounts` appears above or below the roster field group.
+- `rankingPlayerCount` appears as a form-level capacity error.
+- Unexpected action failures use a form-level message such as `Unable to create the configured draft.`
+
+Do not expose stack traces or database details in the UI.
+
+## Testing Strategy
+
+The repository does not currently include a browser DOM test dependency. Keep automated tests proportional:
+
+- Add `src/components/DraftSetupForm.test.tsx` using the existing `renderToStaticMarkup` approach.
+- Extend `src/components/DraftRoom.test.tsx` to mock `createConfiguredDraftAction` instead of the removed Draft Room dependency on `createNewDraftAction`.
+- Preserve the existing loaded-workspace recommendation render test.
+- Use static markup assertions for defaults, labels, input bounds, fixed settings, pending state, and supplied validation errors.
+- Rely on the already-completed Task 1 tests for validation behavior and Task 2 tests for configured server submission.
+- Use focused manual QA for open, edit, submit, cancel, confirmation, route, refresh, and workflow interactions.
+
+Do not add React Testing Library, jsdom, Playwright, or another test dependency in this slice.
 
 ## Implementation Steps
 
-1. Update `src/app/actions/draftActions.ts` with the configured action result, configured action, shared validation path, and default action compatibility.
-2. Extend `src/app/actions/draftActions.test.ts` for valid configured creation, invalid no-write behavior, and default action equivalence.
-3. Update `src/lib/draftWorkspaceLoader.ts` to build automatic defaults through `buildLeagueSetup`.
-4. Extend `src/lib/draftWorkspaceLoader.test.ts` to retain exact default creation expectations and cover the default-builder failure cause if practical without weakening existing persistence-error assertions.
-5. Strengthen the existing non-default test in `src/lib/draftRepository.test.ts` to use builder output and verify exact create/load round-trip behavior.
-6. Run the focused tests, full test suite, lint, and TypeScript validation.
-7. If every acceptance criterion and validation command passes, check only Phase 4 Task 2 complete in `docs/tasks.md`. Do not begin Task 3.
+1. Add `src/components/DraftSetupForm.tsx` with transient form state, conversion, shared validation, error mapping, derived summary, and submit/cancel controls.
+2. Add `src/components/DraftSetupForm.test.tsx` for default and error/pending render states.
+3. Update `src/components/DraftRoom.tsx` to open setup mode and call `createConfiguredDraftAction` while preserving existing confirmation and mutation guards.
+4. Update `src/components/DraftRoom.test.tsx` mocks and retain normal-workspace rendering assertions.
+5. Run focused automated tests, the full suite, lint, and TypeScript validation.
+6. Complete the focused manual QA workflow below.
+7. If all acceptance criteria and validation pass, check only Phase 4 Task 3 complete in `docs/tasks.md`. Do not begin Task 4.
 
 ## Expected Files
 
-- `src/app/actions/draftActions.ts`
-- `src/app/actions/draftActions.test.ts`
-- `src/lib/draftWorkspaceLoader.ts`
-- `src/lib/draftWorkspaceLoader.test.ts`
-- `src/lib/draftRepository.test.ts`
-- `docs/tasks.md` only to mark Phase 4 Task 2 complete after validation passes
+- `src/components/DraftSetupForm.tsx`
+- `src/components/DraftSetupForm.test.tsx`
+- `src/components/DraftRoom.tsx`
+- `src/components/DraftRoom.test.tsx`
+- `docs/tasks.md` only to mark Phase 4 Task 3 complete after validation passes
 
-The five code/test files form the maximum expected blast radius. Do not modify Prisma, repository production code, mappers, UI components, or existing domain types.
+Do not modify the action, setup builder, repository, Prisma, page, status panel, or domain types unless the approved interfaces prove impossible to consume. If that occurs, stop and report the conflict rather than broadening the slice.
 
-## Test Cases
+## Automated Test Cases
 
-### Server Action
+The focused component tests should prove:
 
-1. A valid non-default setup returns `{ ok: true, workspace }`.
-2. The valid action calls the repository exactly once with generated settings, `seedRankings`, derived user-team identity, and the automatic name.
-3. An invalid field setup returns the exact builder errors and never calls the repository.
-4. A capacity-invalid setup also returns errors and never calls the repository.
-5. `createNewDraftAction()` still returns a bare workspace and supplies settings exactly equal to `defaultLeagueSettings` with `team-2`.
-6. Repository failures from either valid creation path remain rejected errors rather than validation results.
+1. Default form markup includes Team Count `12`, Draft Position `2`, and the eight documented roster counts.
+2. Draft Type displays `Snake` and Scoring displays `PPR` without unsupported selectors.
+3. Numeric inputs expose appropriate names, labels, step, and direct min/max attributes.
+4. The default derived summary shows 16 rounds and 192 total picks.
+5. Supplied team-count, draft-position, category, aggregate roster, and capacity errors render in the correct areas.
+6. Pending markup disables Create and Cancel and communicates creation progress.
+7. Normal Draft Room server rendering remains unchanged before setup is opened.
+8. Existing non-default loaded-workspace recommendations, scores, reasons, team count, rounds, and user-team identity still render correctly.
 
-### First-Run Loader
-
-7. No-summary creation still supplies settings equal to `defaultLeagueSettings`, `seedRankings`, and `team-2`.
-8. Stale-summary fallback uses the same generated defaults.
-9. Selected/latest draft loading never creates a replacement workspace.
-10. Existing persistence setup errors remain actionable and preserve their cause.
-
-### Repository Round Trip
-
-11. Build a non-default setup with `buildLeagueSetup` rather than hand-constructing persisted settings.
-12. Create and reload that workspace through the injected fake repository.
-13. Loaded settings exactly equal the builder output, including ordered roster slots.
-14. Loaded draft teams, rounds, total picks, snake team order, and user-team identity match the generated configuration.
-15. No empty pick rows are persisted at creation.
-
-Assertions should validate exact settings and calls where behavior is deterministic, not merely that a workspace exists.
+Static rendering does not need to simulate clicks. Interaction correctness is covered by Task 1/2 pure/action tests plus the manual checklist.
 
 ## Automated Validation
 
 Run from the repository root in this order:
 
 ```txt
-npm test -- src/app/actions/draftActions.test.ts src/lib/draftWorkspaceLoader.test.ts src/lib/draftRepository.test.ts
+npm test -- src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx src/app/actions/draftActions.test.ts
 npm test
 npm run lint
 npx tsc --noEmit
@@ -202,47 +210,78 @@ npx tsc --noEmit
 
 Expected result:
 
-- Focused action, loader, and repository tests pass.
+- Focused form, Draft Room, and configured-action tests pass.
 - The full Vitest suite passes.
 - ESLint exits successfully with no errors or warnings.
 - TypeScript no-emit validation exits successfully.
-- No database or network connection is required because repository tests use the existing injected fake client.
+- No package dependency is added.
+
+## Manual QA Preconditions
+
+- Local dependencies are installed.
+- PostgreSQL is running and `DATABASE_URL` targets the intended local database.
+- The Prisma schema is already applied.
+- The app starts with `npm run dev`.
+- Use a disposable or development draft; do not alter production data.
+
+If an infrastructure precondition is unavailable, record it as a blocker and leave Task 3 unchecked. Do not change application behavior merely to bypass local infrastructure.
+
+## Manual QA Checklist
+
+1. Open an existing draft with no picks and click `Start New Draft`; confirm setup opens without creating or routing.
+2. Click `Cancel`; confirm the same draft and visible state return unchanged.
+3. Add a pick to an in-progress draft, click `Start New Draft`, and reject the confirmation; confirm setup does not open.
+4. Accept the confirmation; confirm setup opens and the existing persisted draft remains in history.
+5. Confirm defaults show 12 teams, draft position 2, 16 rounds, 192 picks, Snake, and PPR.
+6. Enter an invalid team count or draft position and submit; confirm an actionable field error appears and no draft is created.
+7. Create a non-default draft, for example 4 teams, draft position 3, QB 1, RB 1, WR 1, FLEX 1, BENCH 2, and zero for the other categories.
+8. Confirm the app routes to a new `draftId` and displays 4 teams, 6 rounds, and user draft position 3.
+9. Enter one pick and confirm availability, recommendations, and current pick update.
+10. Undo and confirm the prior state returns.
+11. Refresh and confirm the configured draft, settings, and recommendation state persist.
+12. Reset the draft and confirm the same non-default configuration remains with picks cleared.
+13. Select the previous draft from history and confirm it was not overwritten.
+
+Record any failure with the exact input, active draft ID, expected result, observed result, and reproduction steps.
 
 ## Acceptance Criteria
 
-- Configured creation validates setup input against `seedRankings.length` before repository access.
-- Valid configured input creates exactly one workspace through the existing repository boundary.
-- Invalid configured input returns structured errors and creates no draft or ranking snapshot.
-- The new configured action is ready for Task 3 UI consumption.
-- Existing `createNewDraftAction()` remains source-compatible with the Draft Room.
-- Explicit default creation and automatic first-run creation both use `defaultLeagueSetupInput` and `buildLeagueSetup`.
-- Defaults remain behaviorally identical to `defaultLeagueSettings` and Team 2.
-- A non-default generated configuration survives repository create/load hydration exactly.
-- Generated teams and snake order match team count, rounds, and user draft position.
-- Existing selected/latest loading, pick, undo, reset, delete, and persistence behavior remain unchanged.
-- No Prisma schema, repository production, snapshot, domain-type, or UI changes are introduced.
-- Focused tests, full tests, lint, and TypeScript validation pass.
-- No package dependency is added.
-- Only Phase 4 Task 2 is checked complete after validation passes.
-- Task 3 is not started.
+- Both existing `Start New Draft` buttons open the setup workflow.
+- The current in-progress confirmation still protects accidental workflow replacement.
+- Opening or canceling setup creates no draft and preserves current state.
+- Defaults exactly match `defaultLeagueSetupInput`.
+- Every supported setup field is editable through a numeric input.
+- `SNAKE` and `PPR` are visible without unsupported choices.
+- Shared client validation prevents invalid server calls and displays structured errors.
+- Server validation errors remain visible in setup mode.
+- Valid submission calls `createConfiguredDraftAction` once and routes to the returned draft ID.
+- Duplicate submission and cancel are disabled while pending.
+- A non-default draft persists team count, derived rounds, roster construction, and user draft position across refresh.
+- Picks, recommendations, undo, reset, history, and resume work with the non-default draft.
+- Existing normal Draft Room rendering remains unchanged outside setup mode.
+- Automated validation and manual QA pass.
+- No new package dependency, route, persistence shape, or domain model is introduced.
+- Only Phase 4 Task 3 is checked complete after all evidence passes.
+- Task 4 is not started.
 
 ## Failure Handling
 
-- If generated settings do not round-trip through the existing repository, stop and report the exact lost or changed field.
-- If preserving the current no-argument action requires UI changes, stop and report the conflict instead of expanding into Task 3.
-- If a builder failure reaches the repository, treat it as a slice defect; do not weaken validation assertions.
-- If full validation exposes an unrelated failure, report it and do not broaden this slice to fix unrelated code.
-- Do not change the Prisma schema, snapshot format, or repository contract merely to satisfy a test.
+- If the form cannot consume the completed setup/action interfaces without changing them, stop and report the exact contract conflict.
+- If static component tests cannot assert an interaction, retain a render assertion and cover the interaction in manual QA; do not add a testing dependency.
+- If configured creation returns validation errors after local validation passes, display them and record the differing input; do not bypass server validation.
+- If automated validation exposes an unrelated failure, report it without expanding the slice.
+- If manual QA is blocked by database or app infrastructure, leave Task 3 unchecked and report the unmet precondition.
+- Do not weaken existing workflow, recommendation, or persistence assertions.
 
 ## Follow-Up Slice
 
-After this slice is implemented and reviewed, plan Phase 4 Task 3: Add the Draft Setup Workflow. Do not begin it automatically.
+After this slice is implemented and reviewed, plan Phase 4 Task 4: Define the Scenario V1 Contract. Do not begin it automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It creates a complete validated server/persistence path while deliberately preserving the existing UI contract.
-- Concrete enough for implementation: yes. Action signatures, validation flow, loader behavior, persistence assertions, tests, and failure handling are explicit.
-- Avoids unnecessary architecture changes: yes. It reuses the completed builder and existing repository/snapshot boundaries without migrations or new abstractions.
-- Blast radius reasonable: yes. Five code/test files are expected, plus the Task 2 checkbox after successful validation.
-- Review/revert comfort: yes. Changes are limited to creation entry points and focused tests; existing mutation flows are untouched.
-- Observable/testable acceptance criteria: yes. Exact repository calls, validation errors, hydrated settings, teams, picks, and validation commands are directly checkable.
+- Smallest meaningful increment: yes. It completes the user-visible configurable creation milestone using already-approved domain and server boundaries.
+- Concrete enough for implementation: yes. Component ownership, workflow states, field mapping, errors, tests, commands, and manual evidence are explicit.
+- Avoids unnecessary architecture changes: yes. It uses local React state, existing actions, and existing routing without new routes, dependencies, or persistence changes.
+- Blast radius reasonable: yes. Four code/test files are expected, plus the Task 3 checkbox after validation and manual QA.
+- Review/revert comfort: yes. The setup mode is isolated and existing Draft Room behavior remains the fallback.
+- Observable/testable acceptance criteria: yes. Rendered defaults/errors plus open, cancel, validation, route, refresh, pick, undo, reset, and history behavior are directly observable.
