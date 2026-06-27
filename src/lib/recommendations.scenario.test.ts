@@ -191,6 +191,16 @@ function getRosterFitComponent(recommendation: PlayerRecommendation) {
   return component;
 }
 
+function getScoreComponent(recommendation: PlayerRecommendation, componentId: string) {
+  const component = recommendation.components.find((candidate) => {
+    return candidate.id === componentId;
+  });
+
+  expect(component, `Expected ${componentId} for ${recommendation.playerId}`).toBeDefined();
+
+  return component;
+}
+
 describe("recommendation roster construction scenarios", () => {
   it("promotes needed WRs after a heavy RB start while preserving elite RB value", () => {
     const userPlayers = Array.from({ length: 10 }, (_, index) => ({
@@ -403,5 +413,198 @@ describe("recommendation roster construction scenarios", () => {
     expect(recommendations.some((recommendation) => {
       return recommendation.playerId === "filled-user-qb";
     })).toBe(false);
+  });
+});
+
+describe("recommendation urgency scenarios", () => {
+  it("raises a roster-relevant WR after five consecutive observed WR picks", () => {
+    const userPlayers: DraftedScenarioPlayer[] = [
+      { id: "run-user-rb-1", position: "RB" },
+      { id: "run-user-rb-2", position: "RB" },
+      { id: "run-user-te", position: "TE" },
+      { id: "run-user-wr-1", position: "WR" },
+      { id: "run-user-wr-2", position: "WR" },
+      { id: "run-user-wr-3", position: "WR" },
+    ];
+    const opponentPlayers: DraftedScenarioPlayer[] = [
+      { id: "run-opponent-te-1", position: "TE" },
+      { id: "run-opponent-te-2", position: "TE" },
+      { id: "run-opponent-te-3", position: "TE" },
+      { id: "run-opponent-te-4", position: "TE" },
+      { id: "run-opponent-wr-1", position: "WR" },
+      { id: "run-opponent-wr-2", position: "WR" },
+    ];
+    const draft = createScenarioDraft({
+      userPlayerIds: userPlayers.map((player) => player.id),
+      opponentPlayerIds: opponentPlayers.map((player) => player.id),
+    });
+    const rankings = [
+      ...createDraftedRankings(userPlayers, 200),
+      ...createDraftedRankings(opponentPlayers, 300),
+      createScenarioRanking("control-rb", 19, "RB", 1),
+      createScenarioRanking("run-wr", 20, "WR", 1),
+      createScenarioRanking("nearby-run-wr-1", 21, "WR", 2),
+      createScenarioRanking("nearby-run-wr-2", 22, "WR", 3),
+      createScenarioRanking("nearby-run-wr-3", 23, "WR", 4),
+      createScenarioRanking("nearby-control-rb-1", 24, "RB", 2),
+      createScenarioRanking("nearby-control-rb-2", 25, "RB", 3),
+      createScenarioRanking("nearby-control-rb-3", 26, "RB", 4),
+    ];
+
+    const recommendations = generateDeterministicScenario(
+      createScenarioInput(draft, rankings),
+      12,
+    );
+    const runWideReceiver = getRecommendation(recommendations, "run-wr");
+    const controlRunningBack = getRecommendation(recommendations, "control-rb");
+    const runReason = runWideReceiver.reasons.find((reason) => {
+      return reason.id === "positional_run:clear_run";
+    });
+
+    expect(draft.currentPickNumber).toBe(13);
+    expect(draft.picks.slice(7, 12).every((pick) => {
+      const ranking = rankings.find((candidate) => candidate.player.id === pick.playerId);
+
+      return ranking?.player.position === "WR";
+    })).toBe(true);
+    expectPlayerBefore(recommendations, "run-wr", "control-rb");
+    expect(getRosterFitComponent(runWideReceiver)).toMatchObject({
+      delta: 5,
+      evidence: expect.objectContaining({ timing: "flex_need" }),
+    });
+    expect(getRosterFitComponent(controlRunningBack)).toMatchObject({
+      delta: 5,
+      evidence: expect.objectContaining({ timing: "flex_need" }),
+    });
+    expect(getScoreComponent(runWideReceiver, "positional_run")).toMatchObject({
+      delta: 4,
+      direction: "positive",
+      evidence: expect.objectContaining({
+        recentPositionPickCount: 5,
+        thresholdMatched: "clear_run",
+      }),
+    });
+    expect(getScoreComponent(controlRunningBack, "positional_run")).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+    });
+    expect(runReason).toEqual(
+      expect.objectContaining({
+        text: "5 WR players were drafted in the last 12 picks.",
+      }),
+    );
+    expect(runReason?.text.toLowerCase()).not.toContain("opponent");
+    expect(runReason?.text.toLowerCase()).not.toContain("will");
+  });
+
+  it("gates an observed WR run when the position is already solved", () => {
+    const userPlayers = Array.from({ length: 10 }, (_, index) => ({
+      id: `solved-run-user-wr-${index + 1}`,
+      position: "WR" as const,
+    }));
+    const opponentPlayers = Array.from({ length: 10 }, (_, index) => ({
+      id: `solved-run-opponent-wr-${index + 1}`,
+      position: "WR" as const,
+    }));
+    const draft = createScenarioDraft({
+      userPlayerIds: userPlayers.map((player) => player.id),
+      opponentPlayerIds: opponentPlayers.map((player) => player.id),
+    });
+    const rankings = [
+      ...createDraftedRankings(userPlayers, 200),
+      ...createDraftedRankings(opponentPlayers, 300),
+      createScenarioRanking("solved-wr", 20, "WR", 1),
+      createScenarioRanking("needed-rb", 21, "RB", 1),
+      createScenarioRanking("nearby-solved-wr-1", 22, "WR", 2),
+      createScenarioRanking("nearby-solved-wr-2", 23, "WR", 3),
+      createScenarioRanking("nearby-solved-wr-3", 24, "WR", 4),
+      createScenarioRanking("nearby-needed-rb-1", 25, "RB", 2),
+      createScenarioRanking("nearby-needed-rb-2", 26, "RB", 3),
+      createScenarioRanking("nearby-needed-rb-3", 27, "RB", 4),
+    ];
+
+    const recommendations = generateDeterministicScenario(
+      createScenarioInput(draft, rankings),
+      12,
+    );
+    const solvedWideReceiver = getRecommendation(recommendations, "solved-wr");
+
+    expectPlayerBefore(recommendations, "needed-rb", "solved-wr");
+    expect(getRosterFitComponent(solvedWideReceiver)).toMatchObject({
+      delta: -12,
+      direction: "negative",
+      evidence: expect.objectContaining({ timing: "saturated" }),
+    });
+    expect(getScoreComponent(solvedWideReceiver, "positional_run")).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+      evidence: expect.objectContaining({
+        recentPositionPickCount: 12,
+        thresholdMatched: "roster_irrelevant",
+      }),
+    });
+    expect(solvedWideReceiver.reasons.some((reason) => {
+      return reason.sourceComponentId === "positional_run";
+    })).toBe(false);
+    expect(solvedWideReceiver.reasons.at(-1)?.id).toBe("roster_fit:saturated");
+  });
+
+  it("raises a last-tier RB above a close peer without passing an elite WR", () => {
+    const userPlayers: DraftedScenarioPlayer[] = [
+      { id: "tier-user-rb-1", position: "RB" },
+      { id: "tier-user-wr-1", position: "WR" },
+      { id: "tier-user-rb-2", position: "RB" },
+      { id: "tier-user-wr-2", position: "WR" },
+    ];
+    const opponentPlayers = createOpponentPlayers(4, "tier-opponent");
+    const draft = createScenarioDraft({
+      userPlayerIds: userPlayers.map((player) => player.id),
+      opponentPlayerIds: opponentPlayers.map((player) => player.id),
+    });
+    const rankings = [
+      ...createDraftedRankings(userPlayers, 200),
+      ...createDraftedRankings(opponentPlayers, 300),
+      createScenarioRanking("elite-wr", 1, "WR", 1, 1),
+      createScenarioRanking("control-wr", 19, "WR", 2, 1),
+      createScenarioRanking("tier-rb", 20, "RB", 1, 1),
+      createScenarioRanking("nearby-tier-wr-1", 21, "WR", 3, 1),
+      createScenarioRanking("nearby-tier-wr-2", 22, "WR", 4, 1),
+      createScenarioRanking("nearby-tier-wr-3", 23, "WR", 5, 1),
+      createScenarioRanking("next-tier-rb", 35, "RB", 2, 3),
+    ];
+
+    const recommendations = generateDeterministicScenario(
+      createScenarioInput(draft, rankings),
+      12,
+    );
+    const tierRunningBack = getRecommendation(recommendations, "tier-rb");
+    const controlWideReceiver = getRecommendation(recommendations, "control-wr");
+    const tierReason = tierRunningBack.reasons.find((reason) => {
+      return reason.id === "tier_cliff:major_tier_cliff";
+    });
+
+    expectPlayerBefore(recommendations, "elite-wr", "tier-rb");
+    expectPlayerBefore(recommendations, "tier-rb", "control-wr");
+    expect(getRosterFitComponent(tierRunningBack).delta).toBe(
+      getRosterFitComponent(controlWideReceiver).delta,
+    );
+    expect(getScoreComponent(tierRunningBack, "tier_cliff")).toMatchObject({
+      delta: 12,
+      direction: "positive",
+      evidence: expect.objectContaining({
+        sameTierRemaining: 1,
+        tierGap: 2,
+        thresholdMatched: "major_tier_cliff",
+      }),
+    });
+    expect(getScoreComponent(controlWideReceiver, "tier_cliff")).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+    });
+    expect(tierReason).toEqual(
+      expect.objectContaining({ text: "A major RB tier drop follows." }),
+    );
+    expect(tierReason?.text.toLowerCase()).not.toContain("opponent");
+    expect(tierReason?.text.toLowerCase()).not.toContain("will");
   });
 });
