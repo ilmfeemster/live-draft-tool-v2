@@ -5,6 +5,7 @@ import type {
   Position,
   RankingEntry,
   Recommendation,
+  RecommendationReason,
   RecommendationScoreComponent,
   RecommendationInput,
   RecommendationTuningConfig,
@@ -111,6 +112,11 @@ type RosterSlotAnalysis = {
   benchOpenings: number;
   rosterCountAtPosition: number;
   totalUsefulCapacity: number;
+};
+
+type RecommendationReasonCandidate = {
+  reason: RecommendationReason;
+  delta: number;
 };
 
 export function calculateRankingScore(ranking: RankingEntry) {
@@ -615,6 +621,343 @@ export function calculatePositionalRunComponent({
   };
 }
 
+function getStringEvidence(component: RecommendationScoreComponent, key: string) {
+  const value = component.evidence?.[key];
+
+  return typeof value === "string" ? value : null;
+}
+
+function getNumberEvidence(component: RecommendationScoreComponent, key: string) {
+  const value = component.evidence?.[key];
+
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function createReasonCandidate(
+  component: RecommendationScoreComponent,
+  reasonId: string,
+  text: string,
+): RecommendationReasonCandidate {
+  return {
+    reason: {
+      id: reasonId,
+      text,
+      sourceComponentId: component.id,
+      priority: component.priority ?? 0,
+    },
+    delta: component.delta,
+  };
+}
+
+function buildRosterFitReasonCandidate(
+  component: RecommendationScoreComponent,
+): RecommendationReasonCandidate | null {
+  const position = getStringEvidence(component, "position");
+  const timing = getStringEvidence(component, "timing");
+
+  if (!position || !timing) {
+    return null;
+  }
+
+  const textByTiming: Record<string, string> =
+    component.direction === "positive"
+      ? {
+          direct_starter_need: `Fills an open ${position} starter slot.`,
+          flex_need: "Helps fill an open FLEX slot.",
+          bench_depth: `Adds useful ${position} depth.`,
+        }
+      : component.direction === "negative"
+        ? {
+            early_def_k: `Early for ${position} relative to roster timing.`,
+            saturated: `${position} is already saturated on the roster.`,
+            limited_need: `Limited current roster need at ${position}.`,
+          }
+        : {};
+  const text = textByTiming[timing];
+
+  return text ? createReasonCandidate(component, `${component.id}:${timing}`, text) : null;
+}
+
+function buildTierCliffReasonCandidate(
+  component: RecommendationScoreComponent,
+): RecommendationReasonCandidate | null {
+  if (component.direction !== "positive") {
+    return null;
+  }
+
+  const position = getStringEvidence(component, "position");
+  const thresholdMatched = getStringEvidence(component, "thresholdMatched");
+
+  if (!position || !thresholdMatched) {
+    return null;
+  }
+
+  if (thresholdMatched === "major_tier_cliff") {
+    return createReasonCandidate(
+      component,
+      `${component.id}:${thresholdMatched}`,
+      `A major ${position} tier drop follows.`,
+    );
+  }
+
+  if (thresholdMatched === "last_in_tier") {
+    return createReasonCandidate(
+      component,
+      `${component.id}:${thresholdMatched}`,
+      `Last ${position} available in this tier.`,
+    );
+  }
+
+  if (thresholdMatched === "mild_tier_pressure") {
+    const sameTierRemaining = getNumberEvidence(component, "sameTierRemaining");
+
+    return sameTierRemaining === null
+      ? null
+      : createReasonCandidate(
+          component,
+          `${component.id}:${thresholdMatched}`,
+          `Only ${sameTierRemaining} ${position} options remain in this tier.`,
+        );
+  }
+
+  return null;
+}
+
+function buildScarcityReasonCandidate(
+  component: RecommendationScoreComponent,
+): RecommendationReasonCandidate | null {
+  if (component.direction !== "positive") {
+    return null;
+  }
+
+  const position = getStringEvidence(component, "position");
+  const thresholdMatched = getStringEvidence(component, "thresholdMatched");
+
+  if (!position || !thresholdMatched) {
+    return null;
+  }
+
+  if (thresholdMatched === "clear_scarcity") {
+    const lookaheadRanks = getNumberEvidence(component, "lookaheadRanks");
+
+    return lookaheadRanks === null
+      ? null
+      : createReasonCandidate(
+          component,
+          `${component.id}:${thresholdMatched}`,
+          `No nearby ${position} options remain in the next ${lookaheadRanks} ranks.`,
+        );
+  }
+
+  if (thresholdMatched === "mild_scarcity") {
+    const nearbyOptions = getNumberEvidence(component, "nearbySamePositionOptions");
+
+    return nearbyOptions === null
+      ? null
+      : createReasonCandidate(
+          component,
+          `${component.id}:${thresholdMatched}`,
+          `Only ${nearbyOptions} nearby ${position} options remain.`,
+        );
+  }
+
+  return null;
+}
+
+function buildRunReasonCandidate(
+  component: RecommendationScoreComponent,
+): RecommendationReasonCandidate | null {
+  if (component.direction !== "positive") {
+    return null;
+  }
+
+  const position = getStringEvidence(component, "position");
+  const thresholdMatched = getStringEvidence(component, "thresholdMatched");
+  const recentPositionPickCount = getNumberEvidence(component, "recentPositionPickCount");
+  const recentPickWindow = getNumberEvidence(component, "recentPickWindow");
+
+  if (
+    !position ||
+    (thresholdMatched !== "mild_run" && thresholdMatched !== "clear_run") ||
+    recentPositionPickCount === null ||
+    recentPickWindow === null
+  ) {
+    return null;
+  }
+
+  return createReasonCandidate(
+    component,
+    `${component.id}:${thresholdMatched}`,
+    `${recentPositionPickCount} ${position} players were drafted in the last ${recentPickWindow} picks.`,
+  );
+}
+
+function buildValueOpportunityReasonCandidate(
+  component: RecommendationScoreComponent,
+): RecommendationReasonCandidate | null {
+  const currentPickNumber = getNumberEvidence(component, "currentPickNumber");
+  const overallRank = getNumberEvidence(component, "overallRank");
+  const thresholdMatched = getStringEvidence(component, "thresholdMatched");
+
+  if (currentPickNumber === null || overallRank === null || !thresholdMatched) {
+    return null;
+  }
+
+  const positiveThresholds = new Set(["small_value", "clear_value", "major_value"]);
+  const negativeThresholds = new Set(["clear_reach", "major_reach"]);
+
+  if (component.direction === "positive" && positiveThresholds.has(thresholdMatched)) {
+    return createReasonCandidate(
+      component,
+      `${component.id}:${thresholdMatched}`,
+      `Value at pick ${currentPickNumber}: ranked #${overallRank} overall.`,
+    );
+  }
+
+  if (component.direction === "negative" && negativeThresholds.has(thresholdMatched)) {
+    return createReasonCandidate(
+      component,
+      `${component.id}:${thresholdMatched}`,
+      `Reach at pick ${currentPickNumber}: ranked #${overallRank} overall.`,
+    );
+  }
+
+  return null;
+}
+
+function buildContextReasonCandidate(
+  component: RecommendationScoreComponent,
+): RecommendationReasonCandidate | null {
+  if (component.id === "roster_fit") {
+    return buildRosterFitReasonCandidate(component);
+  }
+
+  if (component.id === "tier_cliff") {
+    return buildTierCliffReasonCandidate(component);
+  }
+
+  if (component.id === "positional_scarcity") {
+    return buildScarcityReasonCandidate(component);
+  }
+
+  if (component.id === "positional_run") {
+    return buildRunReasonCandidate(component);
+  }
+
+  if (component.id === "value_opportunity") {
+    return buildValueOpportunityReasonCandidate(component);
+  }
+
+  return null;
+}
+
+function comparePositiveReasonCandidates(
+  a: RecommendationReasonCandidate,
+  b: RecommendationReasonCandidate,
+) {
+  if (b.reason.priority !== a.reason.priority) {
+    return b.reason.priority - a.reason.priority;
+  }
+
+  if (b.delta !== a.delta) {
+    return b.delta - a.delta;
+  }
+
+  return a.reason.id.localeCompare(b.reason.id);
+}
+
+function compareNegativeReasonCandidates(
+  a: RecommendationReasonCandidate,
+  b: RecommendationReasonCandidate,
+) {
+  if (a.delta !== b.delta) {
+    return a.delta - b.delta;
+  }
+
+  if (b.reason.priority !== a.reason.priority) {
+    return b.reason.priority - a.reason.priority;
+  }
+
+  return a.reason.id.localeCompare(b.reason.id);
+}
+
+export function selectRecommendationReasons({
+  ranking,
+  components,
+  availableValueRank,
+  tuning,
+}: {
+  ranking: RankingEntry;
+  components: RecommendationScoreComponent[];
+  availableValueRank: number;
+  tuning: RecommendationTuningConfig;
+}): RecommendationReason[] {
+  const reasonLimit = Math.max(0, Math.floor(tuning.maxReasons));
+
+  if (reasonLimit === 0) {
+    return [];
+  }
+
+  const contextualPositiveCandidates = components.flatMap((component) => {
+    if (
+      component.id === "base_value" ||
+      component.direction !== "positive" ||
+      component.delta < tuning.positiveReasonThreshold
+    ) {
+      return [];
+    }
+
+    const candidate = buildContextReasonCandidate(component);
+
+    return candidate ? [candidate] : [];
+  });
+  const negativeCandidates = components
+    .flatMap((component) => {
+      if (
+        component.direction !== "negative" ||
+        component.delta > tuning.negativeReasonThreshold
+      ) {
+        return [];
+      }
+
+      const candidate = buildContextReasonCandidate(component);
+
+      return candidate ? [candidate] : [];
+    })
+    .sort(compareNegativeReasonCandidates);
+  const positiveCandidates = [...contextualPositiveCandidates];
+  const baseValueComponent = components.find((component) => component.id === "base_value");
+  const baseOverallRank = baseValueComponent
+    ? getNumberEvidence(baseValueComponent, "overallRank")
+    : null;
+
+  if (
+    baseValueComponent &&
+    baseOverallRank === ranking.overallRank &&
+    (availableValueRank <= 5 || contextualPositiveCandidates.length === 0)
+  ) {
+    positiveCandidates.push(
+      createReasonCandidate(
+        baseValueComponent,
+        "base_value:overall_rank",
+        `Ranked #${baseOverallRank} overall.`,
+      ),
+    );
+  }
+
+  positiveCandidates.sort(comparePositiveReasonCandidates);
+
+  const caveat = reasonLimit >= 2 ? negativeCandidates[0] : undefined;
+  const positiveLimit = caveat ? reasonLimit - 1 : reasonLimit;
+  const reasons = positiveCandidates.slice(0, positiveLimit).map((candidate) => candidate.reason);
+
+  if (caveat) {
+    reasons.push(caveat.reason);
+  }
+
+  return reasons;
+}
+
 export function generatePlayerRecommendations(
   input: RecommendationInput,
   options: GeneratePlayerRecommendationsOptions = {},
@@ -631,6 +974,11 @@ export function generatePlayerRecommendations(
   const availableRankings = input.rankings.filter((ranking) => {
     return !draftedPlayerIds.has(ranking.player.id);
   });
+  const availableValueRanks = new Map(
+    [...availableRankings]
+      .sort(compareRankingsByStableDraftOrder)
+      .map((ranking, index) => [ranking.player.id, index + 1] as const),
+  );
   const distanceToNextUserPick = getDistanceToNextUserPick(input);
 
   return availableRankings
@@ -685,6 +1033,29 @@ export function generatePlayerRecommendations(
         tuning.maxPositiveContextScore,
       );
       const totalScore = baseScore + contextScore;
+      const components: RecommendationScoreComponent[] = [
+        {
+          id: "base_value",
+          delta: baseScore,
+          direction: baseScore > 0 ? "positive" : "neutral",
+          priority: 10,
+          evidence: {
+            overallRank: ranking.overallRank,
+            coefficient: tuning.baseScoreCurveCoefficient,
+          },
+        },
+        rosterFitComponent,
+        tierCliffComponent,
+        positionalScarcityComponent,
+        positionalRunComponent,
+        valueOpportunityComponent,
+      ];
+      const reasons = selectRecommendationReasons({
+        ranking,
+        components,
+        availableValueRank: availableValueRanks.get(ranking.player.id) ?? Number.MAX_SAFE_INTEGER,
+        tuning,
+      });
 
       return {
         ranking,
@@ -692,24 +1063,8 @@ export function generatePlayerRecommendations(
         totalScore,
         baseScore,
         contextScore,
-        components: [
-          {
-            id: "base_value",
-            delta: baseScore,
-            direction: baseScore > 0 ? "positive" : "neutral",
-            priority: 10,
-            evidence: {
-              overallRank: ranking.overallRank,
-              coefficient: tuning.baseScoreCurveCoefficient,
-            },
-          },
-          rosterFitComponent,
-          tierCliffComponent,
-          positionalScarcityComponent,
-          positionalRunComponent,
-          valueOpportunityComponent,
-        ],
-        reasons: [],
+        components,
+        reasons,
       };
     })
     .sort(comparePlayerRecommendations)

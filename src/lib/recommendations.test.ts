@@ -11,8 +11,15 @@ import {
   defaultRecommendationTuningConfig,
   generatePlayerRecommendations,
   generateTopRecommendations,
+  selectRecommendationReasons,
 } from "@/lib/recommendations";
-import type { Draft, LeagueSettings, Position, RankingEntry } from "@/types/draft";
+import type {
+  Draft,
+  LeagueSettings,
+  Position,
+  RankingEntry,
+  RecommendationScoreComponent,
+} from "@/types/draft";
 
 function createRanking(
   id: string,
@@ -415,7 +422,26 @@ describe("generatePlayerRecommendations", () => {
       totalScore: 116,
       baseScore: 100,
       contextScore: 16,
-      reasons: [],
+      reasons: [
+        {
+          id: "roster_fit:direct_starter_need",
+          text: "Fills an open RB starter slot.",
+          sourceComponentId: "roster_fit",
+          priority: 20,
+        },
+        {
+          id: "positional_scarcity:clear_scarcity",
+          text: "No nearby RB options remain in the next 24 ranks.",
+          sourceComponentId: "positional_scarcity",
+          priority: 17,
+        },
+        {
+          id: "base_value:overall_rank",
+          text: "Ranked #1 overall.",
+          sourceComponentId: "base_value",
+          priority: 10,
+        },
+      ],
     });
     expect(recommendation.components).toEqual(
       expect.arrayContaining([
@@ -1198,6 +1224,343 @@ describe("generatePlayerRecommendations", () => {
       "elite-wr",
       "lower-rb",
     ]);
+  });
+
+  it("emits only reasons backed by recommendation score components", () => {
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ rankings: [createRanking("candidate-rb", 1, "RB")] }),
+    );
+    const componentIds = new Set(recommendation.components.map((component) => component.id));
+
+    expect(recommendation.reasons).toHaveLength(defaultRecommendationTuningConfig.maxReasons);
+    expect(
+      recommendation.reasons.every((reason) => componentIds.has(reason.sourceComponentId)),
+    ).toBe(true);
+  });
+
+  it("maps supported component evidence into deterministic reason text and priority order", () => {
+    const ranking = createRanking("candidate-rb", 10, "RB");
+    const components: RecommendationScoreComponent[] = [
+      {
+        id: "base_value",
+        delta: 82,
+        direction: "positive",
+        priority: 10,
+        evidence: { overallRank: 10 },
+      },
+      {
+        id: "roster_fit",
+        delta: 10,
+        direction: "positive",
+        priority: 20,
+        evidence: { position: "RB", timing: "direct_starter_need" },
+      },
+      {
+        id: "tier_cliff",
+        delta: 4,
+        direction: "positive",
+        priority: 18,
+        evidence: {
+          position: "RB",
+          sameTierRemaining: 2,
+          thresholdMatched: "mild_tier_pressure",
+        },
+      },
+      {
+        id: "positional_scarcity",
+        delta: 6,
+        direction: "positive",
+        priority: 17,
+        evidence: {
+          position: "RB",
+          lookaheadRanks: 24,
+          thresholdMatched: "clear_scarcity",
+        },
+      },
+      {
+        id: "positional_run",
+        delta: 4,
+        direction: "positive",
+        priority: 16,
+        evidence: {
+          position: "RB",
+          recentPositionPickCount: 5,
+          recentPickWindow: 12,
+          thresholdMatched: "clear_run",
+        },
+      },
+      {
+        id: "value_opportunity",
+        delta: 8,
+        direction: "positive",
+        priority: 15,
+        evidence: {
+          currentPickNumber: 34,
+          overallRank: 10,
+          thresholdMatched: "major_value",
+        },
+      },
+    ];
+
+    const reasons = selectRecommendationReasons({
+      ranking,
+      components,
+      availableValueRank: 1,
+      tuning: { ...defaultRecommendationTuningConfig, maxReasons: 10 },
+    });
+
+    expect(reasons).toEqual([
+      expect.objectContaining({
+        id: "roster_fit:direct_starter_need",
+        text: "Fills an open RB starter slot.",
+      }),
+      expect.objectContaining({
+        id: "tier_cliff:mild_tier_pressure",
+        text: "Only 2 RB options remain in this tier.",
+      }),
+      expect.objectContaining({
+        id: "positional_scarcity:clear_scarcity",
+        text: "No nearby RB options remain in the next 24 ranks.",
+      }),
+      expect.objectContaining({
+        id: "positional_run:clear_run",
+        text: "5 RB players were drafted in the last 12 picks.",
+      }),
+      expect.objectContaining({
+        id: "value_opportunity:major_value",
+        text: "Value at pick 34: ranked #10 overall.",
+      }),
+      expect.objectContaining({
+        id: "base_value:overall_rank",
+        text: "Ranked #10 overall.",
+      }),
+    ]);
+  });
+
+  it("clamps the reason limit to a non-negative integer", () => {
+    const ranking = createRanking("candidate-rb", 10, "RB");
+    const components: RecommendationScoreComponent[] = [
+      {
+        id: "base_value",
+        delta: 82,
+        direction: "positive",
+        priority: 10,
+        evidence: { overallRank: 10 },
+      },
+      {
+        id: "roster_fit",
+        delta: 10,
+        direction: "positive",
+        priority: 20,
+        evidence: { position: "RB", timing: "direct_starter_need" },
+      },
+      {
+        id: "tier_cliff",
+        delta: 8,
+        direction: "positive",
+        priority: 18,
+        evidence: { position: "RB", thresholdMatched: "last_in_tier" },
+      },
+    ];
+
+    const limitedReasons = selectRecommendationReasons({
+      ranking,
+      components,
+      availableValueRank: 1,
+      tuning: { ...defaultRecommendationTuningConfig, maxReasons: 2.9 },
+    });
+    const disabledReasons = selectRecommendationReasons({
+      ranking,
+      components,
+      availableValueRank: 1,
+      tuning: { ...defaultRecommendationTuningConfig, maxReasons: -1 },
+    });
+
+    expect(limitedReasons.map((reason) => reason.id)).toEqual([
+      "roster_fit:direct_starter_need",
+      "tier_cliff:last_in_tier",
+    ]);
+    expect(disabledReasons).toEqual([]);
+  });
+
+  it("selects one meaningful negative caveat and places it last", () => {
+    const ranking = createRanking("candidate-dst", 25, "DST");
+    const components: RecommendationScoreComponent[] = [
+      {
+        id: "base_value",
+        delta: 70,
+        direction: "positive",
+        priority: 10,
+        evidence: { overallRank: 25 },
+      },
+      {
+        id: "tier_cliff",
+        delta: 8,
+        direction: "positive",
+        priority: 18,
+        evidence: { position: "DST", thresholdMatched: "last_in_tier" },
+      },
+      {
+        id: "roster_fit",
+        delta: -20,
+        direction: "negative",
+        priority: 20,
+        evidence: { position: "DST", timing: "early_def_k" },
+      },
+      {
+        id: "value_opportunity",
+        delta: -6,
+        direction: "negative",
+        priority: 15,
+        evidence: {
+          currentPickNumber: 1,
+          overallRank: 25,
+          thresholdMatched: "major_reach",
+        },
+      },
+    ];
+
+    const reasons = selectRecommendationReasons({
+      ranking,
+      components,
+      availableValueRank: 1,
+      tuning: defaultRecommendationTuningConfig,
+    });
+    const singleReason = selectRecommendationReasons({
+      ranking,
+      components,
+      availableValueRank: 1,
+      tuning: { ...defaultRecommendationTuningConfig, maxReasons: 1 },
+    });
+
+    expect(reasons.map((reason) => reason.id)).toEqual([
+      "tier_cliff:last_in_tier",
+      "base_value:overall_rank",
+      "roster_fit:early_def_k",
+    ]);
+    expect(reasons.at(-1)).toEqual(
+      expect.objectContaining({
+        text: "Early for DST relative to roster timing.",
+        sourceComponentId: "roster_fit",
+      }),
+    );
+    expect(singleReason.map((reason) => reason.id)).toEqual(["tier_cliff:last_in_tier"]);
+  });
+
+  it("suppresses below-threshold context and falls back to base value", () => {
+    const ranking = createRanking("candidate-wr", 40, "WR");
+    const components: RecommendationScoreComponent[] = [
+      {
+        id: "base_value",
+        delta: 60,
+        direction: "positive",
+        priority: 10,
+        evidence: { overallRank: 40 },
+      },
+      {
+        id: "positional_run",
+        delta: 2,
+        direction: "positive",
+        priority: 16,
+        evidence: {
+          position: "WR",
+          recentPositionPickCount: 3,
+          recentPickWindow: 12,
+          thresholdMatched: "mild_run",
+        },
+      },
+      {
+        id: "value_opportunity",
+        delta: -4,
+        direction: "negative",
+        priority: 15,
+        evidence: {
+          currentPickNumber: 20,
+          overallRank: 40,
+          thresholdMatched: "clear_reach",
+        },
+      },
+    ];
+
+    const reasons = selectRecommendationReasons({
+      ranking,
+      components,
+      availableValueRank: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(reasons).toEqual([
+      {
+        id: "base_value:overall_rank",
+        text: "Ranked #40 overall.",
+        sourceComponentId: "base_value",
+        priority: 10,
+      },
+    ]);
+  });
+
+  it("does not emit a reason when required component evidence is missing", () => {
+    const ranking = createRanking("candidate-te", 20, "TE");
+    const components: RecommendationScoreComponent[] = [
+      {
+        id: "base_value",
+        delta: 70,
+        direction: "positive",
+        priority: 10,
+        evidence: { overallRank: 20 },
+      },
+      {
+        id: "positional_scarcity",
+        delta: 6,
+        direction: "positive",
+        priority: 17,
+        evidence: { position: "TE", thresholdMatched: "clear_scarcity" },
+      },
+    ];
+
+    const reasons = selectRecommendationReasons({
+      ranking,
+      components,
+      availableValueRank: 8,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(reasons.map((reason) => reason.id)).toEqual(["base_value:overall_rank"]);
+  });
+
+  it("keeps recommendation scoring, ordering, and reason output deterministic", () => {
+    const rankings = [
+      createRanking("candidate-rb", 10, "RB", "candidate-rb", { tier: 1 }),
+      createRanking("candidate-wr", 11, "WR", "candidate-wr", { tier: 1 }),
+      createRanking("next-rb", 20, "RB", "next-rb", { tier: 2 }),
+    ];
+    const input = createRecommendationInput({ rankings });
+
+    const recommendationsWithReasons = generatePlayerRecommendations(input);
+    const repeatedRecommendations = generatePlayerRecommendations(input);
+    const recommendationsWithoutReasons = generatePlayerRecommendations(input, {
+      tuning: { ...defaultRecommendationTuningConfig, maxReasons: 0 },
+    });
+
+    expect(repeatedRecommendations).toEqual(recommendationsWithReasons);
+    expect(
+      recommendationsWithReasons.map(({ playerId, totalScore, baseScore, contextScore }) => ({
+        playerId,
+        totalScore,
+        baseScore,
+        contextScore,
+      })),
+    ).toEqual(
+      recommendationsWithoutReasons.map(({ playerId, totalScore, baseScore, contextScore }) => ({
+        playerId,
+        totalScore,
+        baseScore,
+        contextScore,
+      })),
+    );
+    expect(recommendationsWithoutReasons.every((recommendation) => {
+      return recommendation.reasons.length === 0;
+    })).toBe(true);
   });
 
   it("does not mutate the input draft", () => {
