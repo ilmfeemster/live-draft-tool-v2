@@ -1,241 +1,200 @@
-# Current Slice: Define League Setup and Validation
+# Current Slice: Create and Persist Configured Drafts
 
 ## Source Context
 
-Phase 4 Task 1: Define League Setup and Validation.
+Phase 4 Task 2: Create and Persist Configured Drafts.
 
-The domain, hydration, repository, and Recommendation Engine already consume dynamic `LeagueSettings`, but draft creation still supplies fixed defaults. This slice establishes the pure setup boundary required before configured persistence or UI work begins.
+Task 1 is complete. `buildLeagueSetup` now validates setup input, enforces ranking capacity, generates deterministic `LeagueSettings`, and derives `userTeamId`.
 
-The slice must produce the existing `LeagueSettings` shape and a valid user-team identity. It must not create a second persisted settings model, create drafts, or change engine behavior.
+The repository already accepts typed `LeagueSettings`, rankings, and user-team identity, persists settings as JSON, and hydrates a dynamic draft workspace. The missing work is to place the completed builder at both creation entry points: explicit configured creation and automatic first-run/default creation.
 
 ## Goal
 
-Add a client-safe, deterministic `buildLeagueSetup` boundary that validates supported setup input and returns either structured field errors or the existing typed `LeagueSettings` plus derived `userTeamId`.
+Add a validated configured-draft server action and route all default creation through `buildLeagueSetup`, while preserving the existing repository schema, existing UI-facing `createNewDraftAction()` contract, and existing draft workflows.
 
 ## Scope
 
 ### Goals
 
-- Define the league-setup input and default input used by later server and form slices.
-- Support team counts from 2 through 20.
-- Support user draft positions from 1 through the selected team count.
-- Support QB, RB, WR, TE, FLEX, DST, K, and BENCH roster counts.
-- Require finite, non-negative integer roster counts.
-- Require at least one non-BENCH starting slot.
-- Require 1 through 30 total roster slots.
-- Support only `SNAKE` and `PPR`.
-- Validate total draft capacity against a supplied ranking player count.
-- Generate deterministic ordered `RosterSlot[]` values with unique category/index IDs.
-- Derive rounds from the generated roster-slot count.
-- Derive `userTeamId` from the team created for the selected draft position.
-- Return structured, deterministic validation errors without throwing for invalid setup input.
-- Add exact unit coverage for defaults, non-defaults, slot generation, bounds, and invalid input.
+- Add an explicit server action that accepts `LeagueSetupInput`.
+- Validate configured creation with `buildLeagueSetup(input, seedRankings.length)` before repository access.
+- Return structured setup errors without calling the repository for invalid input.
+- Create valid configured drafts through the existing `createDraftWorkspace` repository function.
+- Continue using the seed ranking snapshot and automatic draft naming.
+- Preserve the existing no-argument `createNewDraftAction(): Promise<DraftWorkspace>` contract used by the current Draft Room.
+- Route `createNewDraftAction()` through the same builder using `defaultLeagueSetupInput`.
+- Route automatic first-run and stale-summary fallback creation through the same default builder.
+- Prove a non-default configured draft persists and hydrates with identical settings, team order, pick order, and user-team identity.
+- Preserve all existing pick, undo, reset, delete, history, and load behavior.
 
 ### Non-Goals
 
-- Changing `createNewDraftAction`, repository methods, hydration, Prisma, or persistence.
-- Adding a draft setup form or other UI.
-- Modifying the Draft State Engine or Recommendation Engine.
-- Editing settings on an existing draft.
-- Persisting roster counts as a separate model.
-- Supporting arbitrary slot eligibility, custom positions, auction, keeper, dynasty, non-snake drafts, or non-PPR scoring.
-- Changing the existing `LeagueSettings`, `RosterSlot`, `DraftType`, or `ScoringFormat` domain types.
-- Refactoring `defaultLeagueSettings` or existing snapshot validation in this slice.
+- Adding or changing the draft setup UI.
+- Modifying `DraftRoom`, `DraftStatusPanel`, page routing, or client behavior.
+- Changing repository production code, repository interfaces, hydration, or snapshot formats.
+- Adding a Prisma migration or normalized settings columns.
+- Editing settings on an existing draft or migrating picks.
+- Changing rankings or adding ranking selection/management.
+- Changing Draft State Engine or Recommendation Engine behavior.
+- Adding alternate draft or scoring formats.
 - Adding package dependencies.
-- Beginning Phase 4 Task 2.
+- Beginning Phase 4 Task 3.
 
-## Public Contract
+## Configured Creation Contract
 
-Add `src/lib/leagueSetup.ts` as a pure module safe to import from client and server code.
-
-Use the following contract names and meanings:
+In `src/app/actions/draftActions.ts`, add an exported discriminated result for configured creation:
 
 ```ts
-export const LEAGUE_SETUP_LIMITS = {
-  minTeamCount: 2,
-  maxTeamCount: 20,
-  minRosterSlots: 1,
-  maxRosterSlots: 30,
-} as const;
-
-export const LEAGUE_SETUP_ROSTER_CATEGORIES = [
-  "QB",
-  "RB",
-  "WR",
-  "TE",
-  "FLEX",
-  "DST",
-  "K",
-  "BENCH",
-] as const;
-
-export type LeagueSetupRosterCategory =
-  (typeof LEAGUE_SETUP_ROSTER_CATEGORIES)[number];
-
-export type LeagueSetupRosterCounts = Record<
-  LeagueSetupRosterCategory,
-  number
->;
-
-export type LeagueSetupInput = {
-  teamCount: number;
-  userDraftPosition: number;
-  draftType: DraftType;
-  scoringFormat: ScoringFormat;
-  rosterSlotCounts: LeagueSetupRosterCounts;
-};
-
-export type LeagueSetupValidationError = {
-  field: string;
-  message: string;
-};
-
-export type LeagueSetupResult =
+export type CreateConfiguredDraftActionResult =
   | {
       ok: true;
-      leagueSettings: LeagueSettings;
-      userTeamId: string;
+      workspace: DraftWorkspace;
     }
   | {
       ok: false;
       errors: LeagueSetupValidationError[];
     };
 
-export const defaultLeagueSetupInput: LeagueSetupInput;
-
-export function buildLeagueSetup(
+export async function createConfiguredDraftAction(
   input: LeagueSetupInput,
-  rankingPlayerCount: number,
-): LeagueSetupResult;
+): Promise<CreateConfiguredDraftActionResult>;
 ```
 
-The exact error-field type may be narrowed to a string union if that stays simple. Do not return partial settings on failure and do not throw for expected validation errors.
+The action should:
 
-## Default Setup
+1. Call `buildLeagueSetup(input, seedRankings.length)`.
+2. Return `{ ok: false, errors }` immediately when validation fails.
+3. Avoid calling `createDraftWorkspace` on failure, which also prevents draft and nested ranking-snapshot writes.
+4. On success, call `createDraftWorkspace` once with:
+   - `name: formatAutomaticDraftName()`
+   - the generated `leagueSettings`
+   - `rankings: seedRankings`
+   - the generated `userTeamId`
+5. Return `{ ok: true, workspace }`.
 
-`defaultLeagueSetupInput` must represent the current application defaults:
+Repository and unexpected infrastructure errors should continue to reject rather than be converted into setup-validation errors. Only `buildLeagueSetup` failures belong in the action's error branch.
 
-- 12 teams.
-- User draft position 2.
-- `SNAKE` draft.
-- `PPR` scoring.
-- QB: 1.
-- RB: 2.
-- WR: 2.
-- TE: 1.
-- FLEX: 2.
-- DST: 1.
-- K: 1.
-- BENCH: 6.
+## Default Action Compatibility
 
-Given enough ranking players, building this input must return settings exactly equal to the existing `defaultLeagueSettings` and `userTeamId` equal to `team-2`. Keep `defaultLeagueSettings` unchanged in this slice; the equality test protects the later migration to the shared builder.
+Keep the current exported signature:
 
-## Roster-Slot Mapping
+```ts
+export async function createNewDraftAction(): Promise<DraftWorkspace>;
+```
 
-Generate slots in this fixed category order:
+It must build `defaultLeagueSetupInput` against `seedRankings.length` and use the generated settings and user-team identity for repository creation.
 
-1. QB
-2. RB
-3. WR
-4. TE
-5. FLEX
-6. DST
-7. K
-8. BENCH
+The current Draft Room expects a `DraftWorkspace`, so do not change this action to return a discriminated result in this slice. If the committed default setup unexpectedly fails validation, throw an internal configuration error containing the validation messages. Do not silently fall back to the old hard-coded values.
 
-For each category, generate one slot per configured count using a lowercase category and one-based index for the ID, such as `rb-1`, `rb-2`, and `bench-1`.
+The configured and default actions may share a private helper inside `draftActions.ts`, but do not add a general service abstraction or another file for two straightforward call sites.
 
-Use these labels and eligibility rules:
+## First-Run Loader Behavior
 
-| Category | Label | Eligible positions |
-| --- | --- | --- |
-| QB | `QB` | QB |
-| RB | `RB` | RB |
-| WR | `WR` | WR |
-| TE | `TE` | TE |
-| FLEX | `FLEX` | RB, WR, TE |
-| DST | `DST` | DST |
-| K | `K` | K |
-| BENCH | `BENCH` | QB, RB, WR, TE, DST, K |
+Update `src/lib/draftWorkspaceLoader.ts` so automatic creation when no usable draft exists also calls:
 
-Create fresh slots and eligible-position arrays on every successful call. Do not sort or infer category order from object property enumeration.
+```ts
+buildLeagueSetup(defaultLeagueSetupInput, seedRankings.length)
+```
 
-## Validation Rules
+Use its generated settings and user-team identity in the existing injected repository call. Remove direct creation-time dependence on `defaultLeagueSettings` and the hard-coded `defaultUserTeamId`.
 
-Validate in a stable order so identical invalid input returns identical errors:
+The loader must retain:
 
-1. Ranking player count is a finite non-negative integer.
-2. Team count is a finite integer from 2 through 20.
-3. User draft position is a finite integer and falls within the valid team range.
-4. Draft type is exactly `SNAKE`.
-5. Scoring format is exactly `PPR`.
-6. Each roster category count is a finite non-negative integer, checked in the fixed category order.
-7. At least one non-BENCH slot is configured.
-8. Total roster slots are from 1 through 30.
-9. `teamCount * totalRosterSlots` does not exceed `rankingPlayerCount`.
+- Selected draft loading.
+- Latest draft fallback.
+- Stale summary handling.
+- Existing automatic naming.
+- Existing repository injection used by focused tests.
+- Existing actionable persistence error boundary and original error as its cause.
 
-Aggregate roster and capacity checks should run only when the values they depend on are valid. Return all independent errors found in one result so the later form can show useful feedback without repeated submissions.
+If the committed default setup is invalid, throw an internal configuration error rather than reverting to hard-coded settings. The loader's existing outer error boundary may wrap that error, but the cause must remain available.
 
-Use field paths suitable for later form mapping, such as:
+## Persistence Boundary
 
-- `rankingPlayerCount`
-- `teamCount`
-- `userDraftPosition`
-- `draftType`
-- `scoringFormat`
-- `rosterSlotCounts.QB`
-- `rosterSlotCounts`
+Do not change `CreateDraftWorkspaceInput`, repository production code, Prisma schema, or snapshot mappers.
 
-Error messages should state the supported requirement and avoid implementation jargon.
+The existing repository path remains authoritative:
 
-## Team Identity Derivation
+```text
+LeagueSetupInput
+      |
+buildLeagueSetup
+      |
+LeagueSettings + userTeamId
+      |
+createDraftWorkspace
+      |
+JSON settings snapshot + ranking snapshot
+      |
+typed workspace hydration
+```
 
-Use the existing `createDraftTeams(teamCount)` helper and select the team whose `draftPosition` matches `userDraftPosition`. Return that team's ID.
+Strengthen existing repository coverage to prove that a non-default settings object generated by `buildLeagueSetup` survives create and reload without losing:
 
-Do not construct an unrelated user-team naming scheme. If valid input cannot resolve the team, return a setup validation failure rather than a partial success.
+- Team count.
+- Derived rounds.
+- Ordered roster slots and eligibility.
+- Draft type and scoring format.
+- User-team identity.
+- Generated teams and snake pick order.
+
+This is a test-only repository change. If the existing repository cannot round-trip the generated settings, stop and report the discrepancy rather than changing storage architecture inside this slice.
 
 ## Implementation Steps
 
-1. Add `src/lib/leagueSetup.ts` with the limits, categories, setup types, default input, deterministic roster-slot builder, validation, and `buildLeagueSetup` result boundary.
-2. Reuse existing `DraftType`, `ScoringFormat`, `LeagueSettings`, `Position`, and `RosterSlot` types from `src/types/draft.ts` and `createDraftTeams` from `src/lib/draftOrder.ts`.
-3. Add `src/lib/leagueSetup.test.ts` with exact success and failure assertions.
-4. Run the focused test, full test suite, lint, and TypeScript validation.
-5. If every acceptance criterion and validation command passes, check only Phase 4 Task 1 complete in `docs/tasks.md`. Do not begin Task 2.
+1. Update `src/app/actions/draftActions.ts` with the configured action result, configured action, shared validation path, and default action compatibility.
+2. Extend `src/app/actions/draftActions.test.ts` for valid configured creation, invalid no-write behavior, and default action equivalence.
+3. Update `src/lib/draftWorkspaceLoader.ts` to build automatic defaults through `buildLeagueSetup`.
+4. Extend `src/lib/draftWorkspaceLoader.test.ts` to retain exact default creation expectations and cover the default-builder failure cause if practical without weakening existing persistence-error assertions.
+5. Strengthen the existing non-default test in `src/lib/draftRepository.test.ts` to use builder output and verify exact create/load round-trip behavior.
+6. Run the focused tests, full test suite, lint, and TypeScript validation.
+7. If every acceptance criterion and validation command passes, check only Phase 4 Task 2 complete in `docs/tasks.md`. Do not begin Task 3.
 
 ## Expected Files
 
-- `src/lib/leagueSetup.ts`
-- `src/lib/leagueSetup.test.ts`
-- `docs/tasks.md` only to mark Phase 4 Task 1 complete after validation passes
+- `src/app/actions/draftActions.ts`
+- `src/app/actions/draftActions.test.ts`
+- `src/lib/draftWorkspaceLoader.ts`
+- `src/lib/draftWorkspaceLoader.test.ts`
+- `src/lib/draftRepository.test.ts`
+- `docs/tasks.md` only to mark Phase 4 Task 2 complete after validation passes
 
-Do not modify existing source or test files. If the approved setup contract cannot be implemented with the existing domain and draft-order types, stop and report the conflict instead of expanding the slice.
+The five code/test files form the maximum expected blast radius. Do not modify Prisma, repository production code, mappers, UI components, or existing domain types.
 
 ## Test Cases
 
-The focused test file should prove:
+### Server Action
 
-1. The default input builds settings exactly equal to `defaultLeagueSettings` and returns `team-2`.
-2. A non-default configuration builds the expected team count, derived rounds, ordered slots, and selected user-team ID.
-3. Every roster category produces the documented label, ID, and eligible-position array.
-4. Identical input produces deeply equal output with fresh slot and eligibility-array references.
-5. Team counts 2 and 20 pass; values below, above, fractional, infinite, and `NaN` fail.
-6. Draft positions at 1 and `teamCount` pass; zero, above-team-count, fractional, infinite, and `NaN` fail.
-7. Zero-count optional categories are allowed while a bench-only or all-zero roster fails.
-8. Exactly 1 and 30 valid total slots pass when other rules and ranking capacity permit; more than 30 fails.
-9. Ranking capacity exactly equal to total picks passes; one fewer player fails.
-10. Negative, fractional, infinite, and `NaN` roster counts fail at their category field.
-11. Unsupported runtime draft-type and scoring-format values fail even though normal TypeScript callers use the narrower domain types.
-12. Multiple independent invalid fields return errors together in deterministic order.
-13. Invalid input never returns partial `LeagueSettings` or a user-team ID.
+1. A valid non-default setup returns `{ ok: true, workspace }`.
+2. The valid action calls the repository exactly once with generated settings, `seedRankings`, derived user-team identity, and the automatic name.
+3. An invalid field setup returns the exact builder errors and never calls the repository.
+4. A capacity-invalid setup also returns errors and never calls the repository.
+5. `createNewDraftAction()` still returns a bare workspace and supplies settings exactly equal to `defaultLeagueSettings` with `team-2`.
+6. Repository failures from either valid creation path remain rejected errors rather than validation results.
 
-Tests must assert exact fields and meaningful messages rather than only checking that an error exists.
+### First-Run Loader
+
+7. No-summary creation still supplies settings equal to `defaultLeagueSettings`, `seedRankings`, and `team-2`.
+8. Stale-summary fallback uses the same generated defaults.
+9. Selected/latest draft loading never creates a replacement workspace.
+10. Existing persistence setup errors remain actionable and preserve their cause.
+
+### Repository Round Trip
+
+11. Build a non-default setup with `buildLeagueSetup` rather than hand-constructing persisted settings.
+12. Create and reload that workspace through the injected fake repository.
+13. Loaded settings exactly equal the builder output, including ordered roster slots.
+14. Loaded draft teams, rounds, total picks, snake team order, and user-team identity match the generated configuration.
+15. No empty pick rows are persisted at creation.
+
+Assertions should validate exact settings and calls where behavior is deterministic, not merely that a workspace exists.
 
 ## Automated Validation
 
 Run from the repository root in this order:
 
 ```txt
-npm test -- src/lib/leagueSetup.test.ts
+npm test -- src/app/actions/draftActions.test.ts src/lib/draftWorkspaceLoader.test.ts src/lib/draftRepository.test.ts
 npm test
 npm run lint
 npx tsc --noEmit
@@ -243,46 +202,47 @@ npx tsc --noEmit
 
 Expected result:
 
-- Focused league-setup tests pass.
-- The full Vitest suite passes unchanged.
+- Focused action, loader, and repository tests pass.
+- The full Vitest suite passes.
 - ESLint exits successfully with no errors or warnings.
 - TypeScript no-emit validation exits successfully.
-- No existing source or test behavior changes.
+- No database or network connection is required because repository tests use the existing injected fake client.
 
 ## Acceptance Criteria
 
-- One pure client-safe module owns setup limits, defaults, validation, and settings construction.
-- Valid setup input returns the existing `LeagueSettings` shape and a user-team ID from existing team generation.
-- Default setup output exactly matches current application settings and Team 2.
-- Non-default team count, roster construction, and draft position build correctly.
-- Rounds derive from the generated roster-slot count.
-- Slot order, IDs, labels, and eligibility are deterministic.
-- Supported team, roster, draft, scoring, and ranking-capacity constraints are enforced.
-- Invalid input returns deterministic structured errors without throwing or returning partial settings.
-- The builder performs no persistence, React, browser, or server-only work.
-- Existing domain types and team generation are reused without modification.
+- Configured creation validates setup input against `seedRankings.length` before repository access.
+- Valid configured input creates exactly one workspace through the existing repository boundary.
+- Invalid configured input returns structured errors and creates no draft or ranking snapshot.
+- The new configured action is ready for Task 3 UI consumption.
+- Existing `createNewDraftAction()` remains source-compatible with the Draft Room.
+- Explicit default creation and automatic first-run creation both use `defaultLeagueSetupInput` and `buildLeagueSetup`.
+- Defaults remain behaviorally identical to `defaultLeagueSettings` and Team 2.
+- A non-default generated configuration survives repository create/load hydration exactly.
+- Generated teams and snake order match team count, rounds, and user draft position.
+- Existing selected/latest loading, pick, undo, reset, delete, and persistence behavior remain unchanged.
+- No Prisma schema, repository production, snapshot, domain-type, or UI changes are introduced.
 - Focused tests, full tests, lint, and TypeScript validation pass.
 - No package dependency is added.
-- Only Phase 4 Task 1 is checked complete after validation passes.
-- Task 2 is not started.
+- Only Phase 4 Task 2 is checked complete after validation passes.
+- Task 3 is not started.
 
 ## Failure Handling
 
-- If the current default settings cannot be reproduced exactly from the approved count mapping, stop and report the discrepancy.
-- If the existing `LeagueSettings` or `RosterSlot` model cannot represent an approved setup value, stop and report the conflict rather than changing the domain model.
-- If draft position cannot map through existing team generation, return a validation error; do not invent a second identity scheme.
+- If generated settings do not round-trip through the existing repository, stop and report the exact lost or changed field.
+- If preserving the current no-argument action requires UI changes, stop and report the conflict instead of expanding into Task 3.
+- If a builder failure reaches the repository, treat it as a slice defect; do not weaken validation assertions.
 - If full validation exposes an unrelated failure, report it and do not broaden this slice to fix unrelated code.
-- Do not weaken existing snapshot, draft-order, or recommendation tests.
+- Do not change the Prisma schema, snapshot format, or repository contract merely to satisfy a test.
 
 ## Follow-Up Slice
 
-After this slice is implemented and reviewed, plan Phase 4 Task 2: Create and Persist Configured Drafts. Do not begin it automatically.
+After this slice is implemented and reviewed, plan Phase 4 Task 3: Add the Draft Setup Workflow. Do not begin it automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It establishes the shared validated setup boundary needed by configured persistence and UI.
-- Concrete enough for implementation: yes. The public contract, bounds, mapping, validation order, tests, commands, and failure behavior are explicit.
-- Avoids unnecessary architecture changes: yes. It produces existing domain types and reuses team generation without touching engines or persistence.
-- Blast radius reasonable: yes. Two additive code files are expected, plus the Task 1 checkbox after successful validation.
-- Review/revert comfort: yes. The slice is isolated, pure, additive, and has no runtime consumers yet.
-- Observable/testable acceptance criteria: yes. Exact settings, team identity, slots, boundaries, errors, and validation commands are directly checkable.
+- Smallest meaningful increment: yes. It creates a complete validated server/persistence path while deliberately preserving the existing UI contract.
+- Concrete enough for implementation: yes. Action signatures, validation flow, loader behavior, persistence assertions, tests, and failure handling are explicit.
+- Avoids unnecessary architecture changes: yes. It reuses the completed builder and existing repository/snapshot boundaries without migrations or new abstractions.
+- Blast radius reasonable: yes. Five code/test files are expected, plus the Task 2 checkbox after successful validation.
+- Review/revert comfort: yes. Changes are limited to creation entry points and focused tests; existing mutation flows are untouched.
+- Observable/testable acceptance criteria: yes. Exact repository calls, validation errors, hydrated settings, teams, picks, and validation commands are directly checkable.
