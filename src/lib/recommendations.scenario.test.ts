@@ -608,3 +608,270 @@ describe("recommendation urgency scenarios", () => {
     expect(tierReason?.text.toLowerCase()).not.toContain("will");
   });
 });
+
+describe("late-roster recommendation scenarios", () => {
+  it("keeps filled RB and WR positions relevant while FLEX slots remain open", () => {
+    const userPlayers: DraftedScenarioPlayer[] = [
+      { id: "flex-user-qb", position: "QB" },
+      { id: "flex-user-rb-1", position: "RB" },
+      { id: "flex-user-rb-2", position: "RB" },
+      { id: "flex-user-wr-1", position: "WR" },
+      { id: "flex-user-wr-2", position: "WR" },
+      { id: "flex-user-te", position: "TE" },
+    ];
+    const opponentPlayers = createOpponentPlayers(6, "flex-opponent");
+    const draft = createScenarioDraft({
+      userPlayerIds: userPlayers.map((player) => player.id),
+      opponentPlayerIds: opponentPlayers.map((player) => player.id),
+    });
+    const rankings = [
+      ...createDraftedRankings(userPlayers, 200),
+      ...createDraftedRankings(opponentPlayers, 300),
+      createScenarioRanking("backup-qb", 18, "QB", 1),
+      createScenarioRanking("flex-rb", 19, "RB", 1),
+      createScenarioRanking("flex-wr", 20, "WR", 1),
+      createScenarioRanking("nearby-flex-rb-1", 21, "RB", 2),
+      createScenarioRanking("nearby-flex-wr-1", 22, "WR", 2),
+      createScenarioRanking("nearby-flex-rb-2", 23, "RB", 3),
+      createScenarioRanking("nearby-flex-wr-2", 24, "WR", 3),
+      createScenarioRanking("nearby-flex-rb-3", 25, "RB", 4),
+      createScenarioRanking("nearby-flex-wr-3", 26, "WR", 4),
+    ];
+
+    const recommendations = generateDeterministicScenario(
+      createScenarioInput(draft, rankings),
+      12,
+    );
+    const flexRunningBack = getRecommendation(recommendations, "flex-rb");
+    const flexWideReceiver = getRecommendation(recommendations, "flex-wr");
+    const backupQuarterback = getRecommendation(recommendations, "backup-qb");
+
+    expect(draft.currentPickNumber).toBe(13);
+    expectPlayerBefore(recommendations, "flex-rb", "backup-qb");
+    expectPlayerBefore(recommendations, "flex-wr", "backup-qb");
+
+    for (const flexCandidate of [flexRunningBack, flexWideReceiver]) {
+      expect(getRosterFitComponent(flexCandidate)).toMatchObject({
+        delta: 5,
+        direction: "positive",
+        evidence: expect.objectContaining({ timing: "flex_need" }),
+      });
+      expect(flexCandidate.reasons.map((reason) => reason.id)).toContain(
+        "roster_fit:flex_need",
+      );
+    }
+
+    expect(getRosterFitComponent(backupQuarterback)).toMatchObject({
+      delta: -6,
+      direction: "negative",
+      evidence: expect.objectContaining({ timing: "limited_need" }),
+    });
+    expect(backupQuarterback.reasons.at(-1)?.id).toBe("roster_fit:limited_need");
+  });
+
+  it("prefers useful RB and WR bench depth over low-impact backups", () => {
+    const userPlayers: DraftedScenarioPlayer[] = [
+      { id: "bench-user-qb", position: "QB" },
+      { id: "bench-user-rb-1", position: "RB" },
+      { id: "bench-user-rb-2", position: "RB" },
+      { id: "bench-user-rb-3", position: "RB" },
+      { id: "bench-user-wr-1", position: "WR" },
+      { id: "bench-user-wr-2", position: "WR" },
+      { id: "bench-user-wr-3", position: "WR" },
+      { id: "bench-user-te-1", position: "TE" },
+      { id: "bench-user-te-2", position: "TE" },
+      { id: "bench-user-dst", position: "DST" },
+      { id: "bench-user-k", position: "K" },
+    ];
+    const opponentPlayers = createOpponentPlayers(11, "bench-opponent");
+    const draft = createScenarioDraft({
+      userPlayerIds: userPlayers.map((player) => player.id),
+      opponentPlayerIds: opponentPlayers.map((player) => player.id),
+    });
+    const rankings = [
+      ...createDraftedRankings(userPlayers, 200),
+      ...createDraftedRankings(opponentPlayers, 300),
+      createScenarioRanking("backup-dst", 28, "DST", 1),
+      createScenarioRanking("backup-qb", 29, "QB", 1),
+      createScenarioRanking("bench-rb", 30, "RB", 1),
+      createScenarioRanking("bench-wr", 31, "WR", 1),
+      createScenarioRanking("nearby-bench-rb-1", 32, "RB", 2),
+      createScenarioRanking("nearby-bench-wr-1", 33, "WR", 2),
+      createScenarioRanking("nearby-bench-rb-2", 34, "RB", 3),
+      createScenarioRanking("nearby-bench-wr-2", 35, "WR", 3),
+      createScenarioRanking("nearby-bench-rb-3", 36, "RB", 4),
+      createScenarioRanking("nearby-bench-wr-3", 37, "WR", 4),
+    ];
+
+    const recommendations = generateDeterministicScenario(
+      createScenarioInput(draft, rankings),
+      14,
+    );
+    const benchRunningBack = getRecommendation(recommendations, "bench-rb");
+    const benchWideReceiver = getRecommendation(recommendations, "bench-wr");
+    const backupQuarterback = getRecommendation(recommendations, "backup-qb");
+    const backupDefense = getRecommendation(recommendations, "backup-dst");
+
+    expect(draft.currentPickNumber).toBe(23);
+
+    for (const depthPlayerId of ["bench-rb", "bench-wr"]) {
+      expectPlayerBefore(recommendations, depthPlayerId, "backup-qb");
+      expectPlayerBefore(recommendations, depthPlayerId, "backup-dst");
+    }
+
+    for (const depthCandidate of [benchRunningBack, benchWideReceiver]) {
+      expect(getRosterFitComponent(depthCandidate)).toMatchObject({
+        delta: 3,
+        direction: "positive",
+        evidence: expect.objectContaining({ timing: "bench_depth" }),
+      });
+      expect(depthCandidate.reasons.map((reason) => reason.id)).toContain(
+        "roster_fit:bench_depth",
+      );
+    }
+
+    for (const backupCandidate of [backupQuarterback, backupDefense]) {
+      expect(getRosterFitComponent(backupCandidate)).toMatchObject({
+        delta: -6,
+        direction: "negative",
+        evidence: expect.objectContaining({ timing: "limited_need" }),
+      });
+    }
+
+    expect(backupDefense.reasons.at(-1)?.id).toBe("roster_fit:limited_need");
+  });
+
+  it("promotes empty DEF and K starter slots after the late threshold", () => {
+    const userPlayers: DraftedScenarioPlayer[] = [
+      { id: "late-open-user-qb", position: "QB" },
+      { id: "late-open-user-rb-1", position: "RB" },
+      { id: "late-open-user-rb-2", position: "RB" },
+      { id: "late-open-user-rb-3", position: "RB" },
+      { id: "late-open-user-rb-4", position: "RB" },
+      { id: "late-open-user-wr-1", position: "WR" },
+      { id: "late-open-user-wr-2", position: "WR" },
+      { id: "late-open-user-wr-3", position: "WR" },
+      { id: "late-open-user-wr-4", position: "WR" },
+      { id: "late-open-user-te-1", position: "TE" },
+      { id: "late-open-user-te-2", position: "TE" },
+    ];
+    const opponentPlayers = createOpponentPlayers(11, "late-open-opponent");
+    const draft = createScenarioDraft({
+      userPlayerIds: userPlayers.map((player) => player.id),
+      opponentPlayerIds: opponentPlayers.map((player) => player.id),
+    });
+    const rankings = [
+      ...createDraftedRankings(userPlayers, 200),
+      ...createDraftedRankings(opponentPlayers, 300),
+      createScenarioRanking("extra-rb", 28, "RB", 1),
+      createScenarioRanking("needed-dst", 29, "DST", 1),
+      createScenarioRanking("needed-k", 30, "K", 1),
+      createScenarioRanking("nearby-extra-rb-1", 31, "RB", 2),
+      createScenarioRanking("nearby-extra-rb-2", 32, "RB", 3),
+      createScenarioRanking("nearby-extra-rb-3", 33, "RB", 4),
+    ];
+
+    const recommendations = generateDeterministicScenario(
+      createScenarioInput(draft, rankings),
+      10,
+    );
+    const extraRunningBack = getRecommendation(recommendations, "extra-rb");
+    const neededDefense = getRecommendation(recommendations, "needed-dst");
+    const neededKicker = getRecommendation(recommendations, "needed-k");
+
+    expect(draft.currentPickNumber).toBe(23);
+    expectPlayerBefore(recommendations, "needed-dst", "extra-rb");
+    expectPlayerBefore(recommendations, "needed-k", "extra-rb");
+    expect(getRosterFitComponent(extraRunningBack)).toMatchObject({
+      delta: 3,
+      direction: "positive",
+      evidence: expect.objectContaining({ timing: "bench_depth" }),
+    });
+
+    for (const [candidate, expectedText] of [
+      [neededDefense, "Fills an open DST starter slot."],
+      [neededKicker, "Fills an open K starter slot."],
+    ] as const) {
+      expect(getRosterFitComponent(candidate)).toMatchObject({
+        delta: 10,
+        direction: "positive",
+        evidence: expect.objectContaining({ timing: "direct_starter_need" }),
+      });
+      expect(candidate.reasons).toContainEqual(
+        expect.objectContaining({
+          id: "roster_fit:direct_starter_need",
+          text: expectedText,
+        }),
+      );
+    }
+  });
+
+  it("drops backup DEF and K below useful depth after their slots are filled", () => {
+    const userPlayers: DraftedScenarioPlayer[] = [
+      { id: "late-filled-user-qb", position: "QB" },
+      { id: "late-filled-user-rb-1", position: "RB" },
+      { id: "late-filled-user-rb-2", position: "RB" },
+      { id: "late-filled-user-rb-3", position: "RB" },
+      { id: "late-filled-user-rb-4", position: "RB" },
+      { id: "late-filled-user-wr-1", position: "WR" },
+      { id: "late-filled-user-wr-2", position: "WR" },
+      { id: "late-filled-user-wr-3", position: "WR" },
+      { id: "late-filled-user-wr-4", position: "WR" },
+      { id: "late-filled-user-te-1", position: "TE" },
+      { id: "late-filled-user-te-2", position: "TE" },
+      { id: "late-filled-user-dst", position: "DST" },
+      { id: "late-filled-user-k", position: "K" },
+    ];
+    const opponentPlayers = createOpponentPlayers(13, "late-filled-opponent");
+    const draft = createScenarioDraft({
+      userPlayerIds: userPlayers.map((player) => player.id),
+      opponentPlayerIds: opponentPlayers.map((player) => player.id),
+    });
+    const rankings = [
+      ...createDraftedRankings(userPlayers, 200),
+      ...createDraftedRankings(opponentPlayers, 300),
+      createScenarioRanking("backup-dst", 29, "DST", 1),
+      createScenarioRanking("backup-k", 30, "K", 1),
+      createScenarioRanking("depth-rb", 31, "RB", 1),
+      createScenarioRanking("nearby-depth-rb-1", 32, "RB", 2),
+      createScenarioRanking("nearby-depth-rb-2", 33, "RB", 3),
+      createScenarioRanking("nearby-depth-rb-3", 34, "RB", 4),
+    ];
+
+    const recommendations = generateDeterministicScenario(
+      createScenarioInput(draft, rankings),
+      10,
+    );
+    const backupDefense = getRecommendation(recommendations, "backup-dst");
+    const backupKicker = getRecommendation(recommendations, "backup-k");
+    const depthRunningBack = getRecommendation(recommendations, "depth-rb");
+
+    expect(draft.currentPickNumber).toBe(27);
+    expectPlayerBefore(recommendations, "depth-rb", "backup-dst");
+    expectPlayerBefore(recommendations, "depth-rb", "backup-k");
+    expect(getRosterFitComponent(depthRunningBack)).toMatchObject({
+      delta: 3,
+      direction: "positive",
+      evidence: expect.objectContaining({ timing: "bench_depth" }),
+    });
+    expect(depthRunningBack.reasons.map((reason) => reason.id)).toContain(
+      "roster_fit:bench_depth",
+    );
+
+    for (const backupCandidate of [backupDefense, backupKicker]) {
+      expect(getRosterFitComponent(backupCandidate)).toMatchObject({
+        delta: -6,
+        direction: "negative",
+        evidence: expect.objectContaining({ timing: "limited_need" }),
+      });
+      expect(backupCandidate.reasons.at(-1)?.id).toBe("roster_fit:limited_need");
+    }
+
+    expect(recommendations.some((recommendation) => {
+      return recommendation.playerId === "late-filled-user-dst";
+    })).toBe(false);
+    expect(recommendations.some((recommendation) => {
+      return recommendation.playerId === "late-filled-user-k";
+    })).toBe(false);
+  });
+});
