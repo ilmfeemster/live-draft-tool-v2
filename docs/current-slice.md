@@ -1,57 +1,58 @@
-# Current Slice: Add Recommendation Urgency Scenario Validation
+# Current Slice: Add Late-Roster Recommendation Scenarios
 
 ## Source Task
 
 Task 9: Add Recommendation Scenario Validation.
 
-This is the second Task 9 slice. The first slice covered heavy RB, heavy WR, and QB timing. This slice covers positional runs and tier cliffs.
+This is the third Task 9 slice. Earlier slices covered core roster construction, QB timing, positional runs, and tier cliffs. This slice covers filled starters, bench depth, and late-round DEF/K behavior.
 
 ## Goal
 
-Add deterministic scenario tests proving that observed positional runs and meaningful tier cliffs can reorder close player values without overriding roster relevance or elite base value.
+Add deterministic scenario tests proving that the Recommendation Engine distinguishes FLEX capacity, useful bench depth, and late required DEF/K slots without encouraging low-impact backups.
 
-This is a validation-only slice. Production scoring and tuning must remain unchanged.
+This is a validation-only slice. Production scoring, tuning, and reason mappings must remain unchanged.
 
 ## Confidence Increment
 
-- A five-pick positional run can raise a roster-relevant candidate above a close peer and produce an observed-run reason.
-- The same run pressure has no scoring or explanation effect when the position is solved.
-- A major tier cliff can move the last useful player above a close alternative while an elite player remains ahead.
+- Filled direct RB/WR starters remain relevant while FLEX capacity is open, while an ordinary backup QB is de-emphasized.
+- Once starters and FLEX capacity are consumed, useful RB/WR depth rises above low-impact single-starter backups.
+- Empty DEF/K starter slots become valid late-round needs.
+- After DEF/K slots are filled, backup DEF/K recommendations drop below useful depth.
 
 ## Current Context
 
-The Recommendation Engine already provides:
+The completed Recommendation Engine provides these roster-fit states:
 
-- Positive-only `positional_run` deltas of `+2` or `+4` based on recent completed picks.
-- Roster relevance gating for run pressure.
-- Positive-only `tier_cliff` pressure based on remaining tier depth and tier gap.
-- A shared urgency cap across tier, scarcity, and run pressure.
-- Deterministic, score-backed reasons for meaningful run and tier components.
-- Focused unit coverage for thresholds, caps, evidence, and reason selection.
+- `direct_starter_need` for open required slots.
+- `flex_need` for eligible positions while configured FLEX capacity remains.
+- `bench_depth` for useful RB/WR/TE depth after FLEX is consumed and bench capacity remains.
+- `limited_need` for low-value backups, including ordinary backup QB, DEF, and K.
+- `early_def_k` to suppress DEF/K before the configured late phase.
 
-`src/lib/recommendations.scenario.test.ts` already contains local typed fixture helpers, availability assertions, full-output determinism assertions, and core roster-construction scenarios. Extend that file rather than creating a second scenario framework.
+`src/lib/recommendations.scenario.test.ts` already has local typed fixture helpers plus automatic availability and full-output determinism assertions. Extend that file rather than creating another fixture system.
 
 ## Scope
 
 ### Goals
 
-- Add an active positional-run scenario.
-- Add a solved-position run scenario.
-- Add a major tier-cliff scenario.
-- Assert important relative ordering rather than complete score snapshots.
-- Assert the exact component evidence and score-backed reason ids that explain urgency behavior.
+- Add a filled-direct-starters scenario with FLEX capacity still open.
+- Add a bench-depth scenario after configured FLEX capacity is consumed.
+- Add a late-round scenario with empty DEF/K starter slots.
+- Add the corresponding late-round state after DEF/K are filled.
+- Assert important relative ordering, roster-fit component evidence, and score-backed reason ids.
 - Assert drafted players remain unavailable.
 - Assert identical inputs produce identical ordering, scores, components, and reasons.
 - Keep production recommendation code unchanged.
 
 ### Non-Goals
 
-- Changing run, scarcity, tier, roster-fit, value, or base-score formulas.
-- Changing urgency caps, modifier thresholds, reason thresholds, or reason text.
-- Adding opponent prediction or claiming a run will continue.
-- Adding starter-filled, bench-depth, late-round DEF/K, or dynamic-roster scenarios.
-- Adding persistence parity or workflow integration.
-- Refactoring scenario helpers into shared test infrastructure.
+- Changing roster slot analysis, draft-phase thresholds, score deltas, caps, or reason text.
+- Adding dynamic roster configuration; that belongs in the final Task 9 boundary slice.
+- Adding persisted-draft parity or workflow integration.
+- Adding UI tests or manual QA.
+- Testing every possible bench composition.
+- Using full seed rankings or CSV data.
+- Refactoring scenario helpers into shared infrastructure.
 - Updating `docs/tasks.md` or any documentation other than `docs/current-slice.md`.
 
 If a correctly constructed scenario contradicts the approved design, stop and report the discrepancy. Do not change production scoring inside this validation-only slice.
@@ -65,129 +66,162 @@ Do not modify `src/lib/recommendations.ts`, `src/lib/recommendations.test.ts`, a
 
 ## Fixture Guidance
 
-- Reuse the existing local helpers in `src/lib/recommendations.scenario.test.ts`.
-- Add only small helper adjustments if an explicit recent-pick sequence cannot be represented clearly with the current helper.
-- Continue using a two-team snake draft and typed ranking entries for every completed pick.
-- Keep all available comparison players in explicit small ranking snapshots.
-- Give drafted filler players low ranking value so they cannot affect available ordering.
-- Use flat same-position tiers and at least three nearby same-position options whenever tier or scarcity should be neutralized.
-- Use a recommendation limit large enough to include every named player used in relative assertions.
-- Every scenario must use the existing deterministic generator helper so full output and availability are checked automatically.
+- Reuse the existing local ranking, draft, input, recommendation, component, availability, and determinism helpers.
+- Continue using two-team, 16-round snake drafts and default roster slots.
+- Provide typed ranking entries for every completed pick.
+- Keep comparison candidates close in overall rank so roster context—not a large base-value gap—determines ordering.
+- Add at least three nearby same-position options and flat tiers whenever scarcity and tier pressure should be neutralized.
+- Arrange completed picks so no unintended five-pick run affects a comparison candidate.
+- Use recommendation limits large enough to include every named player used in assertions.
+- Avoid exact total-score snapshots; assert relative ordering and the component evidence responsible for it.
 
-## Scenario 1: Active Five-Pick WR Run
+## Scenario 1: Direct Starters Filled, FLEX Open
 
 ### Setup
 
-- Use default roster slots and a two-team, 16-round draft.
 - Complete 12 picks so `currentPickNumber` is `13`.
-- Give the user:
-  - two drafted RBs;
-  - one drafted TE;
-  - three drafted WRs.
-- Arrange picks `8` through `12` as five consecutive WR selections across both teams.
+- Give the user exactly:
+  - one QB;
+  - two RBs;
+  - two WRs;
+  - one TE.
+- Keep both configured FLEX slots open.
 - Available comparison players:
-  - `control-rb` at overall rank `19`;
-  - `run-wr` at overall rank `20`.
-- Add three nearby available RBs and three nearby available WRs in the next 24 ranks.
-- Keep all available RB and WR candidates in a flat tier so tier pressure is neutral.
-
-This roster shape leaves both RB and WR relevant through the remaining FLEX opening, while only WR receives the observed-run modifier.
+  - `backup-qb` at overall rank `18`;
+  - `flex-rb` at overall rank `19`;
+  - `flex-wr` at overall rank `20`.
+- Add three nearby RBs and three nearby WRs with flat tiers.
+- Use opponent filler positions that do not create an RB, WR, or QB run.
 
 ### Assertions
 
-- `run-wr` ranks above the slightly higher-ranked `control-rb`.
-- Both comparison players have the same positive FLEX roster-fit delta, proving roster fit is not the ordering difference.
-- `run-wr` has a `positional_run` component with:
-  - `delta: 4`;
+- `flex-rb` and `flex-wr` both rank above the slightly higher-ranked `backup-qb`.
+- `flex-rb` and `flex-wr` each have `roster_fit`:
+  - `delta: 5`;
   - `direction: "positive"`;
-  - `recentPositionPickCount: 5`;
-  - `thresholdMatched: "clear_run"`.
-- `control-rb` has a neutral `positional_run` component.
-- `run-wr` includes reason id `positional_run:clear_run`.
-- Its reason text reports observed picks only and contains no claim about opponents or future availability.
+  - `timing: "flex_need"`.
+- Both FLEX candidates include reason id `roster_fit:flex_need`.
+- `backup-qb` has `roster_fit`:
+  - `delta: -6`;
+  - `direction: "negative"`;
+  - `timing: "limited_need"`.
+- `backup-qb` includes `roster_fit:limited_need` as its final caveat when returned.
 - Drafted players are excluded and repeated output is identical.
 
-## Scenario 2: Run Pressure At A Solved Position
+## Scenario 2: Useful Bench Depth
 
 ### Setup
 
-- Give the user ten drafted WRs, filling configured WR starter, FLEX, and useful bench capacity.
-- Complete 20 picks and make at least five of the most recent 12 completed picks WR selections.
-- Use WR rankings for all recent run picks so the observed count is fully known.
+- Complete 22 picks so `currentPickNumber` is `23`.
+- Give the user an 11-player roster containing:
+  - one QB;
+  - three RBs;
+  - three WRs;
+  - two TEs;
+  - one DST;
+  - one K.
+- This roster fills all direct starters, consumes both FLEX slots through eligible surplus, and leaves bench capacity.
 - Available comparison players:
-  - `solved-wr` at overall rank `20`;
-  - `needed-rb` at overall rank `21`.
-- Add three nearby WRs and three nearby RBs with flat tiers to neutralize scarcity and tier pressure.
+  - `backup-dst` at overall rank `28`;
+  - `backup-qb` at overall rank `29`;
+  - `bench-rb` at overall rank `30`;
+  - `bench-wr` at overall rank `31`.
+- Add three nearby RBs and three nearby WRs with flat tiers.
 
 ### Assertions
 
-- `needed-rb` ranks above `solved-wr`.
-- `solved-wr` has a negative `roster_fit` component with saturation evidence.
-- `solved-wr` has a neutral `positional_run` component with:
-  - `delta: 0`;
-  - a recent WR count of at least `5`;
-  - `thresholdMatched: "roster_irrelevant"`.
-- `solved-wr` does not include a `positional_run` reason.
-- Its final caveat is `roster_fit:saturated` when returned within the requested limit.
+- `bench-rb` and `bench-wr` both rank above `backup-qb` and `backup-dst` despite their lower base ranks.
+- `bench-rb` and `bench-wr` each have `roster_fit`:
+  - `delta: 3`;
+  - `direction: "positive"`;
+  - `timing: "bench_depth"`.
+- Both include reason id `roster_fit:bench_depth`.
+- `backup-qb` and `backup-dst` each have negative `roster_fit` with `timing: "limited_need"`.
+- At least one returned backup includes the matching limited-need caveat.
 - Drafted players are excluded and repeated output is identical.
 
-## Scenario 3: Major Tier Cliff With Elite Guardrail
+## Scenario 3: Late Empty DEF/K Slots
 
 ### Setup
 
-- Give the user a balanced early roster with two drafted RBs and two drafted WRs.
-- Use opponent filler positions that do not create an RB or WR run.
-- Available candidates:
-  - `elite-wr` at overall rank `1`;
-  - `control-wr` at overall rank `19`;
-  - `tier-rb` at overall rank `20`, tier `1`;
-  - `next-tier-rb` at overall rank `35`, tier `3`.
-- Add at least three nearby available WRs in tier `1` so `control-wr` has neither scarcity nor tier pressure.
-- Do not add another tier-1 RB, making `tier-rb` the last available RB in its tier before a multi-tier drop.
-
-Both `tier-rb` and `control-wr` should receive comparable positive FLEX roster fit. The tier cliff is the intended contextual difference.
+- Complete 22 picks so `currentPickNumber` is `23`, which is beyond the late-phase threshold in a 32-pick two-team draft.
+- Give the user an 11-player roster with:
+  - one QB;
+  - four RBs;
+  - four WRs;
+  - two TEs;
+  - no DST;
+  - no K.
+- Available comparison players:
+  - `extra-rb` at overall rank `28`;
+  - `needed-dst` at overall rank `29`;
+  - `needed-k` at overall rank `30`.
+- Add three nearby RBs with a flat tier.
 
 ### Assertions
 
-- `tier-rb` ranks above the slightly higher-ranked `control-wr`.
-- `elite-wr` remains above `tier-rb`.
-- `tier-rb` has a `tier_cliff` component with:
-  - `delta: 12`;
+- `needed-dst` and `needed-k` both rank above the slightly higher-ranked `extra-rb`.
+- Both DEF/K candidates have `roster_fit`:
+  - `delta: 10`;
   - `direction: "positive"`;
-  - `sameTierRemaining: 1`;
-  - `tierGap: 2`;
-  - `thresholdMatched: "major_tier_cliff"`.
-- `control-wr` has a neutral `tier_cliff` component.
-- `tier-rb` includes reason id `tier_cliff:major_tier_cliff` with text `A major RB tier drop follows.`
-- The reason makes no prediction about a specific opponent or future pick.
+  - `timing: "direct_starter_need"`.
+- Their reasons include `roster_fit:direct_starter_need` with exact text:
+  - `Fills an open DST starter slot.`
+  - `Fills an open K starter slot.`
+- `extra-rb` has positive `bench_depth` rather than a penalty, proving DEF/K win because required slots remain open.
 - Drafted players are excluded and repeated output is identical.
+
+## Scenario 4: DEF/K Filled, Backups De-Emphasized
+
+### Setup
+
+- Start from the late roster shape above and add one drafted DST and one drafted K.
+- Complete 26 picks so `currentPickNumber` is `27`.
+- Available comparison players:
+  - `backup-dst` at overall rank `29`;
+  - `backup-k` at overall rank `30`;
+  - `depth-rb` at overall rank `31`.
+- Add three nearby RBs with a flat tier.
+
+### Assertions
+
+- `depth-rb` ranks above both higher-ranked DEF/K backups.
+- `depth-rb` has positive `bench_depth` roster fit and the matching reason.
+- `backup-dst` and `backup-k` each have `roster_fit`:
+  - `delta: -6`;
+  - `direction: "negative"`;
+  - `timing: "limited_need"`.
+- Both backups include `roster_fit:limited_need` as their final caveat when returned.
+- The drafted DST and K do not appear in recommendations.
+- Repeated output is identical.
 
 ## Implementation Steps
 
 1. Review the active validation context.
    - Read `docs/current-slice.md`.
    - Read Task 9 in `docs/tasks.md`.
-   - Read the Positional Run and Tier Cliff scenarios in `docs/design/recommendation-engine.md`.
-   - Read the existing `src/lib/recommendations.scenario.test.ts` helpers and scenarios.
+   - Read the Starter Positions Filled, Bench Depth Decisions, and Late-Round DEF/K sections of `docs/design/recommendation-engine.md`.
+   - Read the existing scenario helpers and tests in `src/lib/recommendations.scenario.test.ts`.
 
 2. Extend `src/lib/recommendations.scenario.test.ts`.
-   - Add a new `describe("recommendation urgency scenarios", ...)` block.
-   - Reuse the current ranking, draft, input, ordering, availability, determinism, and component helpers.
-   - Add a small generic component lookup helper only if it materially reduces repeated assertions.
+   - Add a new `describe("late-roster recommendation scenarios", ...)` block.
+   - Reuse existing helpers without creating a generic scenario framework.
+   - Add only small local fixture helpers if they remove repeated setup without hiding roster composition.
 
-3. Add the active-run scenario.
-   - Construct the explicit 12-pick sequence described above.
-   - Neutralize tier and scarcity for both comparison positions.
-   - Assert relative ordering, equal roster fit, run evidence, reason content, availability, and determinism.
+3. Add the filled-starters/FLEX-open scenario.
+   - Construct the six-player user roster and close QB/RB/WR candidates.
+   - Neutralize tier, scarcity, and run pressure.
+   - Assert relative ordering, FLEX evidence, limited-QB evidence/caveat, availability, and determinism.
 
-4. Add the solved-run scenario.
-   - Construct the saturated WR roster and recent WR run.
-   - Assert the run is observed in evidence but gated to zero by roster relevance.
-   - Assert no run reason is emitted and the saturation caveat remains visible.
+4. Add the bench-depth scenario.
+   - Construct the 11-player roster that consumes FLEX and leaves bench space.
+   - Assert useful RB/WR depth above backup QB/DST.
+   - Assert exact bench-depth and limited-need evidence and reasons.
 
-5. Add the tier-cliff scenario.
-   - Construct the last-tier RB, close WR peer, and elite WR guardrail.
-   - Assert relative ordering, exact tier evidence, exact reason text, availability, and determinism.
+5. Add the two late DEF/K states.
+   - First prove empty required DEF/K slots outrank close extra depth after the late threshold.
+   - Then fill both slots and prove useful RB depth outranks both backups.
+   - Assert exact roster-fit evidence, reasons, availability, and determinism in both states.
 
 6. Run validation.
    - Run `npm test -- src/lib/recommendations.scenario.test.ts`.
@@ -197,27 +231,27 @@ Both `tier-rb` and `control-wr` should receive comparable positive FLEX roster f
    - If correct scenario data reveals a product contradiction, stop and report it without changing production scoring.
 
 7. Stop after this Task 9 slice.
-   - Do not add late-roster, dynamic-configuration, persistence, or workflow scenarios.
-   - Do not check off Task 9 or begin the next slice automatically.
+   - Do not add dynamic-configuration, persistence, UI, or workflow scenarios.
+   - Do not check off Task 9 or begin the final Task 9 slice automatically.
 
 ## Acceptance Criteria
 
-- A five-pick WR run reorders two close, equally roster-relevant candidates.
-- Active run pressure exposes the correct component evidence and observed-run reason.
-- A known run at a solved position produces no score or reason credit.
-- A major tier cliff moves the last useful RB above a close WR peer.
-- The tier-cliff reason traces to the exact tier component evidence.
-- Neither run nor tier urgency moves the contextual candidate above an elite player when the base-value gap is large.
-- No reason predicts opponent behavior or future picks.
+- Filled direct starters remain recommendation-relevant through configured FLEX slots.
+- Ordinary backup QB is de-emphasized when the required QB slot is filled.
+- Useful RB/WR bench depth outranks low-impact backup QB/DST candidates after FLEX is consumed.
+- Empty DEF/K starter slots become positive needs after the late threshold.
+- Once DEF/K slots are filled, their backups fall below useful depth.
+- All asserted reasons trace to the expected roster-fit evidence.
 - Every scenario recommendation contains only available players.
 - Identical inputs produce identical ordering, scores, components, and reasons.
 - Production recommendation code and tuning remain unchanged.
 
 ## Suggested Tests
 
-- Scenario test for an active five-pick WR run.
-- Scenario test for a run at a solved WR position.
-- Scenario test for a major RB tier cliff with a close peer and elite guardrail.
+- Scenario test for filled direct starters with FLEX open.
+- Scenario test for useful bench depth after FLEX is consumed.
+- Scenario test for late missing DEF/K starters.
+- Scenario test for backup DEF/K after both slots are filled.
 - Availability invariant assertion in every scenario.
 - Full-output determinism assertion in every scenario.
 
@@ -231,18 +265,17 @@ npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.tes
 npm run lint
 ```
 
-## Remaining Task 9 Slices
+## Remaining Task 9 Slice
 
-Do not implement these in the current slice:
+Do not implement this in the current slice:
 
-1. Late-roster scenarios: starter positions filled, bench depth, and late-round DEF/K.
-2. Boundary scenarios: dynamic roster configuration and persisted-draft parity where practical.
+- Boundary scenarios: dynamic roster configuration and persisted-draft parity where practical.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It validates one coherent behavior family: recommendation urgency.
-- Concrete enough for implementation: yes. Pick sequence, roster shape, candidate ranks, confounder controls, component evidence, reasons, and relative ordering are specified.
+- Smallest meaningful increment: yes. It validates one coherent behavior family: late roster construction and required-slot timing.
+- Concrete enough for implementation: yes. Roster counts, draft phases, candidate ranks, confounder controls, component evidence, reasons, and relative ordering are specified.
 - Avoids unnecessary architecture changes: yes. It extends scenario coverage only and forbids production tuning.
 - Blast radius reasonable: yes. Implementation changes remain in one existing scenario test file.
 - Review/revert comfort: yes. The slice is isolated validation with no production behavior changes.
-- Observable/testable acceptance criteria: yes. Ordering, evidence, reasons, availability, guardrails, and determinism are directly asserted.
+- Observable/testable acceptance criteria: yes. Ordering, evidence, reasons, availability, phase behavior, and determinism are directly asserted.
