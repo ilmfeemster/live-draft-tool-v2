@@ -2,11 +2,11 @@
 
 ## Active Phase
 
-Phase 3 - Recommendation Engine
+Phase 4 - Developer Tools & Simulator
 
-The current project phase is focused on turning draft state into deterministic, explainable player recommendations.
+The current project phase is focused on making draft scenarios fast to reproduce, inspect, and reset so the decision engine can be developed with short, reliable feedback loops.
 
-Phase 1 established the manual draft simulator and in-memory Draft State Engine. Phase 2 established durable draft persistence. Phase 3 should preserve the existing manual and persisted draft workflows while making recommendation quality the primary product focus.
+Phase 1 established the manual draft simulator and in-memory Draft State Engine. Phase 2 added durable draft persistence. Phase 3 added deterministic, explainable recommendations. Phase 4 should preserve those workflows while adding local replay, scenario, and debugging capabilities around the existing engines.
 
 ---
 
@@ -18,32 +18,31 @@ The tool helps users make better draft decisions by combining rankings, roster c
 
 The app is a companion decision engine, not a fantasy platform or replacement draft room.
 
-For Phase 3, the product should move from basic recommendation scaffolding to a meaningful recommendation engine that scores available players, orders them consistently, and explains the major reasons behind each recommendation.
+For Phase 4, the product should also function as an effective development environment for that decision engine. A developer should be able to recreate a meaningful draft situation, inspect the recommendation calculation, make changes, and repeat the scenario without manually rebuilding the draft each time.
 
 ---
 
 ## Target User
 
-The initial user is the developer.
+The Phase 4 user is the developer building and tuning the decision engine.
 
-The user participates in live fantasy football drafts and wants better decision support than a static rankings sheet provides.
-
-During Phase 3, the user should be able to open or resume a draft, enter picks manually, and receive recommendations that respond to roster needs, draft context, scarcity, and tier pressure.
+The developer needs to reproduce draft situations quickly, compare deterministic recommendation behavior, diagnose unexpected scores or reasons, and return the simulator to a known state. These tools support product development and regression confidence; they are not intended to become a polished end-user draft room.
 
 ---
 
 ## Phase Goals
 
-Phase 3 should deliver:
+Phase 4 should deliver:
 
-- A deterministic recommendation scoring pipeline.
-- Recommendation models that expose score, ordering, and reasons.
-- Extensible scoring modifiers for ranking value, roster need, positional scarcity, and tier-drop risk.
-- Recommendation output that updates from the current draft state.
-- Recommendation reasons that explain the highest-impact scoring factors.
-- Test coverage that proves recommendation behavior is stable, observable, and tied to business rules.
+- Deterministic replay of valid draft scenarios through the existing Draft State Engine.
+- Portable draft scenario import and export for supported draft configurations.
+- A small, curated scenario library for important recommendation and draft-state situations.
+- Recommendation debugging that exposes the score components and reasons already produced by the Recommendation Engine.
+- Reliable reset and restart controls that return a scenario or manual draft to a known valid state.
+- Focused manual simulator improvements that reduce the time required to create, replay, and inspect scenarios.
+- Regression confidence that manual entry, replay, and imported scenarios produce consistent domain state and recommendation output.
 
-The phase is successful only if recommendations provide useful decision support beyond static rankings while remaining inspectable and predictable.
+The phase is successful only if developers can recreate and investigate draft states in seconds without bypassing domain rules or duplicating recommendation logic.
 
 ---
 
@@ -51,41 +50,35 @@ The phase is successful only if recommendations provide useful decision support 
 
 ### In Scope
 
-- Score available players from the current draft state.
-- Rank recommendations using deterministic scoring rules.
-- Preserve static ranking value as a primary input.
-- Apply roster need modifiers based on the user's current roster and league settings.
-- Apply positional scarcity modifiers based on remaining available players.
-- Apply tier-drop modifiers when waiting could meaningfully reduce player quality at a position.
-- Generate recommendation reasons from scoring inputs.
-- Keep recommendation logic independent from persistence implementation details.
-- Keep recommendation logic independent from draft source or platform provider assumptions.
-- Support the existing manual draft workflow.
-- Support recommendations after loading a persisted draft.
-- Add scenario-level confidence for representative draft situations.
+- Represent a reproducible scenario using the inputs needed to rebuild supported league settings, draft progress, ranking context, and user-team context.
+- Replay an ordered sequence of valid picks through the existing Draft State Engine.
+- Import a portable draft scenario and validate it before applying it.
+- Export a supported draft or scenario so it can be replayed later.
+- Provide a curated local library of representative scenarios.
+- Recreate intermediate and completed draft states without manually re-entering every pick.
+- Inspect recommendation totals, scoring components, penalties, and score-backed reasons for a replayed or manually created state.
+- Reset a scenario to its defined starting point.
+- Restart a draft from a clean state using its existing configuration.
+- Improve simulator controls only where they directly shorten scenario setup, replay, reset, or debugging.
+- Preserve the existing manual draft, persisted draft, and recommendation workflows.
+- Add deterministic unit, integration, scenario, and regression coverage for replay and scenario behavior.
 
 ### Out of Scope
 
-- Opponent modeling.
-- AI-generated reasoning.
-- Machine learning recommendations.
-- Draft simulations.
-- Auto drafting.
-- Strategy profiles.
-- Advanced insight engine behavior.
+- A polished end-user draft room.
 - Live platform integrations.
-- ESPN integration.
-- Yahoo integration.
-- Sleeper integration.
-- WebSocket sync.
-- Authentication.
-- Multi-user support.
-- Dynasty support.
-- Auction drafts.
-- Keeper leagues.
-- News or injury ingestion.
-- Payments.
-- Recommendation UI redesign beyond what is necessary to display Phase 3 outputs.
+- A generic external-provider interface or network event normalization.
+- ESPN, Yahoo, or Sleeper support.
+- Real-time synchronization, polling, or WebSockets.
+- Multi-user or collaborative simulation.
+- Authentication or accounts.
+- Automated draft strategy simulation or opponent modeling.
+- AI-generated recommendations or explanations.
+- New recommendation factors or Insight Engine behavior.
+- Runtime ranking management, arbitrary ranking source import, tier editing, or other Phase 5 capabilities.
+- Persisting recommendation output as source data.
+- A broad plugin or event-sourcing architecture.
+- Mobile-first or visual-polish work unrelated to developer speed.
 
 ---
 
@@ -114,150 +107,143 @@ The phase is successful only if recommendations provide useful decision support 
 
 - 6 Bench Spots
 
+Scenario and replay infrastructure should respect the dynamic league settings already supported by the domain and persistence layers rather than introduce new hard-coded assumptions.
+
 ---
 
 ## Core Workflow
 
-### Before Draft
+### Create or Select a Scenario
 
-- Create or load a draft.
-- Select or use saved rankings.
-- Confirm draft position and league settings.
-- Start or resume the draft.
+- Choose a curated scenario, import a portable scenario, or use the current manual draft configuration.
+- Validate the scenario configuration, ranking context, and pick history.
+- Establish a known starting state.
 
-### During Draft
+### Replay and Inspect
 
-- Enter picks manually.
-- Track drafted players.
-- Update available player pool.
-- Update user roster.
-- Generate scored recommendations.
-- Display recommendation reasons.
-- Persist draft progress when persistence is available.
+- Replay picks through the Draft State Engine.
+- Stop at the required draft position or restore the scenario's defined target state.
+- Confirm available players, rosters, active pick, and other draft invariants.
+- Generate recommendations from the reconstructed state.
+- Inspect recommendation scores, contributing components, penalties, and reasons.
 
-### Returning to a Draft
+### Iterate
 
-- View existing drafts.
-- Load an incomplete draft.
-- Restore draft setup, picks, available players, user roster, and recommendations.
-- Continue entering picks from the correct draft position.
-
-### On User Pick
-
-Display:
-
-- Top recommendations.
-- Recommendation score or ordering.
-- Recommendation reasoning.
-- Tier warnings.
-- Positional scarcity warnings.
-- Roster need signals.
+- Make additional manual picks when useful.
+- Reset the scenario to its starting state or restart the configured draft.
+- Replay the same inputs and compare deterministic output after engine changes.
+- Export a useful reproducible scenario for later development or regression testing.
 
 ---
 
 ## Milestones
 
-### Milestone 1 - Recommendation Model
+### Milestone 1 - Reproducible Scenario Contract
 
-Define the project-level recommendation output shape used by the app.
+Define the project-level information a portable scenario must carry to reconstruct supported draft state and recommendation inputs without exposing database records or transient React state.
 
-The model should represent recommended players, scores, scoring components, and human-readable reasons without coupling the engine to UI rendering, database storage, or future platform providers.
+The contract should support validation, deterministic replay, import/export round trips, and future evolution while leaving general live-provider concerns to Phase 7.
 
-### Milestone 2 - Scoring Pipeline
+### Milestone 2 - Replay System
 
-Establish the deterministic scoring flow that starts from available players and current draft state, applies scoring factors, and returns ordered recommendations.
+Provide a deterministic path for applying scenario picks through the existing Draft State Engine and recreating valid intermediate or completed states.
 
-The scoring pipeline should be explicit enough to debug and small enough to adjust as recommendation quality improves.
+Manual entry and replay should share draft rules and transitions so the same inputs produce equivalent domain state.
 
-### Milestone 3 - Core Modifiers
+### Milestone 3 - Scenario Portability and Library
 
-Introduce the initial recommendation factors:
+Allow supported scenarios to be imported, exported, and selected from a small curated library.
 
-- Base ranking value.
-- Roster need.
-- Positional scarcity.
-- Tier-drop risk.
+The library should emphasize representative draft-state and recommendation situations rather than attempt exhaustive coverage or become a ranking-management system.
 
-Each modifier should have an understandable impact on score and should be able to produce reasons when it materially affects a recommendation.
+### Milestone 4 - Recommendation Debugger
 
-### Milestone 4 - Recommendation Reasons
+Make existing Recommendation Engine output inspectable at the component level for a selected scenario state.
 
-Provide clear, deterministic explanations for why players are recommended.
+Debug information should trace recommendation totals and reasons back to structured engine output without recalculating scoring rules in the UI.
 
-Reasons should come from scoring inputs and should avoid generic, AI-generated, or unverifiable claims.
+### Milestone 5 - Fast Simulator Iteration
 
-### Milestone 5 - Scenario Validation
+Complete the reset, restart, and focused simulator improvements needed to move repeatedly from a known scenario to an inspectable recommendation state in seconds.
 
-Validate recommendation behavior across representative draft states.
-
-Testing should prove recommendation ordering, modifier behavior, and reasons remain stable for defined scenarios, including loaded persisted draft states where practical.
+Validate that replay remains deterministic, preserves draft invariants, and does not regress the existing manual or persisted draft workflows.
 
 ---
 
 ## Architecture Impact
 
-Phase 3 introduces the Recommendation Engine above the Draft State Engine.
+Phase 4 introduces replay and simulator infrastructure as local Draft Sources around the existing Draft State Engine. It does not introduce the full external-provider abstraction planned for Phase 7.
 
-The intended architecture becomes:
+The intended flow becomes:
 
 ```text
-Presentation Layer
-        |
-Recommendation Engine
-        |
-Draft State Engine
-        |
-Persistence Layer
-        |
-Database
+Curated / Imported Scenario
+             |
+      Replay Draft Source
+             |
+      Draft State Engine
+             |
+   Recommendation Engine
+             |
+Recommendation Debugger
+
+Manual Simulator --------> Draft State Engine
+Persistence -------------> Draft State Engine hydration
 ```
 
-The Draft State Engine should remain the source of draft rules, picks, rosters, available players, and league settings. The Recommendation Engine should consume draft state and ranking data; it should not own draft progression, persistence, or provider-specific behavior.
+The Draft State Engine remains the only owner of draft progression, pick validation, rosters, available players, and draft invariants. Replay should provide ordered inputs to that engine rather than inject a fabricated final state or reproduce draft rules.
 
-The recommendation engine should follow the existing monolith-first Next.js direction:
-
-- TypeScript domain functions for deterministic scoring.
-- Simple data structures before broad abstractions.
-- React/UI code consumes recommendation output rather than duplicating scoring rules.
-- Persistence hydrates draft state and ranking snapshots before recommendation logic runs.
+The Recommendation Engine remains pure and derived. The debugger should present its structured scoring components and reasons rather than implement parallel scoring or explanation logic. Recommendation output should be recomputed from reconstructed draft state and ranking context, not imported as authoritative scenario data.
 
 Important boundaries:
 
-- Recommendation logic must consume draft state, not database implementation details.
-- Recommendation logic must be independent from manual, replay, or future live draft sources.
-- Recommendation explanations should come directly from scoring components.
-- Scoring rules should remain inspectable and adjustable.
-- Modifier extensibility should stay simple and local until real duplication or complexity appears.
-- Phase 3 should not introduce the Phase 6 Insight Engine, opponent modeling, or AI-generated reasoning.
+- Scenario data should use a typed, validated, portable domain-facing contract rather than database rows, raw persistence JSON, or UI state.
+- Manual entry, replay, and imported scenarios should converge on the same Draft State Engine behavior.
+- Replay ordering and results should be deterministic.
+- Reset should restore a defined valid state without weakening draft invariants.
+- Ranking snapshots may be carried or referenced only as needed for reproducible Phase 4 scenarios; general ranking ingestion and management remain Phase 5 work.
+- Provider polling, reconnect behavior, remote identifiers, generalized event normalization, and live-provider interfaces remain Phase 7 work.
+- The solution should remain inside the monolith-first Next.js application and should not require new services, queues, or deployment infrastructure.
+
+### Architecture Tradeoff Assessment
+
+- **Complexity cost:** Phase 4 adds a scenario contract, validation, and replay orchestration, but should avoid a generalized event framework or provider SDK.
+- **Maintenance cost:** One shared draft-transition path limits duplicated rules; scenario format evolution will require explicit compatibility handling.
+- **Scaling implications:** Local replay is optimized for developer workflows, not concurrent users or high-volume event processing. No scaling architecture is required in this phase.
+- **Developer experience:** Curated and portable scenarios should make recommendation bugs reproducible and scoring changes easier to inspect.
+- **Deployment implications:** The tools should run within the existing application and deployment model without new infrastructure.
+- **Iteration speed:** Fast reset, replay, and score inspection should shorten the feedback loop for recommendation tuning and regression diagnosis.
 
 ---
 
 ## Success Criteria
 
-Phase 3 is successful when a user can:
+Phase 4 is successful when a developer can:
 
-1. Open or resume a draft with the existing league assumptions.
-2. Enter manual picks and see recommendations update from the new draft state.
-3. Receive ordered recommendations that differ from static rankings when draft context justifies it.
-4. See roster need influence recommendations in observable draft situations.
-5. See positional scarcity influence recommendations in observable draft situations.
-6. See tier-drop risk influence recommendations in observable draft situations.
-7. Understand the main reasons a player is recommended.
-8. Confirm recommendation output is deterministic for the same draft state and rankings.
-9. Confirm recommendation results only contain available players.
-10. Validate representative recommendation scenarios with automated tests.
+1. Select or import a valid supported scenario and recreate its target draft state within seconds, without manually entering its full pick history.
+2. Replay the same scenario repeatedly and receive the same draft state and recommendation output for the same inputs.
+3. Export a supported scenario, import it again, and reproduce the same domain-relevant state and recommendation inputs.
+4. Use a curated scenario library to exercise representative recommendation and draft-state situations.
+5. Inspect each displayed recommendation's total score, contributing components, penalties, and score-backed reasons without consulting internal code.
+6. Reset a scenario to its defined starting point and restart a configured draft without leaving stale picks, rosters, available-player state, or recommendations.
+7. Confirm that replayed picks follow the same validation and state transitions as manual picks.
+8. Receive a clear validation failure for malformed or incompatible scenario data without corrupting the current draft state.
+9. Confirm draft invariants after replay, import, reset, and subsequent manual picks.
+10. Continue using existing manual and persisted draft workflows without regression.
+11. Validate replay equivalence, deterministic recommendations, import/export behavior, reset behavior, and representative scenarios with automated tests and focused manual QA.
 
-The product should feel like a draft decision engine rather than a persisted draft board with rankings attached.
+The product should feel like a compact development workbench for the decision engine, not an expanded consumer draft room.
 
 ---
 
 ## Product Principles
 
-- Prioritize recommendation usefulness over recommendation sophistication.
-- Keep recommendation behavior deterministic.
-- Keep scoring rules inspectable and easy to tune.
-- Preserve the working manual and persisted draft workflows.
-- Keep draft rules in the Draft State Engine.
-- Keep persistence below the Draft State Engine and outside recommendation scoring.
-- Explain recommendations using concrete scoring inputs.
-- Avoid AI, simulations, opponent modeling, and strategy-engine complexity during Phase 3.
+- Optimize Phase 4 for reproducibility and iteration speed.
+- Reuse the Draft State Engine for every pick transition.
+- Keep recommendation behavior in the Recommendation Engine.
+- Make scenario inputs portable, typed, validated, and deterministic.
+- Prefer a small curated scenario library over a broad scenario-management product.
+- Preserve existing manual and persisted draft workflows.
+- Keep developer tooling local to the existing monolith and deployment model.
+- Defer live-provider generalization to Phase 7 and ranking management to Phase 5.
+- Avoid turning simulator improvements into end-user draft-room polish.
