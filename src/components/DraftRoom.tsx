@@ -3,15 +3,20 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AvailablePlayersTable } from "@/components/AvailablePlayersTable";
+import { DraftSetupForm } from "@/components/DraftSetupForm";
 import { DraftStatusPanel } from "@/components/DraftStatusPanel";
 import { RecommendationsPanel } from "@/components/RecommendationsPanel";
 import { UserRosterPanel } from "@/components/UserRosterPanel";
 import {
-  createNewDraftAction,
+  createConfiguredDraftAction,
   draftPlayerAction,
   resetDraftAction,
   undoLastPickAction,
 } from "@/app/actions/draftActions";
+import type {
+  LeagueSetupInput,
+  LeagueSetupValidationError,
+} from "@/lib/leagueSetup";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import type {
   Draft,
@@ -30,6 +35,11 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   const router = useRouter();
   const [activeDraft, setActiveDraft] = useState<Draft>(draft);
   const [isMutationPending, setIsMutationPending] = useState(false);
+  const [isDraftSetupOpen, setIsDraftSetupOpen] = useState(false);
+  const [draftSetupErrors, setDraftSetupErrors] = useState<
+    LeagueSetupValidationError[]
+  >([]);
+  const [draftSetupFormError, setDraftSetupFormError] = useState<string | null>(null);
 
   const draftedPlayerIds = useMemo(() => {
     return new Set(
@@ -154,7 +164,7 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
     }
   }
 
-  async function createNewDraft() {
+  function openDraftSetup() {
     if (isMutationPending) {
       return;
     }
@@ -171,17 +181,61 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
       }
     }
 
+    clearDraftSetupErrors();
+    setIsDraftSetupOpen(true);
+  }
+
+  function closeDraftSetup() {
+    if (isMutationPending) {
+      return;
+    }
+
+    clearDraftSetupErrors();
+    setIsDraftSetupOpen(false);
+  }
+
+  function clearDraftSetupErrors() {
+    setDraftSetupErrors([]);
+    setDraftSetupFormError(null);
+  }
+
+  async function createConfiguredDraft(input: LeagueSetupInput) {
+    if (isMutationPending) {
+      return;
+    }
+
     setIsMutationPending(true);
+    clearDraftSetupErrors();
 
     try {
-      const workspace = await createNewDraftAction();
+      const result = await createConfiguredDraftAction(input);
 
-      router.push(`/?draftId=${encodeURIComponent(workspace.draft.id)}`);
+      if (!result.ok) {
+        setDraftSetupErrors(result.errors);
+        return;
+      }
+
+      router.push(`/?draftId=${encodeURIComponent(result.workspace.draft.id)}`);
     } catch (error) {
-      console.error("Failed to create a new draft.", error);
+      console.error("Failed to create a configured draft.", error);
+      setDraftSetupFormError("Unable to create the configured draft.");
     } finally {
       setIsMutationPending(false);
     }
+  }
+
+  if (isDraftSetupOpen) {
+    return (
+      <DraftSetupForm
+        rankingPlayerCount={rankings.length}
+        isPending={isMutationPending}
+        serverErrors={draftSetupErrors}
+        formError={draftSetupFormError}
+        onCancel={closeDraftSetup}
+        onClearServerErrors={clearDraftSetupErrors}
+        onSubmit={createConfiguredDraft}
+      />
+    );
   }
 
   return (
@@ -207,7 +261,7 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
           isResetDisabled={isResetDisabled}
           isDraftComplete={isDraftComplete}
           isUserPick={isUserPick}
-          onCreateNewDraft={createNewDraft}
+          onCreateNewDraft={openDraftSetup}
           onResetDraft={resetDraft}
           onUndoLastPick={undoLastPick}
         />

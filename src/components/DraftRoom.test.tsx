@@ -17,7 +17,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/app/actions/draftActions", () => ({
-  createNewDraftAction: vi.fn(),
+  createConfiguredDraftAction: vi.fn(),
   draftPlayerAction: vi.fn(),
   resetDraftAction: vi.fn(),
   undoLastPickAction: vi.fn(),
@@ -58,6 +58,8 @@ describe("DraftRoom loaded workspace recommendations", () => {
         leagueSettings={workspace.leagueSettings}
       />,
     );
+
+    expect(markup).not.toContain("New Draft Setup");
 
     expect(repository.getDraftWorkspaceById).toHaveBeenCalledWith(
       persistedWorkspace.draft.id,
