@@ -41,7 +41,7 @@ Do not promote multiple unrelated tasks into `docs/current-slice.md` at once.
 
 ## Task 1 - Define League Setup and Validation
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
