@@ -1,198 +1,288 @@
-# Current Slice: Define the Scenario V1 Contract
+# Current Slice: Define League Setup and Validation
 
 ## Source Context
 
-Phase 4 Task 1: Define the Scenario V1 Contract.
+Phase 4 Task 1: Define League Setup and Validation.
 
-Phase 4 begins with a portable scenario contract that later tasks can validate, replay, import, and export. This slice defines only the trusted typed shape and deterministic serialization boundary. It does not accept untrusted data or create draft state.
+The domain, hydration, repository, and Recommendation Engine already consume dynamic `LeagueSettings`, but draft creation still supplies fixed defaults. This slice establishes the pure setup boundary required before configured persistence or UI work begins.
 
-The existing `LeagueSettings`, `RankingEntry`, and `Team` domain types already represent the settings, embedded ranking snapshot, and team order required by the design. Existing league-settings and ranking-snapshot serializers already provide fresh JSON-safe copies and should be reused rather than duplicated.
+The slice must produce the existing `LeagueSettings` shape and a valid user-team identity. It must not create a second persisted settings model, create drafts, or change engine behavior.
 
 ## Goal
 
-Add a typed, versioned, self-contained `DraftScenarioV1` contract and deterministic JSON serializer that preserve all source inputs needed for future replay while excluding derived draft and recommendation state.
+Add a client-safe, deterministic `buildLeagueSetup` boundary that validates supported setup input and returns either structured field errors or the existing typed `LeagueSettings` plus derived `userTeamId`.
 
 ## Scope
 
 ### Goals
 
-- Add one explicit scenario schema-version constant with value `1`.
-- Define typed scenario metadata with required ID and name, optional description and tags, and optional informational provenance.
-- Define provenance for manual, persisted, and scenario sources with an optional source ID and export timestamp.
-- Define draft configuration using ordered existing `Team` values while keeping draft type, team count, rounds, scoring, and roster slots in existing `LeagueSettings`.
-- Embed the complete `RankingEntry[]` snapshot under ranking context.
-- Identify the user team separately from draft configuration.
-- Define ordered scenario picks with required player ID and optional expected pick-number and team assertions.
-- Define replay target as `appliedPickCount`.
-- Add deterministic serialization for an already-valid typed scenario.
-- Preserve array order for teams, rankings, roster slots, tags, and pick history because those orders are either meaningful or supplied contract data.
-- Add focused tests for deterministic serialization, dynamic settings, provenance isolation, and exclusion of derived state.
+- Define the league-setup input and default input used by later server and form slices.
+- Support team counts from 2 through 20.
+- Support user draft positions from 1 through the selected team count.
+- Support QB, RB, WR, TE, FLEX, DST, K, and BENCH roster counts.
+- Require finite, non-negative integer roster counts.
+- Require at least one non-BENCH starting slot.
+- Require 1 through 30 total roster slots.
+- Support only `SNAKE` and `PPR`.
+- Validate total draft capacity against a supplied ranking player count.
+- Generate deterministic ordered `RosterSlot[]` values with unique category/index IDs.
+- Derive rounds from the generated roster-slot count.
+- Derive `userTeamId` from the team created for the selected draft position.
+- Return structured, deterministic validation errors without throwing for invalid setup input.
+- Add exact unit coverage for defaults, non-defaults, slot generation, bounds, and invalid input.
 
 ### Non-Goals
 
-- Parsing or validating unknown JSON.
-- Enforcing file-size, ranking-count, pick-count, tag-count, cross-reference, or replay-target limits.
-- Checking duplicate players, team consistency, pick order, or scenario versions at runtime.
-- Replaying picks or creating Draft State Engine state.
-- Adding scenario import, export-download, curated-library, simulator, or debugger UI.
-- Reading from or writing to Prisma, repositories, server actions, React state, or browser APIs.
-- Persisting scenarios or recommendation output.
-- Adding Phase 5 ranking management or a Phase 7 Draft Source/provider interface.
-- Modifying existing draft, recommendation, hydration, or persistence behavior.
+- Changing `createNewDraftAction`, repository methods, hydration, Prisma, or persistence.
+- Adding a draft setup form or other UI.
+- Modifying the Draft State Engine or Recommendation Engine.
+- Editing settings on an existing draft.
+- Persisting roster counts as a separate model.
+- Supporting arbitrary slot eligibility, custom positions, auction, keeper, dynasty, non-snake drafts, or non-PPR scoring.
+- Changing the existing `LeagueSettings`, `RosterSlot`, `DraftType`, or `ScoringFormat` domain types.
+- Refactoring `defaultLeagueSettings` or existing snapshot validation in this slice.
 - Adding package dependencies.
+- Beginning Phase 4 Task 2.
 
-## Contract Shape
+## Public Contract
 
-Create the scenario types in `src/types/scenario.ts` using this domain-facing shape:
+Add `src/lib/leagueSetup.ts` as a pure module safe to import from client and server code.
+
+Use the following contract names and meanings:
 
 ```ts
-export const DRAFT_SCENARIO_SCHEMA_VERSION = 1 as const;
+export const LEAGUE_SETUP_LIMITS = {
+  minTeamCount: 2,
+  maxTeamCount: 20,
+  minRosterSlots: 1,
+  maxRosterSlots: 30,
+} as const;
 
-export type DraftScenarioSourceKind = "manual" | "persisted" | "scenario";
+export const LEAGUE_SETUP_ROSTER_CATEGORIES = [
+  "QB",
+  "RB",
+  "WR",
+  "TE",
+  "FLEX",
+  "DST",
+  "K",
+  "BENCH",
+] as const;
 
-export type DraftScenarioProvenance = {
-  sourceKind: DraftScenarioSourceKind;
-  sourceId?: string;
-  exportedAt: string;
+export type LeagueSetupRosterCategory =
+  (typeof LEAGUE_SETUP_ROSTER_CATEGORIES)[number];
+
+export type LeagueSetupRosterCounts = Record<
+  LeagueSetupRosterCategory,
+  number
+>;
+
+export type LeagueSetupInput = {
+  teamCount: number;
+  userDraftPosition: number;
+  draftType: DraftType;
+  scoringFormat: ScoringFormat;
+  rosterSlotCounts: LeagueSetupRosterCounts;
 };
 
-export type DraftScenarioMetadata = {
-  id: string;
-  name: string;
-  description?: string;
-  tags?: string[];
-  provenance?: DraftScenarioProvenance;
+export type LeagueSetupValidationError = {
+  field: string;
+  message: string;
 };
 
-export type DraftScenarioPick = {
-  playerId: string;
-  expectedPickNumber?: number;
-  expectedTeamId?: string;
-};
+export type LeagueSetupResult =
+  | {
+      ok: true;
+      leagueSettings: LeagueSettings;
+      userTeamId: string;
+    }
+  | {
+      ok: false;
+      errors: LeagueSetupValidationError[];
+    };
 
-export type DraftScenarioV1 = {
-  schemaVersion: typeof DRAFT_SCENARIO_SCHEMA_VERSION;
-  metadata: DraftScenarioMetadata;
-  leagueSettings: LeagueSettings;
-  draftConfiguration: {
-    teams: Team[];
-  };
-  rankingContext: {
-    rankings: RankingEntry[];
-  };
-  userTeamContext: {
-    userTeamId: string;
-  };
-  pickHistory: DraftScenarioPick[];
-  replayTarget: {
-    appliedPickCount: number;
-  };
-};
+export const defaultLeagueSetupInput: LeagueSetupInput;
+
+export function buildLeagueSetup(
+  input: LeagueSetupInput,
+  rankingPlayerCount: number,
+): LeagueSetupResult;
 ```
 
-The exact exported type declarations may be split into named subtypes for readability, but their meaning must not change. Do not add alternate ranking-source variants, provider identifiers, database IDs as required state, derived rosters, available-player lists, current-pick fields, completion flags, or recommendation fields.
+The exact error-field type may be narrowed to a string union if that stays simple. Do not return partial settings on failure and do not throw for expected validation errors.
 
-## Serialization Boundary
+## Default Setup
 
-Add `serializeDraftScenario` in `src/lib/scenario.ts`.
+`defaultLeagueSetupInput` must represent the current application defaults:
 
-The serializer should:
+- 12 teams.
+- User draft position 2.
+- `SNAKE` draft.
+- `PPR` scoring.
+- QB: 1.
+- RB: 2.
+- WR: 2.
+- TE: 1.
+- FLEX: 2.
+- DST: 1.
+- K: 1.
+- BENCH: 6.
 
-1. Accept only a typed `DraftScenarioV1`; it must not accept or validate `unknown`.
-2. Build a fresh canonical JSON-safe object in the contract's declared field order.
-3. Reuse `serializeLeagueSettingsSnapshot` for league settings.
-4. Reuse `serializeRankingSnapshot` for ranking entries.
-5. Copy nested metadata, provenance, teams, tags, picks, and optional assertion fields rather than retaining input object or array references.
-6. Preserve caller-supplied array order; do not sort teams, rankings, tags, roster slots, or pick history.
-7. Omit optional properties when they are `undefined`.
-8. Return a two-space-indented JSON string with one trailing newline.
-9. Produce identical text for repeated serialization of the same typed input.
+Given enough ranking players, building this input must return settings exactly equal to the existing `defaultLeagueSettings` and `userTeamId` equal to `team-2`. Keep `defaultLeagueSettings` unchanged in this slice; the equality test protects the later migration to the shared builder.
 
-This function serializes trusted data only. `JSON.parse`, unknown-input parsing, schema-version rejection, semantic validation, and safety limits belong to Task 2.
+## Roster-Slot Mapping
+
+Generate slots in this fixed category order:
+
+1. QB
+2. RB
+3. WR
+4. TE
+5. FLEX
+6. DST
+7. K
+8. BENCH
+
+For each category, generate one slot per configured count using a lowercase category and one-based index for the ID, such as `rb-1`, `rb-2`, and `bench-1`.
+
+Use these labels and eligibility rules:
+
+| Category | Label | Eligible positions |
+| --- | --- | --- |
+| QB | `QB` | QB |
+| RB | `RB` | RB |
+| WR | `WR` | WR |
+| TE | `TE` | TE |
+| FLEX | `FLEX` | RB, WR, TE |
+| DST | `DST` | DST |
+| K | `K` | K |
+| BENCH | `BENCH` | QB, RB, WR, TE, DST, K |
+
+Create fresh slots and eligible-position arrays on every successful call. Do not sort or infer category order from object property enumeration.
+
+## Validation Rules
+
+Validate in a stable order so identical invalid input returns identical errors:
+
+1. Ranking player count is a finite non-negative integer.
+2. Team count is a finite integer from 2 through 20.
+3. User draft position is a finite integer and falls within the valid team range.
+4. Draft type is exactly `SNAKE`.
+5. Scoring format is exactly `PPR`.
+6. Each roster category count is a finite non-negative integer, checked in the fixed category order.
+7. At least one non-BENCH slot is configured.
+8. Total roster slots are from 1 through 30.
+9. `teamCount * totalRosterSlots` does not exceed `rankingPlayerCount`.
+
+Aggregate roster and capacity checks should run only when the values they depend on are valid. Return all independent errors found in one result so the later form can show useful feedback without repeated submissions.
+
+Use field paths suitable for later form mapping, such as:
+
+- `rankingPlayerCount`
+- `teamCount`
+- `userDraftPosition`
+- `draftType`
+- `scoringFormat`
+- `rosterSlotCounts.QB`
+- `rosterSlotCounts`
+
+Error messages should state the supported requirement and avoid implementation jargon.
+
+## Team Identity Derivation
+
+Use the existing `createDraftTeams(teamCount)` helper and select the team whose `draftPosition` matches `userDraftPosition`. Return that team's ID.
+
+Do not construct an unrelated user-team naming scheme. If valid input cannot resolve the team, return a setup validation failure rather than a partial success.
 
 ## Implementation Steps
 
-1. Add `src/types/scenario.ts` with the schema constant and portable scenario types shown above, importing only existing domain types from `src/types/draft.ts`.
-2. Add `src/lib/scenario.ts` with the trusted deterministic serializer, reusing the existing league-settings and ranking-snapshot serializers.
-3. Add `src/lib/scenario.test.ts` with representative typed fixtures and exact behavior assertions.
-4. Run the focused test, lint, and TypeScript validation commands.
-5. If all acceptance criteria and validation pass, check only Phase 4 Task 1 complete in `docs/tasks.md`. Do not begin Task 2.
+1. Add `src/lib/leagueSetup.ts` with the limits, categories, setup types, default input, deterministic roster-slot builder, validation, and `buildLeagueSetup` result boundary.
+2. Reuse existing `DraftType`, `ScoringFormat`, `LeagueSettings`, `Position`, and `RosterSlot` types from `src/types/draft.ts` and `createDraftTeams` from `src/lib/draftOrder.ts`.
+3. Add `src/lib/leagueSetup.test.ts` with exact success and failure assertions.
+4. Run the focused test, full test suite, lint, and TypeScript validation.
+5. If every acceptance criterion and validation command passes, check only Phase 4 Task 1 complete in `docs/tasks.md`. Do not begin Task 2.
 
 ## Expected Files
 
-- `src/types/scenario.ts`
-- `src/lib/scenario.ts`
-- `src/lib/scenario.test.ts`
+- `src/lib/leagueSetup.ts`
+- `src/lib/leagueSetup.test.ts`
 - `docs/tasks.md` only to mark Phase 4 Task 1 complete after validation passes
 
-Do not modify existing production or test files unless a direct compile issue proves that the approved contract cannot reuse the documented types. If that occurs, stop and report the conflict instead of broadening the slice.
+Do not modify existing source or test files. If the approved setup contract cannot be implemented with the existing domain and draft-order types, stop and report the conflict instead of expanding the slice.
 
 ## Test Cases
 
 The focused test file should prove:
 
-1. Repeated serialization of the same scenario produces exactly identical text.
-2. Serialized JSON contains schema version, metadata, settings, team order, embedded rankings, user-team identity, ordered picks, optional assertions, and replay target.
-3. A non-default fixture, such as 3 teams and 4 rounds with a custom roster-slot list, serializes without default 12-team assumptions.
-4. League settings and ranking entries retain all existing domain fields through serialization.
-5. Optional description, tags, provenance, source ID, and pick assertions are omitted when undefined.
-6. Adding or changing provenance changes only metadata/provenance in the parsed serialized document; all replay-relevant fields remain equal.
-7. The serialized document does not contain authoritative rosters, available rankings, current pick, completion status, recommendations, or persistence records.
-8. Team, ranking, roster-slot, tag, and pick-history order remain unchanged.
-9. The output uses two-space indentation and ends with exactly one newline.
+1. The default input builds settings exactly equal to `defaultLeagueSettings` and returns `team-2`.
+2. A non-default configuration builds the expected team count, derived rounds, ordered slots, and selected user-team ID.
+3. Every roster category produces the documented label, ID, and eligible-position array.
+4. Identical input produces deeply equal output with fresh slot and eligibility-array references.
+5. Team counts 2 and 20 pass; values below, above, fractional, infinite, and `NaN` fail.
+6. Draft positions at 1 and `teamCount` pass; zero, above-team-count, fractional, infinite, and `NaN` fail.
+7. Zero-count optional categories are allowed while a bench-only or all-zero roster fails.
+8. Exactly 1 and 30 valid total slots pass when other rules and ranking capacity permit; more than 30 fails.
+9. Ranking capacity exactly equal to total picks passes; one fewer player fails.
+10. Negative, fractional, infinite, and `NaN` roster counts fail at their category field.
+11. Unsupported runtime draft-type and scoring-format values fail even though normal TypeScript callers use the narrower domain types.
+12. Multiple independent invalid fields return errors together in deterministic order.
+13. Invalid input never returns partial `LeagueSettings` or a user-team ID.
 
-Tests may use `JSON.parse` only to inspect output from the trusted serializer. Do not introduce an exported scenario parser in this slice.
+Tests must assert exact fields and meaningful messages rather than only checking that an error exists.
 
 ## Automated Validation
 
 Run from the repository root in this order:
 
 ```txt
-npm test -- src/lib/scenario.test.ts
+npm test -- src/lib/leagueSetup.test.ts
+npm test
 npm run lint
 npx tsc --noEmit
 ```
 
 Expected result:
 
-- The focused scenario serializer tests pass.
+- Focused league-setup tests pass.
+- The full Vitest suite passes unchanged.
 - ESLint exits successfully with no errors or warnings.
 - TypeScript no-emit validation exits successfully.
-- Existing files require no behavior changes.
+- No existing source or test behavior changes.
 
 ## Acceptance Criteria
 
-- `DraftScenarioV1` has one explicit schema version equal to `1`.
-- The contract contains metadata, optional informational provenance, dynamic league settings, ordered team configuration, embedded rankings, user-team context, ordered pick history, and `appliedPickCount`.
-- Pick assertions are optional data and are not implemented as draft commands.
-- The contract contains no authoritative derived draft state or recommendation output.
-- The serializer accepts typed trusted input and performs no parsing or validation.
-- Repeated serialization of identical input produces identical JSON text.
-- Serialization creates canonical fresh JSON data while preserving meaningful array order.
-- Existing league-settings and ranking-snapshot serializers are reused.
-- A non-default league fixture serializes successfully.
-- Provenance cannot change replay-relevant serialized fields.
-- Focused tests, lint, and TypeScript validation pass.
+- One pure client-safe module owns setup limits, defaults, validation, and settings construction.
+- Valid setup input returns the existing `LeagueSettings` shape and a user-team ID from existing team generation.
+- Default setup output exactly matches current application settings and Team 2.
+- Non-default team count, roster construction, and draft position build correctly.
+- Rounds derive from the generated roster-slot count.
+- Slot order, IDs, labels, and eligibility are deterministic.
+- Supported team, roster, draft, scoring, and ranking-capacity constraints are enforced.
+- Invalid input returns deterministic structured errors without throwing or returning partial settings.
+- The builder performs no persistence, React, browser, or server-only work.
+- Existing domain types and team generation are reused without modification.
+- Focused tests, full tests, lint, and TypeScript validation pass.
 - No package dependency is added.
 - Only Phase 4 Task 1 is checked complete after validation passes.
 - Task 2 is not started.
 
 ## Failure Handling
 
-- If the existing domain types cannot represent an approved scenario field without conflicting duplicate truth, stop and report the conflict.
-- If reusing an existing snapshot serializer changes or loses required domain data, stop and report the discrepancy instead of duplicating the serializer silently.
-- If lint, TypeScript, or existing tests expose an unrelated failure, report it and do not expand this slice to fix unrelated code.
-- Do not add runtime validation merely to satisfy a test; validation is the next task.
+- If the current default settings cannot be reproduced exactly from the approved count mapping, stop and report the discrepancy.
+- If the existing `LeagueSettings` or `RosterSlot` model cannot represent an approved setup value, stop and report the conflict rather than changing the domain model.
+- If draft position cannot map through existing team generation, return a validation error; do not invent a second identity scheme.
+- If full validation exposes an unrelated failure, report it and do not broaden this slice to fix unrelated code.
+- Do not weaken existing snapshot, draft-order, or recommendation tests.
 
 ## Follow-Up Slice
 
-After this slice is implemented and reviewed, plan Phase 4 Task 2: Add Scenario Parsing and Validation. Do not begin it automatically.
+After this slice is implemented and reviewed, plan Phase 4 Task 2: Create and Persist Configured Drafts. Do not begin it automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It establishes the portable contract and trusted serialization boundary required by every later Phase 4 scenario feature.
-- Concrete enough for implementation: yes. The type shape, serializer behavior, tests, commands, exclusions, and completion update are explicit.
-- Avoids unnecessary architecture changes: yes. It reuses current domain types and snapshot serializers without adding state, persistence, providers, or UI.
-- Blast radius reasonable: yes. Three code files are expected, plus the Task 1 checkbox after successful validation.
-- Review/revert comfort: yes. The slice is additive and has no runtime consumers yet.
-- Observable/testable acceptance criteria: yes. Exact serialized output properties, deterministic text, dynamic settings, provenance isolation, excluded fields, and validation commands are directly checkable.
+- Smallest meaningful increment: yes. It establishes the shared validated setup boundary needed by configured persistence and UI.
+- Concrete enough for implementation: yes. The public contract, bounds, mapping, validation order, tests, commands, and failure behavior are explicit.
+- Avoids unnecessary architecture changes: yes. It produces existing domain types and reuses team generation without touching engines or persistence.
+- Blast radius reasonable: yes. Two additive code files are expected, plus the Task 1 checkbox after successful validation.
+- Review/revert comfort: yes. The slice is isolated, pure, additive, and has no runtime consumers yet.
+- Observable/testable acceptance criteria: yes. Exact settings, team identity, slots, boundaries, errors, and validation commands are directly checkable.
