@@ -2,9 +2,9 @@
 
 ## Current Focus
 
-Phase 3: Recommendation Engine.
+Phase 3: Completion Validation.
 
-Phase 2 persistence is complete. Phase 3 turns hydrated draft state and ranking snapshots into deterministic, explainable player recommendations.
+Phase 2 persistence is complete, and Phase 3 Tasks 1-10 have implemented and wired the deterministic, explainable Recommendation Engine. Task 11 is the remaining phase-exit gate: rerun the automated evidence and complete the short manual draft-room QA before Phase 3 is marked complete.
 
 The source documents for this task plan are:
 
@@ -493,14 +493,13 @@ Phase 1 testing is complete for the manual draft simulator scope. Automated cove
 
 Phase 2 persistence validation is complete. Completed validation history is archived in `docs/completed-tasks.md`.
 
-Phase 3 testing should prioritize deterministic business logic:
+Phase 3 implementation and automated coverage are complete for recommendation scoring, modifier behavior and bounds, deterministic ordering, explanation generation, representative scenarios, manual draft transitions, persisted parity, workspace loading, and Draft Room presentation wiring.
 
-- Recommendation score calculation.
-- Modifier behavior and bounds.
-- Recommendation ordering.
-- Explanation generation.
-- Scenario validation.
-- Manual and persisted workflow integration.
+The remaining Phase 3 validation is Task 11:
+
+- Re-run the focused and full automated validation commands.
+- Complete the short manual QA flow for visible recommendation updates, undo restoration, and persisted refresh/resume behavior.
+- Mark Task 11 complete only when both automated and manual evidence pass.
 
 ---
 
