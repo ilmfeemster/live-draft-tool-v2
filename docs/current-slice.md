@@ -1,259 +1,237 @@
-# Current Slice: Add Late-Roster Recommendation Scenarios
+# Current Slice: Add Recommendation Boundary Scenarios
 
 ## Source Task
 
 Task 9: Add Recommendation Scenario Validation.
 
-This is the third Task 9 slice. Earlier slices covered core roster construction, QB timing, positional runs, and tier cliffs. This slice covers filled starters, bench depth, and late-round DEF/K behavior.
+This is the final Task 9 slice. Earlier slices covered core roster construction, QB timing, urgency, filled starters, bench depth, and late DEF/K behavior. This slice covers dynamic roster settings and persisted-workspace parity.
 
 ## Goal
 
-Add deterministic scenario tests proving that the Recommendation Engine distinguishes FLEX capacity, useful bench depth, and late required DEF/K slots without encouraging low-impact backups.
+Validate that Recommendation Engine output follows typed league configuration and remains identical across the existing persistence hydration boundary.
 
-This is a validation-only slice. Production scoring, tuning, and reason mappings must remain unchanged.
+This is a boundary-validation slice. Production recommendation, persistence, and draft-state behavior must remain unchanged.
 
 ## Confidence Increment
 
-- Filled direct RB/WR starters remain relevant while FLEX capacity is open, while an ordinary backup QB is de-emphasized.
-- Once starters and FLEX capacity are consumed, useful RB/WR depth rises above low-impact single-starter backups.
-- Empty DEF/K starter slots become valid late-round needs.
-- After DEF/K slots are filled, backup DEF/K recommendations drop below useful depth.
+- A non-default three-WR roster visibly changes recommendation ordering compared with the same draft under default slots.
+- The same typed draft state and ranking snapshot produce identical recommendations before persistence and after repository reload.
+- Task 9 scenario validation becomes complete.
 
 ## Current Context
 
-The completed Recommendation Engine provides these roster-fit states:
+Task 9 scenario coverage already proves:
 
-- `direct_starter_need` for open required slots.
-- `flex_need` for eligible positions while configured FLEX capacity remains.
-- `bench_depth` for useful RB/WR/TE depth after FLEX is consumed and bench capacity remains.
-- `limited_need` for low-value backups, including ordinary backup QB, DEF, and K.
-- `early_def_k` to suppress DEF/K before the configured late phase.
+- Heavy RB and heavy WR starts.
+- Early, middle, and filled-slot QB behavior.
+- Active and roster-irrelevant positional runs.
+- Major tier cliffs and elite-value guardrails.
+- Filled starters, FLEX relevance, bench depth, and late DEF/K behavior.
+- Availability and deterministic full output in every Recommendation Engine scenario.
 
-`src/lib/recommendations.scenario.test.ts` already has local typed fixture helpers plus automatic availability and full-output determinism assertions. Extend that file rather than creating another fixture system.
+Two required boundaries remain:
+
+1. At least one scenario must prove the engine follows non-default roster settings rather than MVP defaults.
+2. Persisted-draft parity should be covered where practical.
+
+The existing `createDraftRepository` accepts an injected fake database in tests and returns a typed `DraftWorkspace` through the same repository mapping used for application loads. This makes parity testing practical without a real database, network access, or persistence redesign.
 
 ## Scope
 
 ### Goals
 
-- Add a filled-direct-starters scenario with FLEX capacity still open.
-- Add a bench-depth scenario after configured FLEX capacity is consumed.
-- Add a late-round scenario with empty DEF/K starter slots.
-- Add the corresponding late-round state after DEF/K are filled.
-- Assert important relative ordering, roster-fit component evidence, and score-backed reason ids.
-- Assert drafted players remain unavailable.
-- Assert identical inputs produce identical ordering, scores, components, and reasons.
-- Keep production recommendation code unchanged.
+- Add a dynamic three-WR roster scenario to `src/lib/recommendations.scenario.test.ts`.
+- Compare the same draft and rankings under default and non-default roster slots.
+- Add a persisted-workspace recommendation parity test to `src/lib/draftRepository.test.ts`.
+- Compare pure in-memory draft progression against the reloaded typed workspace.
+- Assert full recommendation equality, including ordering, scores, components, evidence, and reasons.
+- Assert recommendations after reload contain only available players.
+- Keep production code unchanged.
+- Check Task 9 complete in `docs/tasks.md` only after all validation passes.
 
 ### Non-Goals
 
-- Changing roster slot analysis, draft-phase thresholds, score deltas, caps, or reason text.
-- Adding dynamic roster configuration; that belongs in the final Task 9 boundary slice.
-- Adding persisted-draft parity or workflow integration.
-- Adding UI tests or manual QA.
-- Testing every possible bench composition.
-- Using full seed rankings or CSV data.
-- Refactoring scenario helpers into shared infrastructure.
-- Updating `docs/tasks.md` or any documentation other than `docs/current-slice.md`.
+- Changing recommendation scoring, tuning, reason selection, or public types.
+- Changing repository mapping, serialization, fake database behavior, Prisma, or schema.
+- Adding a real database integration test.
+- Testing UI wiring, server actions, or persisted workflow presentation; those belong to Task 10.
+- Adding more strategy scenarios after Task 9 acceptance criteria are satisfied.
+- Refactoring test helpers across files.
+- Updating project, architecture, decision, testing, design, or roadmap documents.
 
-If a correctly constructed scenario contradicts the approved design, stop and report the discrepancy. Do not change production scoring inside this validation-only slice.
+If either boundary test exposes a production contradiction, stop and report it. Do not alter production behavior inside this validation-only slice.
 
 ## Expected Files
 
 - `docs/current-slice.md`
 - `src/lib/recommendations.scenario.test.ts`
+- `src/lib/draftRepository.test.ts`
+- `docs/tasks.md`
 
-Do not modify `src/lib/recommendations.ts`, `src/lib/recommendations.test.ts`, application types, UI, or persistence files.
+Do not modify production source files.
 
-## Fixture Guidance
+## Scenario 1: Dynamic Three-WR Roster Configuration
 
-- Reuse the existing local ranking, draft, input, recommendation, component, availability, and determinism helpers.
-- Continue using two-team, 16-round snake drafts and default roster slots.
-- Provide typed ranking entries for every completed pick.
-- Keep comparison candidates close in overall rank so roster context—not a large base-value gap—determines ordering.
-- Add at least three nearby same-position options and flat tiers whenever scarcity and tier pressure should be neutralized.
-- Arrange completed picks so no unintended five-pick run affects a comparison candidate.
-- Use recommendation limits large enough to include every named player used in assertions.
-- Avoid exact total-score snapshots; assert relative ordering and the component evidence responsible for it.
+### Test Location
 
-## Scenario 1: Direct Starters Filled, FLEX Open
+Append this scenario to `src/lib/recommendations.scenario.test.ts` using the existing local scenario helpers.
 
-### Setup
+### Helper Adjustment
 
-- Complete 12 picks so `currentPickNumber` is `13`.
-- Give the user exactly:
-  - one QB;
-  - two RBs;
-  - two WRs;
-  - one TE.
-- Keep both configured FLEX slots open.
+- Extend `createScenarioInput` with an optional `LeagueSettings` argument.
+- Preserve its current default behavior when no override is supplied.
+- Do not introduce a shared fixture module.
+
+### Draft Setup
+
+- Use a two-team, 16-round draft with `currentPickNumber` at `9`.
+- Give the user:
+  - one drafted QB;
+  - one drafted RB;
+  - two drafted WRs.
+- Use opponent filler positions that do not create an RB or WR run.
 - Available comparison players:
-  - `backup-qb` at overall rank `18`;
-  - `flex-rb` at overall rank `19`;
-  - `flex-wr` at overall rank `20`.
-- Add three nearby RBs and three nearby WRs with flat tiers.
-- Use opponent filler positions that do not create an RB, WR, or QB run.
+  - `config-rb` at overall rank `19`;
+  - `config-wr` at overall rank `20`.
+- Add three nearby available RBs and three nearby available WRs with flat tiers to neutralize scarcity and tier pressure.
+
+### Non-Default League Settings
+
+Create an explicit `LeagueSettings` value using the draft's team count and rounds, PPR snake settings, and these roster slots:
+
+- one QB-only starter;
+- one RB-only starter;
+- three WR-only starters;
+- one FLEX eligible for RB, WR, and TE;
+- two BENCH slots eligible for all supported positions.
+
+Use stable unique slot ids and labels. Do not mutate `defaultLeagueSettings`.
 
 ### Assertions
 
-- `flex-rb` and `flex-wr` both rank above the slightly higher-ranked `backup-qb`.
-- `flex-rb` and `flex-wr` each have `roster_fit`:
-  - `delta: 5`;
-  - `direction: "positive"`;
-  - `timing: "flex_need"`.
-- Both FLEX candidates include reason id `roster_fit:flex_need`.
-- `backup-qb` has `roster_fit`:
-  - `delta: -6`;
-  - `direction: "negative"`;
-  - `timing: "limited_need"`.
-- `backup-qb` includes `roster_fit:limited_need` as its final caveat when returned.
-- Drafted players are excluded and repeated output is identical.
+Generate recommendations twice from the same draft and rankings:
 
-## Scenario 2: Useful Bench Depth
+1. With default roster slots adjusted only for the two-team draft metadata.
+2. With the explicit three-WR settings above.
 
-### Setup
+Assert:
 
-- Complete 22 picks so `currentPickNumber` is `23`.
-- Give the user an 11-player roster containing:
-  - one QB;
-  - three RBs;
-  - three WRs;
-  - two TEs;
-  - one DST;
-  - one K.
-- This roster fills all direct starters, consumes both FLEX slots through eligible surplus, and leaves bench capacity.
-- Available comparison players:
-  - `backup-dst` at overall rank `28`;
-  - `backup-qb` at overall rank `29`;
-  - `bench-rb` at overall rank `30`;
-  - `bench-wr` at overall rank `31`.
-- Add three nearby RBs and three nearby WRs with flat tiers.
+- Under default slots, `config-rb` ranks above `config-wr`.
+- Under three-WR settings, `config-wr` ranks above `config-rb`.
+- Under default slots:
+  - `config-rb` has `roster_fit` timing `direct_starter_need`;
+  - `config-wr` has timing `flex_need`.
+- Under three-WR settings:
+  - `config-wr` has `delta: 10`, direction `positive`, and timing `direct_starter_need`;
+  - `config-rb` has `delta: 5`, direction `positive`, and timing `flex_need`.
+- The three-WR recommendation includes `roster_fit:direct_starter_need` with exact text `Fills an open WR starter slot.`
+- Both outputs contain only available players and remain deterministic.
+- The settings objects are unchanged after recommendation generation.
 
-### Assertions
+This ordering reversal is the observable proof that configured roster slots—not MVP defaults—drive need.
 
-- `bench-rb` and `bench-wr` both rank above `backup-qb` and `backup-dst` despite their lower base ranks.
-- `bench-rb` and `bench-wr` each have `roster_fit`:
-  - `delta: 3`;
-  - `direction: "positive"`;
-  - `timing: "bench_depth"`.
-- Both include reason id `roster_fit:bench_depth`.
-- `backup-qb` and `backup-dst` each have negative `roster_fit` with `timing: "limited_need"`.
-- At least one returned backup includes the matching limited-need caveat.
-- Drafted players are excluded and repeated output is identical.
+## Scenario 2: Persisted Workspace Recommendation Parity
 
-## Scenario 3: Late Empty DEF/K Slots
+### Test Location
+
+Add one focused test to `src/lib/draftRepository.test.ts` so it can reuse that file's injected fake database and repository fixture.
 
 ### Setup
 
-- Complete 22 picks so `currentPickNumber` is `23`, which is beyond the late-phase threshold in a 32-pick two-team draft.
-- Give the user an 11-player roster with:
-  - one QB;
-  - four RBs;
-  - four WRs;
-  - two TEs;
-  - no DST;
-  - no K.
-- Available comparison players:
-  - `extra-rb` at overall rank `28`;
-  - `needed-dst` at overall rank `29`;
-  - `needed-k` at overall rank `30`.
-- Add three nearby RBs with a flat tier.
+- Import the pure `draftPlayerInDraft` transition and `generatePlayerRecommendations`.
+- Create a non-default two-team, four-round workspace through `createDraftRepository(createFakeDraftDb())`.
+- Use an explicit typed league setting and a compact ranking snapshot containing at least eight players across QB, RB, WR, and TE.
+- Choose `team-1` as the user team.
+- Select three distinct drafted player ids from the ranking snapshot.
+
+### In-Memory Path
+
+- Start from the created workspace's typed draft.
+- Apply the three picks sequentially with `draftPlayerInDraft` without writing them through the repository.
+- Generate `expectedRecommendations` from:
+  - the resulting in-memory draft;
+  - the created workspace rankings;
+  - the created workspace league settings;
+  - the created workspace user team id.
+
+### Persisted And Reloaded Path
+
+- Persist the same three player ids in the same order through `repository.draftPlayerInWorkspace`.
+- Reload with `repository.getDraftWorkspaceById`.
+- Fail explicitly if reload returns `null`.
+- Generate `reloadedRecommendations` exclusively from the reloaded workspace's typed draft, rankings, league settings, and user team id.
 
 ### Assertions
 
-- `needed-dst` and `needed-k` both rank above the slightly higher-ranked `extra-rb`.
-- Both DEF/K candidates have `roster_fit`:
-  - `delta: 10`;
-  - `direction: "positive"`;
-  - `timing: "direct_starter_need"`.
-- Their reasons include `roster_fit:direct_starter_need` with exact text:
-  - `Fills an open DST starter slot.`
-  - `Fills an open K starter slot.`
-- `extra-rb` has positive `bench_depth` rather than a penalty, proving DEF/K win because required slots remain open.
-- Drafted players are excluded and repeated output is identical.
+- The reloaded draft equals the independently progressed in-memory draft for picks, current pick number, teams, rounds, and user team id.
+- Reloaded rankings equal the original ranking snapshot.
+- Reloaded league settings equal the original typed settings.
+- `reloadedRecommendations` exactly equal `expectedRecommendations`, including:
+  - player ordering;
+  - total, base, and context scores;
+  - components and evidence;
+  - reasons.
+- Neither result contains any of the three drafted player ids.
+- Repeating generation from the reloaded workspace returns identical output.
+- Recommendation input/output remains typed domain data; no raw database record or JSON storage shape is passed to the engine.
 
-## Scenario 4: DEF/K Filled, Backups De-Emphasized
-
-### Setup
-
-- Start from the late roster shape above and add one drafted DST and one drafted K.
-- Complete 26 picks so `currentPickNumber` is `27`.
-- Available comparison players:
-  - `backup-dst` at overall rank `29`;
-  - `backup-k` at overall rank `30`;
-  - `depth-rb` at overall rank `31`.
-- Add three nearby RBs with a flat tier.
-
-### Assertions
-
-- `depth-rb` ranks above both higher-ranked DEF/K backups.
-- `depth-rb` has positive `bench_depth` roster fit and the matching reason.
-- `backup-dst` and `backup-k` each have `roster_fit`:
-  - `delta: -6`;
-  - `direction: "negative"`;
-  - `timing: "limited_need"`.
-- Both backups include `roster_fit:limited_need` as their final caveat when returned.
-- The drafted DST and K do not appear in recommendations.
-- Repeated output is identical.
+The fake repository test validates mapping and hydration parity. It does not claim real PostgreSQL integration coverage.
 
 ## Implementation Steps
 
-1. Review the active validation context.
+1. Review the active boundary context.
    - Read `docs/current-slice.md`.
    - Read Task 9 in `docs/tasks.md`.
-   - Read the Starter Positions Filled, Bench Depth Decisions, and Late-Round DEF/K sections of `docs/design/recommendation-engine.md`.
-   - Read the existing scenario helpers and tests in `src/lib/recommendations.scenario.test.ts`.
+   - Read the Dynamic Roster Configuration and Loaded Persisted Draft scenarios in `docs/design/recommendation-engine.md`.
+   - Read `src/lib/recommendations.scenario.test.ts`.
+   - Read the public repository API and existing fake-client tests in `src/lib/draftRepository.ts` and `src/lib/draftRepository.test.ts`.
 
-2. Extend `src/lib/recommendations.scenario.test.ts`.
-   - Add a new `describe("late-roster recommendation scenarios", ...)` block.
-   - Reuse existing helpers without creating a generic scenario framework.
-   - Add only small local fixture helpers if they remove repeated setup without hiding roster composition.
+2. Add dynamic roster scenario support.
+   - Extend only the local `createScenarioInput` signature to accept optional league settings.
+   - Add a new `describe("recommendation boundary scenarios", ...)` block.
+   - Construct the explicit default and three-WR settings inputs.
+   - Assert the ordering reversal, exact roster-fit evidence/reason, availability, immutability, and determinism.
 
-3. Add the filled-starters/FLEX-open scenario.
-   - Construct the six-player user roster and close QB/RB/WR candidates.
-   - Neutralize tier, scarcity, and run pressure.
-   - Assert relative ordering, FLEX evidence, limited-QB evidence/caveat, availability, and determinism.
+3. Add persisted recommendation parity.
+   - Add one repository test using the existing fake database and public repository methods.
+   - Build the independent in-memory draft path.
+   - Persist and reload the same pick history.
+   - Generate recommendations from both typed workspaces and assert full equality and availability.
 
-4. Add the bench-depth scenario.
-   - Construct the 11-player roster that consumes FLEX and leaves bench space.
-   - Assert useful RB/WR depth above backup QB/DST.
-   - Assert exact bench-depth and limited-need evidence and reasons.
-
-5. Add the two late DEF/K states.
-   - First prove empty required DEF/K slots outrank close extra depth after the late threshold.
-   - Then fill both slots and prove useful RB depth outranks both backups.
-   - Assert exact roster-fit evidence, reasons, availability, and determinism in both states.
-
-6. Run validation.
+4. Run validation before changing task status.
    - Run `npm test -- src/lib/recommendations.scenario.test.ts`.
-   - Run `npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts`.
+   - Run `npm test -- src/lib/draftRepository.test.ts`.
+   - Run `npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/draftRepository.test.ts`.
    - Run `npm run lint`.
    - Fix only fixture or assertion failures caused by this slice.
-   - If correct scenario data reveals a product contradiction, stop and report it without changing production scoring.
+   - If correct boundary data reveals a product contradiction, stop without changing production code or task status.
 
-7. Stop after this Task 9 slice.
-   - Do not add dynamic-configuration, persistence, UI, or workflow scenarios.
-   - Do not check off Task 9 or begin the final Task 9 slice automatically.
+5. Complete Task 9 documentation.
+   - After all validation passes, change only Task 9's checkbox in `docs/tasks.md` from `[ ]` to `[x]`.
+   - Do not change Task 10 or Task 11.
+
+6. Stop after Task 9.
+   - Do not begin workflow wiring, UI changes, or Phase 3 completion validation.
 
 ## Acceptance Criteria
 
-- Filled direct starters remain recommendation-relevant through configured FLEX slots.
-- Ordinary backup QB is de-emphasized when the required QB slot is filled.
-- Useful RB/WR bench depth outranks low-impact backup QB/DST candidates after FLEX is consumed.
-- Empty DEF/K starter slots become positive needs after the late threshold.
-- Once DEF/K slots are filled, their backups fall below useful depth.
-- All asserted reasons trace to the expected roster-fit evidence.
-- Every scenario recommendation contains only available players.
-- Identical inputs produce identical ordering, scores, components, and reasons.
-- Production recommendation code and tuning remain unchanged.
+- A non-default three-WR configuration reverses the close RB/WR ordering produced by default slots.
+- Roster-fit evidence and reason text identify the configured third WR starter need.
+- Dynamic settings and scenario inputs are not mutated.
+- In-memory and reloaded typed draft workspaces produce exactly equal recommendations.
+- Persisted parity includes ordering, scores, components, evidence, and reasons.
+- Drafted players remain excluded before and after reload.
+- The persistence test uses the existing injected fake repository boundary and requires no database.
+- Identical inputs remain deterministic.
+- No production recommendation, persistence, draft-state, UI, or type code changes.
+- Task 9 is checked complete only after all tests and lint pass.
 
 ## Suggested Tests
 
-- Scenario test for filled direct starters with FLEX open.
-- Scenario test for useful bench depth after FLEX is consumed.
-- Scenario test for late missing DEF/K starters.
-- Scenario test for backup DEF/K after both slots are filled.
-- Availability invariant assertion in every scenario.
-- Full-output determinism assertion in every scenario.
+- Scenario test comparing default versus three-WR roster settings.
+- Repository parity test comparing pure in-memory progression with persisted reload.
+- Availability assertions for both boundary scenarios.
+- Full-output determinism assertions for both boundary scenarios.
 
 ## Validation Notes
 
@@ -261,21 +239,16 @@ Expected validation commands:
 
 ```txt
 npm test -- src/lib/recommendations.scenario.test.ts
-npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts
+npm test -- src/lib/draftRepository.test.ts
+npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/draftRepository.test.ts
 npm run lint
 ```
 
-## Remaining Task 9 Slice
-
-Do not implement this in the current slice:
-
-- Boundary scenarios: dynamic roster configuration and persisted-draft parity where practical.
-
 ## Slice Review
 
-- Smallest meaningful increment: yes. It validates one coherent behavior family: late roster construction and required-slot timing.
-- Concrete enough for implementation: yes. Roster counts, draft phases, candidate ranks, confounder controls, component evidence, reasons, and relative ordering are specified.
-- Avoids unnecessary architecture changes: yes. It extends scenario coverage only and forbids production tuning.
-- Blast radius reasonable: yes. Implementation changes remain in one existing scenario test file.
-- Review/revert comfort: yes. The slice is isolated validation with no production behavior changes.
-- Observable/testable acceptance criteria: yes. Ordering, evidence, reasons, availability, phase behavior, and determinism are directly asserted.
+- Smallest meaningful increment: yes. It completes the two remaining Task 9 boundaries without beginning workflow wiring.
+- Concrete enough for implementation: yes. Settings, draft states, ranking comparisons, repository paths, parity inputs, assertions, and validation order are specified.
+- Avoids unnecessary architecture changes: yes. It tests the existing pure engine and typed repository boundary without production changes or a real database.
+- Blast radius reasonable: yes. Expected changes are limited to two test files and the Task 9 checkbox.
+- Review/revert comfort: yes. The slice is isolated boundary validation and documentation status.
+- Observable/testable acceptance criteria: yes. Ordering reversal, evidence, exact full-output parity, availability, determinism, and task completion are directly verifiable.
