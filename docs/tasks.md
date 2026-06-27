@@ -35,6 +35,8 @@ Do not promote multiple unrelated tasks into `docs/current-slice.md` at once.
 
 ## Task 1 - Align Phase 3 Architecture Documentation
 
+- [x] Complete
+
 ### Goal
 
 Reflect the approved Recommendation Engine design in the project-level architecture and decision documents before code implementation begins.
@@ -69,6 +71,8 @@ Reflect the approved Recommendation Engine design in the project-level architect
 ---
 
 ## Task 2 - Define Recommendation Engine Contract
+
+- [x] Complete
 
 ### Goal
 
@@ -110,6 +114,8 @@ Create the domain-facing Recommendation Engine boundary and output model without
 
 ## Task 3 - Implement Base Ranking Scoring
 
+- [x] Complete
+
 ### Goal
 
 Implement the rank-derived base player value score and deterministic recommendation ordering.
@@ -147,6 +153,8 @@ Implement the rank-derived base player value score and deterministic recommendat
 ---
 
 ## Task 4 - Add Roster Fit And Timing Modifier
+
+- [x] Complete
 
 ### Goal
 
@@ -189,6 +197,8 @@ Add the primary team-context modifier for starter needs, FLEX needs, bench depth
 
 ## Task 5 - Add Value Opportunity Modifier
 
+- [x] Complete
+
 ### Goal
 
 Reward players who have fallen relative to the current pick and lightly penalize unsupported reaches.
@@ -227,6 +237,8 @@ Reward players who have fallen relative to the current pick and lightly penalize
 
 ## Task 6 - Add Tier-Drop Risk Modifier
 
+- [x] Complete
+
 ### Goal
 
 Reward players near meaningful positional tier cliffs when the position still matters to the roster.
@@ -263,6 +275,8 @@ Reward players near meaningful positional tier cliffs when the position still ma
 ---
 
 ## Task 7 - Add Positional Scarcity And Run Pressure Modifier
+
+- [x] Complete
 
 ### Goal
 
@@ -304,6 +318,8 @@ Reward positions where useful remaining options are thinning, including observed
 
 ## Task 8 - Add Explanation Selection
 
+- [x] Complete
+
 ### Goal
 
 Generate concise, deterministic recommendation reasons directly from scoring components.
@@ -343,6 +359,8 @@ Generate concise, deterministic recommendation reasons directly from scoring com
 ---
 
 ## Task 9 - Add Recommendation Scenario Validation
+
+- [ ] Complete
 
 ### Goal
 
@@ -386,6 +404,8 @@ Create deterministic scenario coverage for representative draft situations from 
 
 ## Task 10 - Wire Recommendation Engine Into Draft Workflow
 
+- [ ] Complete
+
 ### Goal
 
 Use the Phase 3 Recommendation Engine in the existing manual and persisted draft workflows.
@@ -427,6 +447,8 @@ Use the Phase 3 Recommendation Engine in the existing manual and persisted draft
 ---
 
 ## Task 11 - Phase 3 Completion Validation
+
+- [ ] Complete
 
 ### Goal
 
