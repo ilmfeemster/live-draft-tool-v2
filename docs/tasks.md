@@ -182,7 +182,7 @@ Allow a developer to create and resume any supported league configuration from t
 
 ## Task 4 - Define the Scenario V1 Contract
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
