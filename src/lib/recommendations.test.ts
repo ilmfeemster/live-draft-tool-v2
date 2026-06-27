@@ -4,6 +4,8 @@ import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import { draftPlayerInDraft } from "@/lib/draftState";
 import {
   calculateBasePlayerValueScore,
+  calculatePositionalRunComponent,
+  calculatePositionalScarcityComponent,
   calculateTierDropRiskComponent,
   calculateValueOpportunityComponent,
   defaultRecommendationTuningConfig,
@@ -105,6 +107,25 @@ function createDraftWithUserPicks(playerIds: string[], overrides: Partial<Draft>
     picks,
     currentPickNumber: Math.min(playerIds.length + 1, teamCount * rounds),
     ...overrides,
+  });
+}
+
+function createDraftWithRecentPicks(playerIds: string[]): Draft {
+  const teamCount = 2;
+  const rounds = Math.ceil((playerIds.length + 1) / teamCount);
+  const picks = generateSnakeDraftOrder(teamCount, rounds).map((pick, index) => {
+    const playerId = playerIds[index];
+
+    return playerId ? { ...pick, playerId } : pick;
+  });
+
+  return createTestDraft({
+    teamCount,
+    rounds,
+    userTeamId: "user-team-with-no-picks",
+    teams: createDraftTeams(teamCount),
+    picks,
+    currentPickNumber: playerIds.length + 1,
   });
 }
 
@@ -391,9 +412,9 @@ describe("generatePlayerRecommendations", () => {
 
     expect(recommendation).toMatchObject({
       playerId: "player-1",
-      totalScore: 110,
+      totalScore: 116,
       baseScore: 100,
-      contextScore: 10,
+      contextScore: 16,
       reasons: [],
     });
     expect(recommendation.components).toEqual(
@@ -425,7 +446,7 @@ describe("generatePlayerRecommendations", () => {
       createRecommendationInput({ rankings }),
     );
 
-    expect(recommendation.contextScore).toBe(10);
+    expect(recommendation.contextScore).toBe(16);
     expect(recommendation.totalScore).toBe(recommendation.baseScore + recommendation.contextScore);
     expect(recommendation.baseScore).toBeCloseTo(calculateBasePlayerValueScore(25));
   });
@@ -477,7 +498,7 @@ describe("generatePlayerRecommendations", () => {
       return component.id === "roster_fit";
     });
 
-    expect(recommendation.contextScore).toBe(10);
+    expect(recommendation.contextScore).toBe(16);
     expect(rosterFitComponent).toEqual(
       expect.objectContaining({
         delta: 10,
@@ -516,8 +537,8 @@ describe("generatePlayerRecommendations", () => {
       return recommendation.playerId === "candidate-rb";
     });
 
-    expect(quarterback?.contextScore).toBe(5);
-    expect(runningBack?.contextScore).toBe(5);
+    expect(quarterback?.contextScore).toBe(11);
+    expect(runningBack?.contextScore).toBe(11);
   });
 
   it("penalizes a saturated position without hiding elite base value", () => {
@@ -612,7 +633,7 @@ describe("generatePlayerRecommendations", () => {
       createRecommendationInput({ draft, rankings, leagueSettings }),
     );
 
-    expect(recommendation.contextScore).toBe(10);
+    expect(recommendation.contextScore).toBe(16);
     expect(recommendation.components).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -746,7 +767,7 @@ describe("generatePlayerRecommendations", () => {
       }),
     );
     expect(recommendation.baseScore).toBeCloseTo(calculateBasePlayerValueScore(5));
-    expect(recommendation.contextScore).toBe(10);
+    expect(recommendation.contextScore).toBe(16);
   });
 
   it("clamps context score after composing roster fit and value opportunity", () => {
@@ -864,7 +885,7 @@ describe("generatePlayerRecommendations", () => {
         }),
       }),
     );
-    expect(recommendation.contextScore).toBe(22);
+    expect(recommendation.contextScore).toBe(25);
   });
 
   it("does not add tier pressure when tier depth is not thin", () => {
@@ -972,6 +993,211 @@ describe("generatePlayerRecommendations", () => {
 
     expect(tierComponent).toEqual(expect.objectContaining({ delta: 12 }));
     expect(recommendation.contextScore).toBe(15);
+  });
+
+  it("adds mild scarcity when one or two nearby same-position options remain", () => {
+    const ranking = createRanking("candidate-rb", 10, "RB");
+    const component = calculatePositionalScarcityComponent({
+      ranking,
+      availableRankings: [
+        ranking,
+        createRanking("nearby-rb-1", 20, "RB"),
+        createRanking("nearby-rb-2", 30, "RB"),
+      ],
+      rosterFitDelta: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(component).toEqual(
+      expect.objectContaining({
+        id: "positional_scarcity",
+        delta: 3,
+        direction: "positive",
+        evidence: expect.objectContaining({
+          position: "RB",
+          nearbySamePositionOptions: 2,
+          lookaheadRanks: 24,
+          rosterFitDelta: 10,
+          thresholdMatched: "mild_scarcity",
+        }),
+      }),
+    );
+  });
+
+  it("adds clear scarcity when no nearby same-position options remain", () => {
+    const ranking = createRanking("candidate-te", 10, "TE");
+    const component = calculatePositionalScarcityComponent({
+      ranking,
+      availableRankings: [ranking, createRanking("distant-te", 40, "TE")],
+      rosterFitDelta: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(component).toMatchObject({
+      delta: 6,
+      direction: "positive",
+      evidence: expect.objectContaining({
+        nearbySamePositionOptions: 0,
+        thresholdMatched: "clear_scarcity",
+      }),
+    });
+  });
+
+  it("does not add scarcity when nearby same-position depth remains", () => {
+    const ranking = createRanking("candidate-wr", 10, "WR");
+    const component = calculatePositionalScarcityComponent({
+      ranking,
+      availableRankings: [
+        ranking,
+        createRanking("nearby-wr-1", 11, "WR"),
+        createRanking("nearby-wr-2", 12, "WR"),
+        createRanking("nearby-wr-3", 13, "WR"),
+      ],
+      rosterFitDelta: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(component).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+      evidence: expect.objectContaining({ thresholdMatched: "enough_nearby_options" }),
+    });
+  });
+
+  it("adds observed run pressure at a needed position", () => {
+    const recentPlayerIds = Array.from({ length: 5 }, (_, index) => `recent-rb-${index}`);
+    const draft = createDraftWithRecentPicks(recentPlayerIds);
+    const ranking = createRanking("candidate-rb", 20, "RB");
+    const rankings = [
+      ranking,
+      ...recentPlayerIds.map((id, index) => createRanking(id, index + 1, "RB")),
+    ];
+    const component = calculatePositionalRunComponent({
+      ranking,
+      rankings,
+      picks: draft.picks,
+      currentPickNumber: draft.currentPickNumber,
+      rosterFitDelta: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(component).toEqual(
+      expect.objectContaining({
+        id: "positional_run",
+        delta: 4,
+        direction: "positive",
+        evidence: expect.objectContaining({
+          position: "RB",
+          recentPickWindow: defaultRecommendationTuningConfig.recentPickRunWindow,
+          recentPositionPickCount: 5,
+          rosterFitDelta: 10,
+          thresholdMatched: "clear_run",
+        }),
+      }),
+    );
+  });
+
+  it("ignores observed run pressure for a solved position", () => {
+    const recentPlayerIds = Array.from({ length: 5 }, (_, index) => `recent-qb-${index}`);
+    const draft = createDraftWithRecentPicks(recentPlayerIds);
+    const ranking = createRanking("candidate-qb", 20, "QB");
+    const component = calculatePositionalRunComponent({
+      ranking,
+      rankings: [
+        ranking,
+        ...recentPlayerIds.map((id, index) => createRanking(id, index + 1, "QB")),
+      ],
+      picks: draft.picks,
+      currentPickNumber: draft.currentPickNumber,
+      rosterFitDelta: 0,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(component).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+      evidence: expect.objectContaining({ thresholdMatched: "roster_irrelevant" }),
+    });
+  });
+
+  it("ignores recent pick player ids missing from rankings", () => {
+    const draft = createDraftWithRecentPicks([
+      "known-rb-1",
+      "unknown-player-1",
+      "known-rb-2",
+      "unknown-player-2",
+      "unknown-player-3",
+    ]);
+    const ranking = createRanking("candidate-rb", 20, "RB");
+    const component = calculatePositionalRunComponent({
+      ranking,
+      rankings: [
+        ranking,
+        createRanking("known-rb-1", 1, "RB"),
+        createRanking("known-rb-2", 2, "RB"),
+      ],
+      picks: draft.picks,
+      currentPickNumber: draft.currentPickNumber,
+      rosterFitDelta: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(component).toMatchObject({
+      delta: 0,
+      evidence: expect.objectContaining({
+        recentPositionPickCount: 2,
+        thresholdMatched: "no_meaningful_run",
+      }),
+    });
+  });
+
+  it("shares the urgency cap across tier, scarcity, and run pressure", () => {
+    const recentPlayerIds = Array.from({ length: 5 }, (_, index) => `recent-rb-${index}`);
+    const draft = createDraftWithRecentPicks(recentPlayerIds);
+    const rankings = [
+      ...recentPlayerIds.map((id, index) => createRanking(id, index + 1, "RB")),
+      createRanking("candidate-rb", 20, "RB", "candidate-rb", { tier: 1 }),
+      createRanking("next-tier-rb", 30, "RB", "next-tier-rb", { tier: 3 }),
+    ];
+
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({ draft, rankings }),
+      {
+        tuning: {
+          ...defaultRecommendationTuningConfig,
+          maxUrgencyScore: 7,
+        },
+      },
+    );
+
+    expect(recommendation.playerId).toBe("candidate-rb");
+    expect(recommendation.contextScore).toBe(17);
+    expect(recommendation.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "tier_cliff", delta: 12 }),
+        expect.objectContaining({ id: "positional_scarcity", delta: 3 }),
+        expect.objectContaining({ id: "positional_run", delta: 4 }),
+      ]),
+    );
+  });
+
+  it("does not let scarcity and run pressure move a much lower-value player above an elite player", () => {
+    const recentPlayerIds = Array.from({ length: 5 }, (_, index) => `recent-rb-${index}`);
+    const draft = createDraftWithRecentPicks(recentPlayerIds);
+    const rankings = [
+      ...recentPlayerIds.map((id, index) => createRanking(id, index + 10, "RB")),
+      createRanking("elite-wr", 1, "WR"),
+      createRanking("lower-rb", 50, "RB"),
+    ];
+
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput({ draft, rankings }),
+    );
+
+    expect(getPlayerRecommendationIds(recommendations).slice(0, 2)).toEqual([
+      "elite-wr",
+      "lower-rb",
+    ]);
   });
 
   it("does not mutate the input draft", () => {

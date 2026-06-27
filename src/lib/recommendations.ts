@@ -44,6 +44,17 @@ const LAST_PLAYER_TIER_PRESSURE_DELTA = 8;
 const MAJOR_TIER_CLIFF_DELTA = 12;
 const SOLVED_POSITION_TIER_CAP = 3;
 const TIER_CLIFF_COMPONENT_PRIORITY = 18;
+const POSITIONAL_SCARCITY_MIN_DELTA = 0;
+const POSITIONAL_SCARCITY_MAX_DELTA = 6;
+const MILD_POSITIONAL_SCARCITY_DELTA = 3;
+const CLEAR_POSITIONAL_SCARCITY_DELTA = 6;
+const POSITIONAL_SCARCITY_COMPONENT_PRIORITY = 17;
+const POSITIONAL_RUN_MIN_DELTA = 0;
+const POSITIONAL_RUN_MAX_DELTA = 4;
+const MILD_POSITIONAL_RUN_DELTA = 2;
+const CLEAR_POSITIONAL_RUN_DELTA = 4;
+const POSITIONAL_RUN_COMPONENT_PRIORITY = 16;
+const urgencyPositions = new Set<Position>(["QB", "RB", "WR", "TE"]);
 
 export const defaultRecommendationTuningConfig: RecommendationTuningConfig = {
   baseScoreCurveCoefficient: 6,
@@ -483,6 +494,127 @@ export function calculateTierDropRiskComponent({
   };
 }
 
+export function calculatePositionalScarcityComponent(input: {
+  ranking: RankingEntry;
+  availableRankings: RankingEntry[];
+  rosterFitDelta: number;
+  tuning: RecommendationTuningConfig;
+}): RecommendationScoreComponent {
+  const { ranking, availableRankings, rosterFitDelta } = input;
+  const position = ranking.player.position;
+  const nearbySamePositionOptions = availableRankings
+    .filter((candidate) => {
+      return (
+        candidate.player.position === position &&
+        candidate.overallRank > ranking.overallRank &&
+        candidate.overallRank <= ranking.overallRank + SCARCITY_LOOKAHEAD_RANKS
+      );
+    })
+    .sort(compareRankingsByStableDraftOrder).length;
+  let delta = 0;
+  let thresholdMatched = "enough_nearby_options";
+
+  if (!urgencyPositions.has(position)) {
+    thresholdMatched = "position_not_supported";
+  } else if (rosterFitDelta < 0) {
+    thresholdMatched = "roster_irrelevant";
+  } else if (nearbySamePositionOptions === 0) {
+    delta = CLEAR_POSITIONAL_SCARCITY_DELTA;
+    thresholdMatched = "clear_scarcity";
+  } else if (nearbySamePositionOptions <= 2) {
+    delta = MILD_POSITIONAL_SCARCITY_DELTA;
+    thresholdMatched = "mild_scarcity";
+  }
+
+  if (rosterFitDelta === 0) {
+    delta = Math.floor(delta / 2);
+  }
+
+  const boundedDelta = clamp(
+    delta,
+    POSITIONAL_SCARCITY_MIN_DELTA,
+    POSITIONAL_SCARCITY_MAX_DELTA,
+  );
+
+  return {
+    id: "positional_scarcity",
+    delta: boundedDelta,
+    direction: boundedDelta > 0 ? "positive" : "neutral",
+    priority: POSITIONAL_SCARCITY_COMPONENT_PRIORITY,
+    evidence: {
+      position,
+      nearbySamePositionOptions,
+      lookaheadRanks: SCARCITY_LOOKAHEAD_RANKS,
+      rosterFitDelta,
+      thresholdMatched,
+    },
+  };
+}
+
+export function calculatePositionalRunComponent({
+  ranking,
+  rankings,
+  picks,
+  currentPickNumber,
+  rosterFitDelta,
+  tuning,
+}: {
+  ranking: RankingEntry;
+  rankings: RankingEntry[];
+  picks: Draft["picks"];
+  currentPickNumber: number;
+  rosterFitDelta: number;
+  tuning: RecommendationTuningConfig;
+}): RecommendationScoreComponent {
+  const position = ranking.player.position;
+  const rankingsByPlayerId = new Map(
+    rankings.map((candidate) => [candidate.player.id, candidate] as const),
+  );
+  const recentPicks = picks
+    .filter((pick) => pick.pickNumber < currentPickNumber)
+    .sort((a, b) => b.pickNumber - a.pickNumber)
+    .slice(0, tuning.recentPickRunWindow);
+  const recentPositionPickCount = recentPicks.reduce((count, pick) => {
+    if (!pick.playerId) {
+      return count;
+    }
+
+    return rankingsByPlayerId.get(pick.playerId)?.player.position === position
+      ? count + 1
+      : count;
+  }, 0);
+  let delta = 0;
+  let thresholdMatched = "no_meaningful_run";
+
+  if (!urgencyPositions.has(position)) {
+    thresholdMatched = "position_not_supported";
+  } else if (rosterFitDelta <= 0) {
+    thresholdMatched = "roster_irrelevant";
+  } else if (recentPositionPickCount >= 5) {
+    delta = CLEAR_POSITIONAL_RUN_DELTA;
+    thresholdMatched = "clear_run";
+  } else if (recentPositionPickCount >= 3) {
+    delta = MILD_POSITIONAL_RUN_DELTA;
+    thresholdMatched = "mild_run";
+  }
+
+  const boundedDelta = clamp(delta, POSITIONAL_RUN_MIN_DELTA, POSITIONAL_RUN_MAX_DELTA);
+
+  return {
+    id: "positional_run",
+    delta: boundedDelta,
+    direction: boundedDelta > 0 ? "positive" : "neutral",
+    priority: POSITIONAL_RUN_COMPONENT_PRIORITY,
+    evidence: {
+      position,
+      recentPickWindow: tuning.recentPickRunWindow,
+      recentPositionPickCount,
+      rosterFitDelta,
+      thresholdMatched,
+    },
+  };
+}
+
 export function generatePlayerRecommendations(
   input: RecommendationInput,
   options: GeneratePlayerRecommendationsOptions = {},
@@ -521,13 +653,32 @@ export function generatePlayerRecommendations(
         rosterFitDelta: rosterFitComponent.delta,
         tuning,
       });
+      const positionalScarcityComponent = calculatePositionalScarcityComponent({
+        ranking,
+        availableRankings,
+        rosterFitDelta: rosterFitComponent.delta,
+        tuning,
+      });
+      const positionalRunComponent = calculatePositionalRunComponent({
+        ranking,
+        rankings: input.rankings,
+        picks: input.draft.picks,
+        currentPickNumber: input.draft.currentPickNumber,
+        rosterFitDelta: rosterFitComponent.delta,
+        tuning,
+      });
       const valueOpportunityComponent = calculateValueOpportunityComponent({
         ranking,
         currentPickNumber: input.draft.currentPickNumber,
         rosterFitDelta: rosterFitComponent.delta,
         tuning,
       });
-      const urgencyScore = Math.min(tierCliffComponent.delta, tuning.maxUrgencyScore);
+      const urgencyScore = Math.min(
+        tierCliffComponent.delta +
+          positionalScarcityComponent.delta +
+          positionalRunComponent.delta,
+        tuning.maxUrgencyScore,
+      );
       const contextScore = clamp(
         rosterFitComponent.delta + urgencyScore + valueOpportunityComponent.delta,
         tuning.maxNegativeContextScore,
@@ -554,6 +705,8 @@ export function generatePlayerRecommendations(
           },
           rosterFitComponent,
           tierCliffComponent,
+          positionalScarcityComponent,
+          positionalRunComponent,
           valueOpportunityComponent,
         ],
         reasons: [],
