@@ -1,254 +1,250 @@
-# Current Slice: Add Recommendation Boundary Scenarios
+# Current Slice: Wire Recommendation Engine Into Draft Room
 
 ## Source Task
 
-Task 9: Add Recommendation Scenario Validation.
+Task 10: Wire Recommendation Engine Into Draft Workflow.
 
-This is the final Task 9 slice. Earlier slices covered core roster construction, QB timing, urgency, filled starters, bench depth, and late DEF/K behavior. This slice covers dynamic roster settings and persisted-workspace parity.
+This is the first Task 10 slice. It replaces the legacy UI compatibility path with the completed Recommendation Engine and updates the existing pure workflow regression coverage.
 
 ## Goal
 
-Validate that Recommendation Engine output follows typed league configuration and remains identical across the existing persistence hydration boundary.
+Make the current Draft Room compute and display ordered, context-aware `PlayerRecommendation` output from the active typed draft, ranking snapshot, league settings, and user team identity.
 
-This is a boundary-validation slice. Production recommendation, persistence, and draft-state behavior must remain unchanged.
+The slice should preserve the existing draft-room layout and actions while replacing static-style recommendations with scored recommendations and score-backed reasons.
 
-## Confidence Increment
+## User-Visible Increment
 
-- A non-default three-WR roster visibly changes recommendation ordering compared with the same draft under default slots.
-- The same typed draft state and ranking snapshot produce identical recommendations before persistence and after repository reload.
-- Task 9 scenario validation becomes complete.
+- The Recommendations panel responds to roster fit, value, tier, scarcity, and observed run context rather than the legacy basic modifiers.
+- Recommendation scores come from the Phase 3 engine.
+- Displayed reasons are the deterministic score-backed reason text produced by the engine.
+- Manual picks, undo, reset, and loaded drafts recompute from the active draft state already owned by `DraftRoom`.
 
 ## Current Context
 
-Task 9 scenario coverage already proves:
-
-- Heavy RB and heavy WR starts.
-- Early, middle, and filled-slot QB behavior.
-- Active and roster-irrelevant positional runs.
-- Major tier cliffs and elite-value guardrails.
-- Filled starters, FLEX relevance, bench depth, and late DEF/K behavior.
-- Availability and deterministic full output in every Recommendation Engine scenario.
-
-Two required boundaries remain:
-
-1. At least one scenario must prove the engine follows non-default roster settings rather than MVP defaults.
-2. Persisted-draft parity should be covered where practical.
-
-The existing `createDraftRepository` accepts an injected fake database in tests and returns a typed `DraftWorkspace` through the same repository mapping used for application loads. This makes parity testing practical without a real database, network access, or persistence redesign.
+- `generatePlayerRecommendations` is the completed pure Phase 3 engine.
+- `generateTopRecommendations` remains the legacy compatibility function.
+- `DraftRoom` currently calls `generateTopRecommendations` with separately derived available rankings and user roster players.
+- `DraftRoom` already receives the active typed draft and ranking snapshot, updates its local draft after server actions, and recomputes memoized derived data.
+- The loaded page already owns `workspace.leagueSettings` but does not pass it into `DraftRoom`.
+- `RecommendationsPanel` currently accepts legacy `Recommendation[]`, a numeric `score`, and string reasons.
+- `PlayerRecommendation` provides `totalScore`, `components`, and typed reasons with stable ids and text.
+- Persisted workspace parity and dynamic roster behavior are already validated at the engine/repository boundary.
 
 ## Scope
 
 ### Goals
 
-- Add a dynamic three-WR roster scenario to `src/lib/recommendations.scenario.test.ts`.
-- Compare the same draft and rankings under default and non-default roster slots.
-- Add a persisted-workspace recommendation parity test to `src/lib/draftRepository.test.ts`.
-- Compare pure in-memory draft progression against the reloaded typed workspace.
-- Assert full recommendation equality, including ordering, scores, components, evidence, and reasons.
-- Assert recommendations after reload contain only available players.
-- Keep production code unchanged.
-- Check Task 9 complete in `docs/tasks.md` only after all validation passes.
+- Pass typed league settings from the loaded workspace into `DraftRoom`.
+- Replace the legacy recommendation call in `DraftRoom` with `generatePlayerRecommendations`.
+- Feed the engine the full ranking snapshot and active draft; let the engine own drafted-player filtering.
+- Keep the existing available-player and user-roster derivations for their current UI panels.
+- Adapt `RecommendationsPanel` to accept `PlayerRecommendation[]`.
+- Display `totalScore` and typed reason text.
+- Preserve recommendation order returned by the engine.
+- Migrate the existing pure draft-workflow tests to `generatePlayerRecommendations`.
+- Add an undo regression proving recommendation output returns to the prior state.
+- Keep UI layout and draft actions otherwise unchanged.
 
 ### Non-Goals
 
-- Changing recommendation scoring, tuning, reason selection, or public types.
-- Changing repository mapping, serialization, fake database behavior, Prisma, or schema.
-- Adding a real database integration test.
-- Testing UI wiring, server actions, or persisted workflow presentation; those belong to Task 10.
-- Adding more strategy scenarios after Task 9 acceptance criteria are satisfied.
-- Refactoring test helpers across files.
-- Updating project, architecture, decision, testing, design, or roadmap documents.
-
-If either boundary test exposes a production contradiction, stop and report it. Do not alter production behavior inside this validation-only slice.
+- Redesigning the Draft Room or Recommendations panel.
+- Displaying component-level score breakdowns.
+- Adding new recommendation controls, filters, windows, or strategy settings.
+- Persisting recommendation output.
+- Changing Recommendation Engine scoring, tuning, reasons, or types.
+- Changing server actions, repository mapping, Prisma, schema, or draft transitions.
+- Adding browser automation or manual QA in this slice.
+- Removing `generateTopRecommendations`; focused legacy tests may continue to cover it.
+- Checking off Task 10; presentation/load validation remains a follow-up slice.
+- Updating documentation other than `docs/current-slice.md`.
 
 ## Expected Files
 
 - `docs/current-slice.md`
-- `src/lib/recommendations.scenario.test.ts`
-- `src/lib/draftRepository.test.ts`
-- `docs/tasks.md`
+- `src/app/page.tsx`
+- `src/components/DraftRoom.tsx`
+- `src/components/RecommendationsPanel.tsx`
+- `src/lib/draftWorkflow.test.ts`
 
-Do not modify production source files.
+Do not modify production recommendation, persistence, server-action, or draft-state files.
 
-## Scenario 1: Dynamic Three-WR Roster Configuration
+## Implementation Details
 
-### Test Location
+### Page Boundary
 
-Append this scenario to `src/lib/recommendations.scenario.test.ts` using the existing local scenario helpers.
+Update the existing `<DraftRoom>` call in `src/app/page.tsx`:
 
-### Helper Adjustment
+- Pass `workspace.leagueSettings` as a new `leagueSettings` prop.
+- Keep the existing `key`, `draft`, and `rankings` props.
+- Do not move recommendation generation into the server page; it must continue responding immediately to local active-draft updates after actions.
 
-- Extend `createScenarioInput` with an optional `LeagueSettings` argument.
-- Preserve its current default behavior when no override is supplied.
-- Do not introduce a shared fixture module.
+### DraftRoom Boundary
 
-### Draft Setup
+In `src/components/DraftRoom.tsx`:
 
-- Use a two-team, 16-round draft with `currentPickNumber` at `9`.
-- Give the user:
-  - one drafted QB;
-  - one drafted RB;
-  - two drafted WRs.
-- Use opponent filler positions that do not create an RB or WR run.
-- Available comparison players:
-  - `config-rb` at overall rank `19`;
-  - `config-wr` at overall rank `20`.
-- Add three nearby available RBs and three nearby available WRs with flat tiers to neutralize scarcity and tier pressure.
+- Add `leagueSettings: LeagueSettings` to `DraftRoomProps`.
+- Import and call `generatePlayerRecommendations` instead of `generateTopRecommendations`.
+- Build recommendations with:
 
-### Non-Default League Settings
+```ts
+generatePlayerRecommendations({
+  draft: activeDraft,
+  rankings,
+  leagueSettings,
+  userTeamId: activeDraft.userTeamId,
+})
+```
 
-Create an explicit `LeagueSettings` value using the draft's team count and rounds, PPR snake settings, and these roster slots:
+- Memoize from `activeDraft`, `rankings`, and `leagueSettings`.
+- Do not pass prefiltered rankings or the separately derived user roster into the engine.
+- Keep `availableRankings` for `AvailablePlayersTable`.
+- Keep `userRosterPlayers` for `UserRosterPanel`.
+- Preserve existing action handlers and active-draft state updates. Those updates should naturally trigger recommendation recomputation.
 
-- one QB-only starter;
-- one RB-only starter;
-- three WR-only starters;
-- one FLEX eligible for RB, WR, and TE;
-- two BENCH slots eligible for all supported positions.
+### RecommendationsPanel Contract
 
-Use stable unique slot ids and labels. Do not mutate `defaultLeagueSettings`.
+In `src/components/RecommendationsPanel.tsx`:
 
-### Assertions
+- Change the recommendation prop type from `Recommendation[]` to `PlayerRecommendation[]`.
+- Preserve the existing recommendation ordering and row layout.
+- Replace legacy `score` display with `totalScore` formatted to one decimal place.
+- Render `reason.text` for each typed reason.
+- Use `reason.id` as the reason list key within each recommendation row.
+- Keep player rank, team, position, draft button behavior, empty state, current-pick emphasis, and disabled behavior unchanged.
+- Update the subtitle from `Ranking-based suggestions from available players.` to `Context-aware suggestions from the current draft state.`
+- Do not expose raw component evidence or internal tuning values.
 
-Generate recommendations twice from the same draft and rankings:
+## Workflow Regression Migration
 
-1. With default roster slots adjusted only for the two-team draft metadata.
-2. With the explicit three-WR settings above.
+Update `src/lib/draftWorkflow.test.ts` to exercise the engine now used by the Draft Room.
 
-Assert:
+### Test Helpers
 
-- Under default slots, `config-rb` ranks above `config-wr`.
-- Under three-WR settings, `config-wr` ranks above `config-rb`.
-- Under default slots:
-  - `config-rb` has `roster_fit` timing `direct_starter_need`;
-  - `config-wr` has timing `flex_need`.
-- Under three-WR settings:
-  - `config-wr` has `delta: 10`, direction `positive`, and timing `direct_starter_need`;
-  - `config-rb` has `delta: 5`, direction `positive`, and timing `flex_need`.
-- The three-WR recommendation includes `roster_fit:direct_starter_need` with exact text `Fills an open WR starter slot.`
-- Both outputs contain only available players and remain deterministic.
-- The settings objects are unchanged after recommendation generation.
+- Import `defaultLeagueSettings`.
+- Import `generatePlayerRecommendations` instead of `generateTopRecommendations`.
+- Import `undoLastDraftPick` alongside `draftPlayerInDraft`.
+- Add a small helper that returns `RecommendationInput` from a draft and the full ranking snapshot using:
+  - league settings copied from `defaultLeagueSettings` with `teamCount` and `rounds` aligned to the test draft;
+  - `userTeamId` from the draft.
+- Update recommendation-id helper typing to use `generatePlayerRecommendations` output.
+- Keep available-player and user-roster helpers because those assertions validate independent workflow state.
 
-This ordering reversal is the observable proof that configured roster slots—not MVP defaults—drive need.
+### Existing Manual Draft Test
 
-## Scenario 2: Persisted Workspace Recommendation Parity
+- Replace each legacy recommendation call with `generatePlayerRecommendations` using the full rankings and current draft state.
+- Continue asserting:
+  - initial recommendations exist;
+  - drafted players disappear;
+  - recommendations contain only available players;
+  - user roster derivation remains correct;
+  - the final remaining player is recommended.
+- Add an assertion that at least one returned recommendation contains a typed, score-backed reason.
+- Do not rewrite expected order unless the Phase 3 engine intentionally differs from the legacy helper; assert only behavior required by the workflow.
 
-### Test Location
+### Completed Draft Test
 
-Add one focused test to `src/lib/draftRepository.test.ts` so it can reuse that file's injected fake database and repository fixture.
+- Generate recommendations from the completed draft and full rankings through the Phase 3 engine.
+- Continue expecting an empty result and valid draft invariants.
 
-### Setup
+### Undo Regression
 
-- Import the pure `draftPlayerInDraft` transition and `generatePlayerRecommendations`.
-- Create a non-default two-team, four-round workspace through `createDraftRepository(createFakeDraftDb())`.
-- Use an explicit typed league setting and a compact ranking snapshot containing at least eight players across QB, RB, WR, and TE.
-- Choose `team-1` as the user team.
-- Select three distinct drafted player ids from the ranking snapshot.
+Add one focused test:
 
-### In-Memory Path
+1. Create a small typed draft and ranking snapshot.
+2. Apply enough picks to produce a non-empty recommendation state.
+3. Capture recommendations immediately before one additional pick.
+4. Apply that pick and confirm the drafted player disappears from recommendations.
+5. Undo with `undoLastDraftPick`.
+6. Assert the restored draft equals the prior draft state.
+7. Assert the restored full recommendation output exactly equals the pre-pick output, including scores, components, and reasons.
 
-- Start from the created workspace's typed draft.
-- Apply the three picks sequentially with `draftPlayerInDraft` without writing them through the repository.
-- Generate `expectedRecommendations` from:
-  - the resulting in-memory draft;
-  - the created workspace rankings;
-  - the created workspace league settings;
-  - the created workspace user team id.
-
-### Persisted And Reloaded Path
-
-- Persist the same three player ids in the same order through `repository.draftPlayerInWorkspace`.
-- Reload with `repository.getDraftWorkspaceById`.
-- Fail explicitly if reload returns `null`.
-- Generate `reloadedRecommendations` exclusively from the reloaded workspace's typed draft, rankings, league settings, and user team id.
-
-### Assertions
-
-- The reloaded draft equals the independently progressed in-memory draft for picks, current pick number, teams, rounds, and user team id.
-- Reloaded rankings equal the original ranking snapshot.
-- Reloaded league settings equal the original typed settings.
-- `reloadedRecommendations` exactly equal `expectedRecommendations`, including:
-  - player ordering;
-  - total, base, and context scores;
-  - components and evidence;
-  - reasons.
-- Neither result contains any of the three drafted player ids.
-- Repeating generation from the reloaded workspace returns identical output.
-- Recommendation input/output remains typed domain data; no raw database record or JSON storage shape is passed to the engine.
-
-The fake repository test validates mapping and hydration parity. It does not claim real PostgreSQL integration coverage.
+This test should remain pure and must not introduce repository or React dependencies.
 
 ## Implementation Steps
 
-1. Review the active boundary context.
+1. Review the active workflow context.
    - Read `docs/current-slice.md`.
-   - Read Task 9 in `docs/tasks.md`.
-   - Read the Dynamic Roster Configuration and Loaded Persisted Draft scenarios in `docs/design/recommendation-engine.md`.
-   - Read `src/lib/recommendations.scenario.test.ts`.
-   - Read the public repository API and existing fake-client tests in `src/lib/draftRepository.ts` and `src/lib/draftRepository.test.ts`.
+   - Read Task 10 in `docs/tasks.md`.
+   - Read `src/app/page.tsx`.
+   - Read `src/components/DraftRoom.tsx`.
+   - Read `src/components/RecommendationsPanel.tsx`.
+   - Read `src/lib/draftWorkflow.test.ts`.
 
-2. Add dynamic roster scenario support.
-   - Extend only the local `createScenarioInput` signature to accept optional league settings.
-   - Add a new `describe("recommendation boundary scenarios", ...)` block.
-   - Construct the explicit default and three-WR settings inputs.
-   - Assert the ordering reversal, exact roster-fit evidence/reason, availability, immutability, and determinism.
+2. Pass league settings through the page boundary.
+   - Add the new `DraftRoom` prop from `workspace.leagueSettings`.
 
-3. Add persisted recommendation parity.
-   - Add one repository test using the existing fake database and public repository methods.
-   - Build the independent in-memory draft path.
-   - Persist and reload the same pick history.
-   - Generate recommendations from both typed workspaces and assert full equality and availability.
+3. Replace Draft Room recommendation generation.
+   - Update imports, props, and the recommendation memo.
+   - Preserve independent available-player and roster derivations for their panels.
+   - Do not change action behavior.
 
-4. Run validation before changing task status.
-   - Run `npm test -- src/lib/recommendations.scenario.test.ts`.
-   - Run `npm test -- src/lib/draftRepository.test.ts`.
-   - Run `npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/draftRepository.test.ts`.
+4. Adapt the Recommendations panel.
+   - Switch to `PlayerRecommendation[]`.
+   - Render one-decimal total scores and typed reason text with stable ids.
+   - Update only the descriptive subtitle.
+
+5. Migrate workflow regressions.
+   - Replace legacy calls with full typed engine input.
+   - Preserve workflow-state assertions.
+   - Add reason-shape coverage and the exact undo restoration regression.
+
+6. Run validation.
+   - Run `npm test -- src/lib/draftWorkflow.test.ts`.
+   - Run `npm test`.
    - Run `npm run lint`.
-   - Fix only fixture or assertion failures caused by this slice.
-   - If correct boundary data reveals a product contradiction, stop without changing production code or task status.
+   - Run `npx tsc --noEmit`.
+   - Fix only failures caused by this slice.
+   - If validation reveals an unrelated pre-existing failure, document it and stop rather than broadening scope.
 
-5. Complete Task 9 documentation.
-   - After all validation passes, change only Task 9's checkbox in `docs/tasks.md` from `[ ]` to `[x]`.
-   - Do not change Task 10 or Task 11.
-
-6. Stop after Task 9.
-   - Do not begin workflow wiring, UI changes, or Phase 3 completion validation.
+7. Stop after this wiring slice.
+   - Do not begin the follow-up presentation/load validation slice.
+   - Do not check off Task 10.
 
 ## Acceptance Criteria
 
-- A non-default three-WR configuration reverses the close RB/WR ordering produced by default slots.
-- Roster-fit evidence and reason text identify the configured third WR starter need.
-- Dynamic settings and scenario inputs are not mutated.
-- In-memory and reloaded typed draft workspaces produce exactly equal recommendations.
-- Persisted parity includes ordering, scores, components, evidence, and reasons.
-- Drafted players remain excluded before and after reload.
-- The persistence test uses the existing injected fake repository boundary and requires no database.
-- Identical inputs remain deterministic.
-- No production recommendation, persistence, draft-state, UI, or type code changes.
-- Task 9 is checked complete only after all tests and lint pass.
+- `DraftRoom` uses `generatePlayerRecommendations`; no UI call site uses `generateTopRecommendations`.
+- The engine receives active draft state, the full ranking snapshot, hydrated league settings, and active user team identity.
+- Manual pick, undo, and reset state changes naturally recompute recommendations from `activeDraft`.
+- A loaded persisted workspace supplies its own league settings to recommendation generation.
+- RecommendationsPanel displays engine ordering, one-decimal total scores, and score-backed reason text.
+- Available-player and user-roster panels retain their current behavior.
+- Pure workflow tests exercise the same Recommendation Engine used by the UI.
+- Undo restores exact prior recommendation output.
+- Completed drafts return no recommendations.
+- Existing draft invariants remain valid.
+- No recommendation output is persisted.
+- No scoring, persistence, server-action, schema, or draft-transition behavior changes.
 
 ## Suggested Tests
 
-- Scenario test comparing default versus three-WR roster settings.
-- Repository parity test comparing pure in-memory progression with persisted reload.
-- Availability assertions for both boundary scenarios.
-- Full-output determinism assertions for both boundary scenarios.
+- Workflow test for recommendation updates after manual picks.
+- Workflow test proving drafted players remain excluded.
+- Workflow test proving completed drafts return no recommendations.
+- Workflow regression proving undo restores exact recommendation output.
+- Type validation for page, DraftRoom, and panel prop contracts.
 
 ## Validation Notes
 
 Expected validation commands:
 
 ```txt
-npm test -- src/lib/recommendations.scenario.test.ts
-npm test -- src/lib/draftRepository.test.ts
-npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/draftRepository.test.ts
+npm test -- src/lib/draftWorkflow.test.ts
+npm test
 npm run lint
+npx tsc --noEmit
 ```
+
+## Follow-Up Task 10 Slice
+
+Do not implement this in the current slice:
+
+- Add focused presentation/load validation for rendered score-backed reasons and hydrated-workspace wiring, complete any necessary manual QA, then check Task 10 complete.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It completes the two remaining Task 9 boundaries without beginning workflow wiring.
-- Concrete enough for implementation: yes. Settings, draft states, ranking comparisons, repository paths, parity inputs, assertions, and validation order are specified.
-- Avoids unnecessary architecture changes: yes. It tests the existing pure engine and typed repository boundary without production changes or a real database.
-- Blast radius reasonable: yes. Expected changes are limited to two test files and the Task 9 checkbox.
-- Review/revert comfort: yes. The slice is isolated boundary validation and documentation status.
-- Observable/testable acceptance criteria: yes. Ordering reversal, evidence, exact full-output parity, availability, determinism, and task completion are directly verifiable.
+- Smallest meaningful increment: yes. It is the vertical replacement of the legacy UI recommendation path.
+- Concrete enough for implementation: yes. Props, engine input, panel contract, display formatting, workflow migration, undo behavior, and validation commands are explicit.
+- Avoids unnecessary architecture changes: yes. It uses the completed pure engine and existing Draft Room state flow.
+- Blast radius reasonable: yes. Expected implementation changes are limited to four source/test files.
+- Review/revert comfort: yes. The legacy helper remains intact and the wiring change is localized.
+- Observable/testable acceptance criteria: yes. UI contract, workflow updates, reasons, drafted-player filtering, completion, undo restoration, lint, and type checking are verifiable.
