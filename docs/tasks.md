@@ -4,7 +4,7 @@
 
 Phase 4: Developer Tools & Simulator.
 
-Phase 4 adds a local development workbench around the existing Draft State Engine and Recommendation Engine. The work should make draft scenarios portable, deterministic, fast to replay, and easy to inspect without changing the ownership of draft rules, recommendation scoring, or persisted drafts.
+Phase 4 first completes configurable league creation, then adds a local development workbench around the existing Draft State Engine and Recommendation Engine. The work should let developers create and persist supported non-default drafts before making scenarios portable, deterministic, fast to replay, and easy to inspect.
 
 The source documents for this task plan are:
 
@@ -20,23 +20,167 @@ Completed Phase 1 and Phase 2 task history remains archived in `docs/completed-t
 
 ## Phase 4 Task Ordering
 
-The tasks are ordered to establish one reusable scenario path before adding workbench controls:
+The tasks are ordered to complete the shared configuration path before scenario infrastructure or workbench controls:
 
-1. Define the portable scenario contract and serialization boundary.
-2. Validate untrusted scenarios and enforce fixed MVP safety limits.
-3. Replay validated pick history through the existing Draft State Engine.
-4. Add typed import/export mapping and prove semantic round trips.
-5. Build the curated scenario library on the public scenario path.
-6. Make Recommendation Engine totals fully inspectable and display them read-only.
-7. Add transient scenario-session, reset, restart, and dirty-state behavior.
-8. Integrate the focused developer workbench controls.
-9. Complete cross-feature regression and Phase 4 exit validation.
+1. Define the league-setup input, supported bounds, and deterministic settings builder.
+2. Create and persist configured drafts through the existing repository boundary.
+3. Add the developer-facing draft setup workflow and prove persisted non-default use.
+4. Define the portable scenario contract and serialization boundary using those settings.
+5. Validate untrusted scenarios and enforce fixed MVP safety limits.
+6. Replay validated pick history through the existing Draft State Engine.
+7. Add typed import/export mapping and prove semantic round trips.
+8. Build the curated scenario library on the public scenario path.
+9. Make Recommendation Engine totals fully inspectable and display them read-only.
+10. Add transient scenario-session, reset, restart, and dirty-state behavior.
+11. Integrate the focused developer workbench controls.
+12. Complete cross-feature regression and Phase 4 exit validation.
 
 Do not promote multiple unrelated tasks into `docs/current-slice.md` at once.
 
 ---
 
-## Task 1 - Define the Scenario V1 Contract
+## Task 1 - Define League Setup and Validation
+
+- [ ] Complete
+
+### Goal
+
+Create one pure, deterministic boundary that validates supported league-setup input and builds the existing `LeagueSettings` and user-team identity used by draft creation.
+
+### Scope
+
+- Define a small setup input for team count, user draft position, QB, RB, WR, TE, FLEX, DST, K, and BENCH counts, draft type, and scoring format.
+- Keep the current 12-team, 16-round, Team 2 league as the default setup input.
+- Support team counts from 2 through 20 and draft positions within the selected team count.
+- Support non-negative roster counts with at least one non-BENCH starter and 1 through 30 total slots.
+- Support only `SNAKE` and `PPR`.
+- Generate deterministic ordered roster slots with unique category/index IDs and approved eligibility.
+- Derive rounds from total roster slots and derive user-team identity from draft position.
+- Validate total draft capacity against a supplied ranking-snapshot player count.
+- Return structured validation failures suitable for server enforcement and form feedback.
+
+### Non-Goals
+
+- Do not add a setup form or change draft creation yet.
+- Do not persist form counts as a second settings model.
+- Do not add arbitrary slot eligibility, custom positions, auction, keeper, dynasty, or alternate scoring.
+- Do not change Draft State Engine or Recommendation Engine behavior.
+- Do not add package dependencies.
+
+### Acceptance Criteria
+
+- Valid setup input produces the existing typed `LeagueSettings` and a valid user-team ID.
+- Identical input produces identical roster-slot order and IDs.
+- Rounds equal the generated roster-slot count and are not independently supplied.
+- Default input produces the current MVP league settings and Team 2 identity.
+- Non-default team count, roster construction, and draft position produce valid dynamic settings.
+- Invalid bounds, unsupported values, empty starting lineups, and insufficient ranking capacity return clear errors.
+- No draft or persistence record is created by the builder.
+
+### Suggested Tests
+
+- Unit tests for default and non-default settings generation.
+- Unit tests for every supported slot category and deterministic IDs.
+- Boundary tests for team count, draft position, roster total, and ranking capacity.
+- Unit tests rejecting non-integer counts, unsupported draft/scoring values, and bench-only rosters.
+
+---
+
+## Task 2 - Create and Persist Configured Drafts
+
+- [ ] Complete
+
+### Goal
+
+Use the shared league-setup builder at the server boundary so valid configured drafts are persisted and hydrated through the existing repository architecture.
+
+### Scope
+
+- Accept league-setup input in configured draft creation.
+- Revalidate all setup input on the server before repository access.
+- Check draft capacity against the seed ranking snapshot used for Phase 4 creation.
+- Pass only generated `LeagueSettings`, seed rankings, and derived user-team identity into the existing repository input.
+- Preserve the current JSON settings snapshot and `userTeamId` persistence shape.
+- Return useful validation failure data without creating a draft.
+- Route automatic first-run/default creation through the same default setup builder.
+- Prove a non-default draft persists, hydrates, and resumes with identical settings and user-team identity.
+
+### Non-Goals
+
+- Do not add a Prisma migration or normalized settings tables.
+- Do not edit settings on an existing draft or migrate existing picks.
+- Do not add a client setup form yet.
+- Do not change ranking sources or add ranking management.
+- Do not alter pick, undo, reset, or delete semantics.
+
+### Acceptance Criteria
+
+- Valid configured creation writes one draft through the existing repository.
+- Invalid setup creates no draft or ranking snapshot record.
+- A persisted non-default draft hydrates the same team count, rounds, roster slots, draft type, scoring format, and user-team identity.
+- The generated draft order and teams match the configured settings.
+- Existing default creation remains behaviorally equivalent but uses the shared builder.
+- No database schema change is required.
+
+### Suggested Tests
+
+- Server-action test for valid configured creation.
+- Server-action test proving invalid input never calls the repository.
+- Repository round-trip test for non-default settings and draft position.
+- Loader regression test for automatic default creation.
+- Existing persistence tests should continue to pass.
+
+---
+
+## Task 3 - Add the Draft Setup Workflow
+
+- [ ] Complete
+
+### Goal
+
+Allow a developer to create and resume any supported league configuration from the application without modifying code.
+
+### Scope
+
+- Open a compact setup workflow from `Start New Draft` instead of immediately creating the fixed default.
+- Prefill the current MVP team count, roster construction, draft position, `SNAKE`, and `PPR` values.
+- Provide numeric controls for team count, draft position, and supported roster-slot counts.
+- Show `SNAKE` and `PPR` as the active supported settings without offering unsupported choices.
+- Show immediate shared-validation feedback and authoritative server failures.
+- Submit configured creation, preserve the existing draft in history, and route to the new draft.
+- Allow cancel without changing the active draft.
+- Display the hydrated configured team count, rounds, draft position, scoring format, and draft type through existing draft surfaces.
+- Confirm recommendations, picks, undo, reset, refresh, and resume consume the persisted non-default settings.
+
+### Non-Goals
+
+- Do not build an arbitrary roster-slot editor or custom eligibility UI.
+- Do not edit an existing draft's settings.
+- Do not add custom draft names, ranking selection, or saved league presets.
+- Do not redesign the Draft Room beyond the compact setup flow and necessary feedback.
+- Do not add unsupported scoring or draft formats.
+
+### Acceptance Criteria
+
+- A developer can create a valid non-default draft without source changes.
+- Invalid fields are identified and no draft is created.
+- The selected draft position maps to the correct user team.
+- Rounds derive from roster construction and are visible after creation.
+- Refresh and history resume preserve the configured settings.
+- Draft State and Recommendation Engine behavior use the hydrated configuration.
+- Existing default creation remains quick through prefilled values.
+
+### Suggested Tests
+
+- Component tests for defaults, field validation, cancel, and successful submit.
+- Integration test for creating and routing to a non-default persisted draft.
+- Regression test for in-progress-draft confirmation and history preservation.
+- Workflow test for pick, recommendation, undo, reset, and refresh under non-default settings.
+- Focused manual QA for one non-default configuration.
+
+---
+
+## Task 4 - Define the Scenario V1 Contract
 
 - [ ] Complete
 
@@ -79,7 +223,7 @@ Create the typed, versioned, self-contained scenario contract that later Phase 4
 
 ---
 
-## Task 2 - Add Scenario Parsing and Validation
+## Task 5 - Add Scenario Parsing and Validation
 
 - [ ] Complete
 
@@ -122,7 +266,7 @@ Reject malformed, incompatible, unsafe, or internally inconsistent scenarios bef
 
 ---
 
-## Task 3 - Add Deterministic Replay Infrastructure
+## Task 6 - Add Deterministic Replay Infrastructure
 
 - [ ] Complete
 
@@ -168,7 +312,7 @@ Reconstruct zero-pick, intermediate, and completed draft states by applying vali
 
 ---
 
-## Task 4 - Add Portable Import and Export Round Trips
+## Task 7 - Add Portable Import and Export Round Trips
 
 - [ ] Complete
 
@@ -213,7 +357,7 @@ Convert typed manual, persisted, and transient workspaces into portable scenario
 
 ---
 
-## Task 5 - Add the Curated Scenario Library
+## Task 8 - Add the Curated Scenario Library
 
 - [ ] Complete
 
@@ -254,7 +398,7 @@ Provide a small version-controlled library of representative draft situations th
 
 ---
 
-## Task 6 - Add Recommendation Diagnostics and Debugger
+## Task 9 - Add Recommendation Diagnostics and Debugger
 
 - [ ] Complete
 
@@ -297,7 +441,7 @@ Make Recommendation Engine scoring fully reconcilable and inspectable without mo
 
 ---
 
-## Task 7 - Add Transient Scenario Sessions and Reset/Restart
+## Task 10 - Add Transient Scenario Sessions and Reset/Restart
 
 - [ ] Complete
 
@@ -343,7 +487,7 @@ Allow safe local exploration of replayed scenarios with distinct reset and resta
 
 ---
 
-## Task 8 - Integrate the Developer Workbench Controls
+## Task 11 - Integrate the Developer Workbench Controls
 
 - [ ] Complete
 
@@ -389,7 +533,7 @@ Expose the completed scenario, replay, export, debugger, reset, and restart capa
 
 ---
 
-## Task 9 - Complete Phase 4 Regression and Exit Validation
+## Task 12 - Complete Phase 4 Regression and Exit Validation
 
 - [ ] Complete
 
@@ -400,6 +544,8 @@ Prove the finished workbench meets Phase 4 success criteria and has not regresse
 ### Scope
 
 - Run and complete deterministic unit, integration, scenario, and regression coverage across the Phase 4 path.
+- Confirm every supported league-setup field validates, creates, persists, hydrates, and reaches the Draft State and Recommendation Engines correctly.
+- Confirm invalid league setup creates no persisted draft or ranking snapshot.
 - Confirm replay equivalence, import/export round trips, validation failure isolation, reset/restart behavior, and recommendation determinism.
 - Confirm draft invariants after replay, local exploration, reset, restart, and completed scenarios.
 - Confirm the curated library covers intermediate, completed, recommendation-focused, and non-default configurations.
@@ -420,6 +566,8 @@ Prove the finished workbench meets Phase 4 success criteria and has not regresse
 - All Phase 4 task acceptance criteria are satisfied.
 - Relevant focused and full automated suites pass.
 - Manual QA confirms the end-to-end developer workflow.
+- A developer can create and resume a supported non-default configuration without modifying code.
+- Replay and scenario tooling preserve the configured team count, roster construction, draft position, draft type, and scoring format.
 - Manual and replay inputs produce equivalent domain state and recommendation output.
 - Invalid scenarios never partially replace active state or mutate persistence.
 - Existing manual and persisted draft workflows pass regression validation.
@@ -428,6 +576,7 @@ Prove the finished workbench meets Phase 4 success criteria and has not regresse
 ### Suggested Tests
 
 - Run the full automated test suite and project validation commands.
+- Create, persist, refresh, and resume one non-default league through the setup workflow.
 - Run every curated scenario through validation and replay.
 - Complete the focused Phase 4 manual QA checklist.
 - Repeat one scenario after a reset and compare exact recommendation output.
@@ -439,9 +588,9 @@ Prove the finished workbench meets Phase 4 success criteria and has not regresse
 
 Phase 1 manual simulator coverage and Phase 2 persistence validation are complete and archived.
 
-Phase 3 implementation and automated coverage are complete for deterministic recommendation scoring, bounded modifiers, ordering, explanations, representative scenarios, workflow integration, and persisted parity. The previous task plan did not record completion of its final manual validation gate; Phase 4 Task 9 therefore retains explicit manual and persisted-workflow regression checks.
+Phase 3 implementation and automated coverage are complete for deterministic recommendation scoring, bounded modifiers, ordering, explanations, representative scenarios, workflow integration, and persisted parity. The previous task plan did not record completion of its final manual validation gate; Phase 4 Task 12 therefore retains explicit manual and persisted-workflow regression checks.
 
-Phase 4 implementation has not started. Tasks 1-9 are pending.
+Phase 4 implementation has not started. Tasks 1-12 are pending. Configurable league setup Tasks 1-3 are prerequisites for scenario contract work.
 
 ---
 

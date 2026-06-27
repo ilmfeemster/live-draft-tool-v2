@@ -1,241 +1,198 @@
-# Current Slice: Complete Phase 3 Validation
+# Current Slice: Define the Scenario V1 Contract
 
 ## Source Context
 
-Task 11: Phase 3 Completion Validation.
+Phase 4 Task 1: Define the Scenario V1 Contract.
 
-Phase 3 Tasks 1-10 are complete. The Recommendation Engine is implemented, covered by deterministic unit and scenario tests, wired into manual and persisted draft workflows, and validated through the Draft Room render boundary.
+Phase 4 begins with a portable scenario contract that later tasks can validate, replay, import, and export. This slice defines only the trusted typed shape and deterministic serialization boundary. It does not accept untrusted data or create draft state.
 
-The remaining phase-exit work is to rerun the existing automated evidence and complete a short manual QA flow against the persisted Draft Room. This slice validates existing behavior; it does not add recommendation features or begin Phase 4.
+The existing `LeagueSettings`, `RankingEntry`, and `Team` domain types already represent the settings, embedded ranking snapshot, and team order required by the design. Existing league-settings and ranking-snapshot serializers already provide fresh JSON-safe copies and should be reused rather than duplicated.
 
 ## Goal
 
-Close Phase 3 by recording passing automated validation and completing a reproducible manual QA checklist for visible recommendation updates, undo restoration, and persisted refresh/resume behavior.
+Add a typed, versioned, self-contained `DraftScenarioV1` contract and deterministic JSON serializer that preserve all source inputs needed for future replay while excluding derived draft and recommendation state.
 
 ## Scope
 
 ### Goals
 
-- Run the focused Recommendation Engine tests that cover scoring, modifiers, ordering, reasons, determinism, and representative scenarios.
-- Run the workflow tests that cover manual picks, undo restoration, persisted parity, workspace loading, and rendered recommendation presentation.
-- Run the full Vitest suite, ESLint, and TypeScript no-emit validation.
-- Complete the manual QA checklist below using a fresh persisted draft.
-- Record enough manual evidence to reproduce or diagnose the result.
-- Confirm Phase 3 non-goals were not introduced.
-- Check Task 11 complete only after automated and manual validation pass.
+- Add one explicit scenario schema-version constant with value `1`.
+- Define typed scenario metadata with required ID and name, optional description and tags, and optional informational provenance.
+- Define provenance for manual, persisted, and scenario sources with an optional source ID and export timestamp.
+- Define draft configuration using ordered existing `Team` values while keeping draft type, team count, rounds, scoring, and roster slots in existing `LeagueSettings`.
+- Embed the complete `RankingEntry[]` snapshot under ranking context.
+- Identify the user team separately from draft configuration.
+- Define ordered scenario picks with required player ID and optional expected pick-number and team assertions.
+- Define replay target as `appliedPickCount`.
+- Add deterministic serialization for an already-valid typed scenario.
+- Preserve array order for teams, rankings, roster slots, tags, and pick history because those orders are either meaningful or supplied contract data.
+- Add focused tests for deterministic serialization, dynamic settings, provenance isolation, and exclusion of derived state.
 
 ### Non-Goals
 
-- Changing Recommendation Engine scoring, modifier weights, reason selection, or tuning.
-- Adding or weakening automated tests unless validation exposes a direct Phase 3 coverage defect.
-- Fixing unrelated production defects during this validation slice.
-- Redesigning the Draft Room or recommendation presentation.
-- Completing another full 12-team, 16-round draft; Phase 1 already records that QA.
-- Adding browser automation, a DOM test dependency, or package dependencies.
-- Updating project scope, architecture, decisions, or roadmap documents.
-- Beginning Phase 4 replay or simulator work.
+- Parsing or validating unknown JSON.
+- Enforcing file-size, ranking-count, pick-count, tag-count, cross-reference, or replay-target limits.
+- Checking duplicate players, team consistency, pick order, or scenario versions at runtime.
+- Replaying picks or creating Draft State Engine state.
+- Adding scenario import, export-download, curated-library, simulator, or debugger UI.
+- Reading from or writing to Prisma, repositories, server actions, React state, or browser APIs.
+- Persisting scenarios or recommendation output.
+- Adding Phase 5 ranking management or a Phase 7 Draft Source/provider interface.
+- Modifying existing draft, recommendation, hydration, or persistence behavior.
+- Adding package dependencies.
+
+## Contract Shape
+
+Create the scenario types in `src/types/scenario.ts` using this domain-facing shape:
+
+```ts
+export const DRAFT_SCENARIO_SCHEMA_VERSION = 1 as const;
+
+export type DraftScenarioSourceKind = "manual" | "persisted" | "scenario";
+
+export type DraftScenarioProvenance = {
+  sourceKind: DraftScenarioSourceKind;
+  sourceId?: string;
+  exportedAt: string;
+};
+
+export type DraftScenarioMetadata = {
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  provenance?: DraftScenarioProvenance;
+};
+
+export type DraftScenarioPick = {
+  playerId: string;
+  expectedPickNumber?: number;
+  expectedTeamId?: string;
+};
+
+export type DraftScenarioV1 = {
+  schemaVersion: typeof DRAFT_SCENARIO_SCHEMA_VERSION;
+  metadata: DraftScenarioMetadata;
+  leagueSettings: LeagueSettings;
+  draftConfiguration: {
+    teams: Team[];
+  };
+  rankingContext: {
+    rankings: RankingEntry[];
+  };
+  userTeamContext: {
+    userTeamId: string;
+  };
+  pickHistory: DraftScenarioPick[];
+  replayTarget: {
+    appliedPickCount: number;
+  };
+};
+```
+
+The exact exported type declarations may be split into named subtypes for readability, but their meaning must not change. Do not add alternate ranking-source variants, provider identifiers, database IDs as required state, derived rosters, available-player lists, current-pick fields, completion flags, or recommendation fields.
+
+## Serialization Boundary
+
+Add `serializeDraftScenario` in `src/lib/scenario.ts`.
+
+The serializer should:
+
+1. Accept only a typed `DraftScenarioV1`; it must not accept or validate `unknown`.
+2. Build a fresh canonical JSON-safe object in the contract's declared field order.
+3. Reuse `serializeLeagueSettingsSnapshot` for league settings.
+4. Reuse `serializeRankingSnapshot` for ranking entries.
+5. Copy nested metadata, provenance, teams, tags, picks, and optional assertion fields rather than retaining input object or array references.
+6. Preserve caller-supplied array order; do not sort teams, rankings, tags, roster slots, or pick history.
+7. Omit optional properties when they are `undefined`.
+8. Return a two-space-indented JSON string with one trailing newline.
+9. Produce identical text for repeated serialization of the same typed input.
+
+This function serializes trusted data only. `JSON.parse`, unknown-input parsing, schema-version rejection, semantic validation, and safety limits belong to Task 2.
+
+## Implementation Steps
+
+1. Add `src/types/scenario.ts` with the schema constant and portable scenario types shown above, importing only existing domain types from `src/types/draft.ts`.
+2. Add `src/lib/scenario.ts` with the trusted deterministic serializer, reusing the existing league-settings and ranking-snapshot serializers.
+3. Add `src/lib/scenario.test.ts` with representative typed fixtures and exact behavior assertions.
+4. Run the focused test, lint, and TypeScript validation commands.
+5. If all acceptance criteria and validation pass, check only Phase 4 Task 1 complete in `docs/tasks.md`. Do not begin Task 2.
 
 ## Expected Files
 
-- `docs/current-slice.md`
-- `docs/tasks.md`
+- `src/types/scenario.ts`
+- `src/lib/scenario.ts`
+- `src/lib/scenario.test.ts`
+- `docs/tasks.md` only to mark Phase 4 Task 1 complete after validation passes
 
-No source or test file should change when validation passes. If validation exposes a direct Phase 3 defect, stop and report it so a focused corrective slice can be planned instead of expanding this slice.
+Do not modify existing production or test files unless a direct compile issue proves that the approved contract cannot reuse the documented types. If that occurs, stop and report the conflict instead of broadening the slice.
+
+## Test Cases
+
+The focused test file should prove:
+
+1. Repeated serialization of the same scenario produces exactly identical text.
+2. Serialized JSON contains schema version, metadata, settings, team order, embedded rankings, user-team identity, ordered picks, optional assertions, and replay target.
+3. A non-default fixture, such as 3 teams and 4 rounds with a custom roster-slot list, serializes without default 12-team assumptions.
+4. League settings and ranking entries retain all existing domain fields through serialization.
+5. Optional description, tags, provenance, source ID, and pick assertions are omitted when undefined.
+6. Adding or changing provenance changes only metadata/provenance in the parsed serialized document; all replay-relevant fields remain equal.
+7. The serialized document does not contain authoritative rosters, available rankings, current pick, completion status, recommendations, or persistence records.
+8. Team, ranking, roster-slot, tag, and pick-history order remain unchanged.
+9. The output uses two-space indentation and ends with exactly one newline.
+
+Tests may use `JSON.parse` only to inspect output from the trusted serializer. Do not introduce an exported scenario parser in this slice.
 
 ## Automated Validation
 
-Run these commands from the repository root in the listed order.
-
-### 1. Recommendation behavior and scenarios
+Run from the repository root in this order:
 
 ```txt
-npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts
-```
-
-Expected result:
-
-- Both test files pass unchanged.
-- Coverage includes base value, roster fit, value opportunity, tier-drop risk, scarcity, run pressure, bounded scores, deterministic ordering, and score-backed reasons.
-- Scenario coverage demonstrates context-sensitive ordering while preserving elite base value.
-
-### 2. Manual and persisted workflow boundaries
-
-```txt
-npm test -- src/lib/draftWorkflow.test.ts src/lib/draftRepository.test.ts src/lib/draftWorkspaceLoader.test.ts src/components/DraftRoom.test.tsx
-```
-
-Expected result:
-
-- All four test files pass unchanged.
-- Pick and undo tests prove recommendation updates and exact restoration.
-- Repository tests prove equivalent in-memory and hydrated state produce equivalent recommendations.
-- Loader tests prove selected/latest workspace behavior.
-- Draft Room rendering proves engine order, scores, reasons, drafted-player exclusion, user team identity, and non-default league settings reach presentation intact.
-
-### 3. Full project validation
-
-```txt
-npm test
+npm test -- src/lib/scenario.test.ts
 npm run lint
 npx tsc --noEmit
 ```
 
 Expected result:
 
-- The full Vitest suite passes.
+- The focused scenario serializer tests pass.
 - ESLint exits successfully with no errors or warnings.
 - TypeScript no-emit validation exits successfully.
-
-## Manual QA Preconditions
-
-- [ ] Local dependencies are already installed.
-- [ ] PostgreSQL is running.
-- [ ] `DATABASE_URL` points to the intended local development database.
-- [ ] The current Prisma schema has already been applied to that database.
-- [ ] The app starts with `npm run dev` and the terminal reports its local URL.
-- [ ] The browser is opened to that exact local URL.
-- [ ] No production source or persisted fixture data is edited during the QA run.
-
-If any precondition fails, record it as a blocker. Do not change application behavior merely to complete QA.
-
-## Manual QA Evidence
-
-Record before executing the checklist:
-
-- Date:
-- Commit or branch:
-- Browser and version:
-- App URL:
-- QA draft ID from the URL after creation:
-- Tester:
-- Automated validation result: Pass / Fail
-- Manual validation result: Pass / Fail
-- Notes or failure reproduction:
-
-For recommendation comparisons, record player name, displayed score, and displayed reasons in visible order:
-
-| Checkpoint | Pick | Ordered recommendations, scores, and reasons |
-| --- | ---: | --- |
-| A: Before user pick | 2 | |
-| B: After user pick | 3 | |
-| C: After undo | 2 | |
-| D: After re-draft and refresh | 3 | |
-
-## Manual QA Checklist
-
-### 1. Create an isolated persisted draft
-
-- [ ] Click `Start New Draft`.
-- [ ] If the current draft is in progress, accept the confirmation only after confirming it will preserve the existing draft in history.
-- [ ] Confirm the URL contains a new `draftId`.
-- [ ] Record that ID as the QA draft ID.
-- [ ] Confirm `Current Pick` is 1, recommendations are visible, and `Your Roster` has no drafted players.
-- [ ] Confirm each visible recommendation includes a score and at least one visible reason where the engine supplies reasons.
-
-Expected result: a fresh persisted draft loads without altering older draft history, and recommendations contain only currently available players.
-
-### 2. Advance to the first user pick
-
-- [ ] In `Available Players`, record the highest-ranked available player at pick 1.
-- [ ] Draft that player using the table's `Draft` button.
-- [ ] Confirm `Current Pick` advances from 1 to 2 and the panel shows `Your pick` for Team 2.
-- [ ] Confirm the drafted player is absent from both `Available Players` and `Recommendations`.
-- [ ] Record checkpoint A: all visible recommendations in order, including each displayed score and reason text.
-
-Expected result: the persisted opponent pick changes availability, advances draft state exactly once, and recommendations are recomputed for the user's pick.
-
-### 3. Make and verify the user pick
-
-- [ ] Draft the first recommendation using its `Draft` button.
-- [ ] Confirm `Current Pick` advances from 2 to 3.
-- [ ] Confirm the selected player disappears from `Available Players` and `Recommendations`.
-- [ ] Confirm the selected player appears exactly once in `Your Roster` with pick number 2 and the correct position.
-- [ ] Record checkpoint B in visible recommendation order with scores and reasons.
-- [ ] Confirm checkpoint B differs from checkpoint A because the selected player is no longer available.
-- [ ] Confirm every displayed recommendation still refers to an available player.
-
-Expected result: a manual user pick updates availability, roster state, scores, ordering, and visible score-backed reasons without a reload.
-
-### 4. Verify undo and deterministic restoration
-
-- [ ] Click `Undo Last Pick` once.
-- [ ] Confirm `Current Pick` returns from 3 to 2.
-- [ ] Confirm the undone player returns to `Available Players`.
-- [ ] Confirm the undone player is removed from `Your Roster`.
-- [ ] Record checkpoint C in visible recommendation order with scores and reasons.
-- [ ] Compare checkpoints C and A exactly.
-- [ ] Confirm player order, displayed scores, and reason text all match.
-
-Expected result: undo restores the exact recommendation presentation for the identical draft state.
-
-### 5. Verify persisted refresh/resume parity
-
-- [ ] Draft the same first recommendation again at pick 2.
-- [ ] Confirm `Current Pick` advances to 3 and the player returns to `Your Roster` at pick 2.
-- [ ] Record the visible recommendations, scores, and reasons before refreshing.
-- [ ] Refresh the browser at the same URL without changing `draftId`.
-- [ ] Confirm the same QA draft remains selected in draft history.
-- [ ] Confirm `Current Pick` remains 3.
-- [ ] Confirm the pick-2 player remains on `Your Roster` exactly once.
-- [ ] Record checkpoint D after refresh.
-- [ ] Confirm checkpoint D exactly matches the pre-refresh recommendation order, scores, and reasons.
-- [ ] Confirm neither drafted player appears in `Available Players` or `Recommendations`.
-
-Expected result: loading persisted state recomputes the same recommendation presentation as the equivalent in-memory state.
-
-### 6. Scope and usability review
-
-- [ ] Confirm the short flow exposed deterministic scores and concrete reason text rather than AI-generated or unsupported advice.
-- [ ] Confirm no simulation, opponent prediction, live-provider integration, strategy profile, or other Phase 3 non-goal appeared in the workflow.
-- [ ] Confirm the app did not crash, freeze, duplicate a pick, or lose the active draft during the flow.
-- [ ] Record any failure with the exact checkpoint, player, pick number, expected result, observed result, and reproduction steps.
-
-## Failure Handling
-
-- If an automated command fails because of this phase's code or tests, stop and report the failing command and test output.
-- If manual QA exposes a reproducible product defect, stop and document the exact reproduction. Do not fix it inside this validation slice.
-- If infrastructure prevents manual QA, leave Task 11 unchecked and report the unmet precondition.
-- Do not weaken an assertion, reinterpret a failed expectation, or check Task 11 complete while evidence is incomplete.
-
-## Task Status Update
-
-After every automated command and manual checklist item passes:
-
-- Among task completion checkboxes, change only Task 11 in `docs/tasks.md` from unchecked to checked.
-- Update the `Current Focus` summary in `docs/tasks.md` to state that Phase 3 validation is complete without promoting or starting Phase 4.
-- Update the Phase 3 testing-status paragraph in `docs/tasks.md` to state that Phase 3 validation is complete and briefly record the automated and manual evidence.
-- Do not archive Phase 3 tasks or promote Phase 4 in this slice.
-- Stop after reporting the phase-validation result.
+- Existing files require no behavior changes.
 
 ## Acceptance Criteria
 
-- Focused Recommendation Engine and scenario tests pass unchanged.
-- Focused workflow, repository, loader, and Draft Room presentation tests pass unchanged.
-- The full Vitest suite passes.
-- ESLint passes with no errors or warnings.
-- `npx tsc --noEmit` passes.
-- Manual QA confirms recommendations update after an opponent pick and a user pick.
-- Manual QA confirms drafted players leave availability and recommendations.
-- Manual QA confirms the user's pick appears exactly once on the user roster.
-- Manual QA confirms undo restores the prior recommendation order, displayed scores, and exact reason text.
-- Manual QA confirms refresh/resume preserves draft state and recomputes identical visible recommendations.
-- Automated scenario evidence confirms context can reorder static rankings while base value remains the anchor.
-- Automated component and reason tests confirm roster fit, value opportunity, tier pressure, scarcity, run pressure, and score-backed explanations are observable and bounded.
-- Phase 3 non-goals remain absent.
+- `DraftScenarioV1` has one explicit schema version equal to `1`.
+- The contract contains metadata, optional informational provenance, dynamic league settings, ordered team configuration, embedded rankings, user-team context, ordered pick history, and `appliedPickCount`.
+- Pick assertions are optional data and are not implemented as draft commands.
+- The contract contains no authoritative derived draft state or recommendation output.
+- The serializer accepts typed trusted input and performs no parsing or validation.
+- Repeated serialization of identical input produces identical JSON text.
+- Serialization creates canonical fresh JSON data while preserving meaningful array order.
+- Existing league-settings and ranking-snapshot serializers are reused.
+- A non-default league fixture serializes successfully.
+- Provenance cannot change replay-relevant serialized fields.
+- Focused tests, lint, and TypeScript validation pass.
 - No package dependency is added.
-- No production or test code changes when existing behavior passes.
-- Task 11 is checked complete only after all evidence passes.
-- Phase 4 is not started.
+- Only Phase 4 Task 1 is checked complete after validation passes.
+- Task 2 is not started.
+
+## Failure Handling
+
+- If the existing domain types cannot represent an approved scenario field without conflicting duplicate truth, stop and report the conflict.
+- If reusing an existing snapshot serializer changes or loses required domain data, stop and report the discrepancy instead of duplicating the serializer silently.
+- If lint, TypeScript, or existing tests expose an unrelated failure, report it and do not expand this slice to fix unrelated code.
+- Do not add runtime validation merely to satisfy a test; validation is the next task.
 
 ## Follow-Up Slice
 
-After Task 11 is complete, plan the smallest Phase 4 slice from the approved project and roadmap direction. Do not begin Phase 4 automatically.
+After this slice is implemented and reviewed, plan Phase 4 Task 2: Add Scenario Parsing and Validation. Do not begin it automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It contains only the automated and manual exit checks needed to close Phase 3.
-- Concrete enough for implementation: yes. Commands, preconditions, UI labels, checkpoints, evidence fields, expected results, and failure handling are explicit.
-- Avoids unnecessary architecture changes: yes. This is validation-only unless a failure requires a separately planned corrective slice.
-- Blast radius reasonable: yes. Only `docs/current-slice.md` and the Task 11/testing-status lines in `docs/tasks.md` should change when validation passes.
-- Review/revert comfort: yes. The slice is documentation and completion status with no planned production changes.
-- Observable/testable acceptance criteria: yes. Automated exits and manual pick, undo, refresh, roster, availability, score, order, and reason checks are directly observable.
+- Smallest meaningful increment: yes. It establishes the portable contract and trusted serialization boundary required by every later Phase 4 scenario feature.
+- Concrete enough for implementation: yes. The type shape, serializer behavior, tests, commands, exclusions, and completion update are explicit.
+- Avoids unnecessary architecture changes: yes. It reuses current domain types and snapshot serializers without adding state, persistence, providers, or UI.
+- Blast radius reasonable: yes. Three code files are expected, plus the Task 1 checkbox after successful validation.
+- Review/revert comfort: yes. The slice is additive and has no runtime consumers yet.
+- Observable/testable acceptance criteria: yes. Exact serialized output properties, deterministic text, dynamic settings, provenance isolation, excluded fields, and validation commands are directly checkable.

@@ -138,31 +138,46 @@ Scenario and replay infrastructure should respect the dynamic league settings al
 
 ## Milestones
 
-### Milestone 1 - Reproducible Scenario Contract
+### Milestone 1 – Configurable League Settings
+
+Complete the league configuration system so supported draft formats can be created, persisted, validated, and consumed by the Draft State Engine.
+
+Deliverables include:
+
+- configurable team count
+- configurable roster construction
+- configurable draft position
+- supported scoring/draft settings
+- persistence integration
+- validation
+
+Replay, scenarios, and recommendation tooling should consume these settings rather than introduce separate configuration.
+
+### Milestone 2 - Reproducible Scenario Contract
 
 Define the project-level information a portable scenario must carry to reconstruct supported draft state and recommendation inputs without exposing database records or transient React state.
 
 The contract should support validation, deterministic replay, import/export round trips, and future evolution while leaving general live-provider concerns to Phase 7.
 
-### Milestone 2 - Replay System
+### Milestone 3 - Replay System
 
 Provide a deterministic path for applying scenario picks through the existing Draft State Engine and recreating valid intermediate or completed states.
 
 Manual entry and replay should share draft rules and transitions so the same inputs produce equivalent domain state.
 
-### Milestone 3 - Scenario Portability and Library
+### Milestone 4 - Scenario Portability and Library
 
 Allow supported scenarios to be imported, exported, and selected from a small curated library.
 
 The library should emphasize representative draft-state and recommendation situations rather than attempt exhaustive coverage or become a ranking-management system.
 
-### Milestone 4 - Recommendation Debugger
+### Milestone 5 - Recommendation Debugger
 
 Make existing Recommendation Engine output inspectable at the component level for a selected scenario state.
 
 Debug information should trace recommendation totals and reasons back to structured engine output without recalculating scoring rules in the UI.
 
-### Milestone 5 - Fast Simulator Iteration
+### Milestone 6 - Fast Simulator Iteration
 
 Complete the reset, restart, and focused simulator improvements needed to move repeatedly from a known scenario to an inspectable recommendation state in seconds.
 
@@ -231,6 +246,7 @@ Phase 4 is successful when a developer can:
 9. Confirm draft invariants after replay, import, reset, and subsequent manual picks.
 10. Continue using existing manual and persisted draft workflows without regression.
 11. Validate replay equivalence, deterministic recommendations, import/export behavior, reset behavior, and representative scenarios with automated tests and focused manual QA.
+12. A developer can create and persist any supported league configuration without modifying code, and replay/scenario tooling respects those settings.
 
 The product should feel like a compact development workbench for the decision engine, not an expanded consumer draft room.
 

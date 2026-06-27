@@ -12,7 +12,9 @@ Phase 4 builds on the completed foundations:
 - Phase 2 established persisted draft configuration, picks, and ranking snapshots.
 - Phase 3 established deterministic recommendation scoring and score-backed reasons.
 
-The Phase 4 design must preserve those systems. Developer tools should supply, rebuild, inspect, and explain state through existing domain boundaries rather than create alternate draft or recommendation rules.
+The domain and persistence layers already carry dynamic league settings, but the current draft-creation workflow still supplies fixed MVP defaults. Phase 4 must complete that configuration path first so replay, scenarios, and debugging are built against settings developers can actually create and persist without code changes.
+
+The Phase 4 design must preserve the existing systems. League setup should produce the existing typed `LeagueSettings`; developer tools should then supply, rebuild, inspect, and explain state through existing domain boundaries rather than create alternate configuration, draft, or recommendation rules.
 
 The desired outcome is fast reproducibility and stronger regression confidence: a valid scenario can be loaded or imported, replayed to a defined point within seconds, inspected, reset, and replayed again with deterministic results.
 
@@ -20,9 +22,21 @@ The desired outcome is fast reproducibility and stronger regression confidence: 
 
 ## 2. Architecture Overview
 
-Phase 4 adds local scenario, replay, and debugging orchestration around the existing engines.
+Phase 4 first completes configurable draft creation, then adds local scenario, replay, and debugging orchestration around the existing engines.
 
 ```text
+Draft Setup Form
+      |
+League Setup Validator / Builder
+      |
+      +--> Typed LeagueSettings + User Team Identity
+                    |
+                    v
+          Persistence Repository
+                    |
+                    v
+            Typed Draft Hydration
+
 Curated Scenario ---------+
                          |
 Imported Scenario --------+--> Scenario Parser / Validator
@@ -47,6 +61,8 @@ Persistence Repository --> Typed Draft Hydration
 
 Typed manual or hydrated draft inputs --> Scenario Exporter --> Portable Scenario
 ```
+
+Configured creation and scenario replay converge on the same domain settings and Draft State Engine. The setup form does not become a second settings model, and scenarios store the resulting typed league settings rather than form-specific roster counts.
 
 Curated scenarios and imported scenarios are local Draft Sources in the Phase 4 sense: they provide reproducible inputs to the Draft State Engine. Phase 4 does not introduce the generalized provider interface, event normalization, remote ID mapping, or synchronization model reserved for Phase 7.
 
@@ -99,7 +115,103 @@ No database transaction or new persistence system is required. The boundary prot
 
 ---
 
-## 3. Scenario Contract
+## 3. Configurable League Settings Foundation
+
+Configurable league settings are the first Phase 4 milestone because every scenario, replay, persisted draft, and recommendation call depends on them. The MVP should expose the flexibility already present in the domain and repository without broadening into a general fantasy-league rules engine.
+
+### Existing Foundation and Missing Boundary
+
+The existing application already has:
+
+- A typed `LeagueSettings` model with team count, rounds, draft type, scoring format, and roster slots.
+- Draft-order and hydration behavior derived from persisted settings.
+- JSON snapshot serialization and parsing for league settings.
+- Repository creation and loading that preserve settings, user-team identity, ranking snapshots, and picks.
+- Recommendation logic that consumes dynamic league and roster settings.
+
+The missing boundary is creation. The current server action always uses `defaultLeagueSettings` and a fixed user team. Phase 4 should replace that code-only choice with a validated setup input while retaining the current defaults as the fast path.
+
+### Supported MVP Configuration
+
+The setup workflow should support:
+
+- Team count from 2 through 20.
+- User draft position from 1 through the selected team count.
+- Non-negative roster counts for QB, RB, WR, TE, FLEX, DST, K, and BENCH.
+- At least one non-BENCH starting slot.
+- Between 1 and 30 total roster slots.
+- `SNAKE` as the only supported draft type.
+- `PPR` as the only supported scoring format.
+
+The current 12-team, 16-round, Team 2 configuration remains the default form state. Supporting a setting means a developer can select it through the setup workflow, create the draft, reload it from persistence, and use it throughout the existing draft and recommendation flows.
+
+Phase 4 does not add auction, linear, keeper, dynasty, half-PPR, standard-scoring, superflex-specific, or arbitrary custom-slot eligibility modes. Draft type and scoring format should be visible in setup as the active supported values, not presented as choices that the domain cannot honor.
+
+### Roster Construction Mapping
+
+The setup form uses counts because they are faster and safer for the developer than an arbitrary roster-slot editor. A pure setup builder converts those counts into the existing ordered `RosterSlot[]` representation:
+
+- QB, RB, WR, TE, DST, and K slots use their matching eligible position.
+- FLEX slots use RB, WR, and TE eligibility.
+- BENCH slots use all currently supported positions.
+- Slot IDs are generated deterministically by category and one-based index.
+- Slot order is fixed by category so identical setup input creates identical settings.
+- `rounds` is derived from the total generated roster-slot count and is not independently editable.
+
+The generated `LeagueSettings` is the only domain configuration consumed after creation. Form counts are transport and presentation data; they are not persisted as a second source of truth.
+
+### Validation and Capacity
+
+One pure validation/building boundary should be reusable by the client for immediate feedback and by the server action as the authoritative check.
+
+Validation should ensure:
+
+- Team count, draft position, and every roster count are finite integers within the supported bounds.
+- Draft position belongs to the generated team set.
+- At least one starting slot and at least one total roster slot exist.
+- Total roster slots do not exceed 30.
+- Total draft capacity does not exceed the active ranking snapshot's player count.
+- Draft type and scoring format exactly match supported domain values.
+- Generated slot IDs are unique and generated settings satisfy existing league-settings parsing and Draft State Engine assumptions.
+
+Validation failure should return field-level or form-level errors and must not create a database record. Client-side feedback may improve speed, but only server-side validation authorizes creation.
+
+### Creation and Persistence Flow
+
+1. The developer opens `Start New Draft` and receives the current MVP defaults.
+2. The form submits a small league-setup input, not a complete `Draft` or persistence record.
+3. The shared builder validates the input, creates typed `LeagueSettings`, derives rounds, creates the ordered teams, and derives `userTeamId` from draft position.
+4. The server checks total capacity against the seed ranking snapshot.
+5. The existing repository creates the draft using typed settings, rankings, and user-team identity.
+6. The repository's existing JSON snapshot mapping persists and hydrates those values.
+7. The app routes to the created draft and all downstream engines consume the hydrated typed workspace.
+
+The automatic first-run/default draft path should use the same builder with default input so it does not bypass the supported configuration rules.
+
+No Prisma schema change is required. League settings are already stored as JSON and user-team identity is already stored with the draft. A league configuration is immutable after draft creation; changing settings creates a new draft rather than migrating picks or mutating an in-progress draft.
+
+### Ownership and Future-Phase Boundaries
+
+- The setup builder owns conversion from form counts to valid `LeagueSettings`; it does not own draft progression.
+- The Draft State Engine continues to own teams, order, picks, rosters, availability, and invariants after initialization.
+- Persistence stores and hydrates typed settings but does not interpret UI form counts.
+- The Recommendation Engine consumes settings exactly as it does now and gains no configuration UI logic.
+- Scenario contracts embed the resulting `LeagueSettings`, team order, and user-team identity, not the setup form DTO.
+- Phase 5 ranking management is not introduced; configured creation continues to use the current seed ranking snapshot.
+- Phase 7 provider interfaces are unaffected; live providers will later normalize into the same domain settings and draft state.
+
+### Configuration Tradeoff Assessment
+
+- **Complexity cost:** A count-based input, pure validator/builder, and compact form add one narrow creation boundary without introducing a general rules engine.
+- **Maintenance cost:** Supported slot categories and limits are explicit constants that must stay aligned with domain positions, but the persisted `LeagueSettings` shape remains unchanged.
+- **Scaling implications:** Validation is synchronous and draft-sized. It adds no concurrency, storage-scale, or event-processing concerns.
+- **Developer experience:** Defaults keep creation fast while non-default settings no longer require source edits.
+- **Deployment implications:** Existing JSON persistence avoids a migration or new infrastructure.
+- **Iteration speed:** Completing setup first gives every later Phase 4 scenario and replay task a real configurable input path to exercise.
+
+---
+
+## 4. Scenario Contract
 
 A scenario is a portable, versioned recipe for rebuilding draft state. It contains source inputs and an ordered pick history; it does not contain an authoritative final draft state.
 
@@ -156,6 +268,7 @@ The implementation should reuse existing domain input types when their meaning m
 - Draft configuration identifies the teams and their order and provides any existing input needed to create the draft.
 - Round count and total pick capacity should be derived through existing domain rules where they are currently derived, not duplicated in the scenario format as competing truth.
 - The contract must support valid non-default configurations already accepted by the project. It must not assume 12 teams, 16 rounds, or a specific user draft position.
+- The contract carries the generated `LeagueSettings` and team order, not the league-setup form's roster-count DTO.
 
 #### Ranking Context
 
@@ -200,7 +313,7 @@ These values are reconstructed or derived by the existing engines. Excluding the
 
 ---
 
-## 4. Scenario Validation
+## 5. Scenario Validation
 
 Validation occurs before an imported or curated scenario can replace the current simulator state. It has three layers.
 
@@ -265,7 +378,7 @@ On any parsing, validation, or replay failure:
 
 ---
 
-## 5. Replay System
+## 6. Replay System
 
 The Replay Coordinator is a small orchestration layer. Its responsibility is to create a valid starting draft, apply ordered inputs, retain the requested target state, and return either a complete result or an error.
 
@@ -304,7 +417,7 @@ Phase 4 uses immediate replay to the scenario's declared target. The MVP does no
 
 ---
 
-## 6. Import, Export, and Scenario Library
+## 7. Import, Export, and Scenario Library
 
 ### Import
 
@@ -361,7 +474,7 @@ The library is not intended to provide exhaustive combinatorial coverage, user-c
 
 ---
 
-## 7. Recommendation Debugger
+## 8. Recommendation Debugger
 
 The Recommendation Debugger makes existing structured Recommendation Engine output inspectable. It is a developer-facing view associated with the currently reconstructed or manually progressed draft state.
 
@@ -390,7 +503,7 @@ The debugger remains read-only. Changing modifier values, live-tuning weights, c
 
 ---
 
-## 8. Reset, Restart, and Simulator Iteration
+## 9. Reset, Restart, and Simulator Iteration
 
 Reset and restart are intentionally distinct operations.
 
@@ -448,7 +561,7 @@ Existing React state and Context remain the default UI state-management approach
 
 ---
 
-## 9. Testing and Regression Strategy
+## 10. Testing and Regression Strategy
 
 Phase 4 testing should emphasize exact deterministic behavior and domain equivalence rather than UI implementation details.
 
@@ -456,6 +569,11 @@ Phase 4 testing should emphasize exact deterministic behavior and domain equival
 
 Unit tests should cover:
 
+- League-setup bounds, supported values, and field-level errors.
+- Deterministic conversion from roster counts to unique ordered roster slots.
+- Round derivation from total roster slots.
+- Draft-position to user-team identity derivation.
+- Total draft capacity against the active ranking snapshot.
 - Scenario structural validation and required fields.
 - Supported and unsupported schema versions.
 - Dynamic league and draft configuration validation.
@@ -472,6 +590,10 @@ Unit tests should cover:
 
 Integration tests should prove:
 
+- A valid non-default setup creates, persists, hydrates, and resumes with identical settings and user-team identity.
+- An invalid setup creates no database record.
+- Default automatic creation and explicit configured creation use the same settings builder.
+- The Recommendation Engine consumes the hydrated non-default settings without a separate mapping path.
 - A valid imported scenario creates a base draft and applies picks through the Draft State Engine.
 - Equivalent manual and replay inputs produce equivalent domain state.
 - Scenario import commits state only after full validation succeeds.
@@ -497,6 +619,8 @@ Curated scenario tests should assert exact expected behavior for representative 
 
 Regression tests should protect:
 
+- Existing default draft creation and persisted draft history.
+- Non-default settings after refresh, pick, undo, and reset.
 - Manual draft behavior after replay infrastructure is introduced.
 - Persisted draft hydration and continuation.
 - Recommendation determinism for unchanged inputs.
@@ -510,6 +634,9 @@ Every significant replay, import, reset, or debugger bug should receive a focuse
 
 Focused manual QA should confirm that a developer can:
 
+- Create and resume a non-default persisted league without editing code.
+- See clear validation feedback for an invalid team count, draft position, or roster construction.
+- Confirm configured rounds, team count, draft position, and roster-driven recommendations survive refresh.
 - Load each curated scenario and reach its target state within seconds.
 - Import an exported scenario and reproduce the same visible state and recommendations.
 - Understand a recommendation total from debugger output.
@@ -519,7 +646,7 @@ Focused manual QA should confirm that a developer can:
 
 ---
 
-## 10. Boundaries and Non-Goals
+## 11. Boundaries and Non-Goals
 
 Phase 4 preserves the following boundaries:
 
@@ -528,6 +655,8 @@ Phase 4 preserves the following boundaries:
 - Scenarios contain inputs used to rebuild state, not saved final state.
 - Replay is deterministic and local.
 - Persistence stays behind its repository and hydration boundaries.
+- League setup produces the existing typed `LeagueSettings`; it does not create a parallel domain model.
+- Persisted league settings are immutable after draft creation; a different configuration creates a new draft.
 - Dynamic league settings remain domain inputs; default 12-team assumptions are not embedded in replay logic.
 - Existing manual and persisted draft workflows remain supported.
 - The workbench remains inside the monolith-first Next.js application.
@@ -540,6 +669,9 @@ Phase 4 explicitly defers:
 - ESPN, Yahoo, Sleeper, or other platform integration.
 - Runtime ranking management and multiple managed ranking sets.
 - Arbitrary ranking-source parsing, tier editing, and ranking-library workflows.
+- Arbitrary roster-slot eligibility editors or custom position systems.
+- Auction, keeper, dynasty, non-snake, or non-PPR league support.
+- Editing league settings after picks or migrating an existing draft to new settings.
 - AI-generated recommendations or explanations.
 - Opponent modeling, draft simulations, strategy profiles, and Insight Engine behavior.
 - Persisted recommendation output.
@@ -551,9 +683,39 @@ The Phase 4 scenario contract should not be promoted into the future live-provid
 
 ---
 
-## 11. Open Questions and Design Decisions
+## 12. Open Questions and Design Decisions
 
 ### Design Decisions
+
+#### Configurable League Setup Is the Phase 4 Prerequisite
+
+The setup workflow is completed before scenario contract, replay, or debugger work. Later Phase 4 features consume the same created and persisted settings rather than invent fixtures as their primary configuration path.
+
+Tradeoff: scenario work starts later, but every later feature can be validated against real non-default drafts and avoids retrofitting configuration assumptions.
+
+#### Roster Counts Build the Existing Slot Model
+
+The MVP form configures counts for QB, RB, WR, TE, FLEX, DST, K, and BENCH. A pure builder generates deterministic `RosterSlot[]` values, and rounds are derived from the resulting slot count.
+
+Tradeoff: arbitrary eligibility editing is unavailable, but the common redraft configurations needed by this project remain fast to create and the domain keeps one roster representation.
+
+#### Supported Draft and Scoring Values Stay Narrow
+
+Configured Phase 4 drafts use `SNAKE` and `PPR`, the only values currently represented by the domain. The setup UI makes these active assumptions visible without offering unsupported options.
+
+Tradeoff: the UI is less broad than a commercial league editor, but no false capability or untested recommendation behavior is introduced.
+
+#### Settings Are Immutable After Draft Creation
+
+Creating a different league configuration creates a new persisted draft. Phase 4 does not mutate settings beneath existing picks or migrate draft history.
+
+Tradeoff: correcting a setup requires starting another draft, but draft invariants and persisted history remain simple and trustworthy.
+
+#### Existing JSON Persistence Remains the Storage Boundary
+
+Configured creation uses the existing repository input, league-settings snapshot, user-team field, and hydration mapping. No Prisma schema change or form-specific persistence shape is added.
+
+Tradeoff: settings are not independently queryable as normalized columns, but Phase 4 needs whole-draft create/load behavior rather than settings analytics.
 
 #### Scenario v1 Is Self-Contained JSON
 
@@ -637,6 +799,8 @@ Tradeoff: scenario changes disappear unless exported, but persistence stays simp
 
 | Finalized decision | Draft State Engine | Recommendation Engine | Persistence | Phase 5 rankings | Phase 7 integrations |
 | --- | --- | --- | --- | --- | --- |
+| Configurable league setup | Receives validated existing settings and retains all draft-rule ownership. | Consumes hydrated settings through its existing input. | Uses the existing JSON snapshot and user-team field. | Continues using the seed ranking snapshot without ranking management. | Adds no provider model or normalization. |
+| Count-based roster builder | Generates existing roster slots before draft initialization. | Reads the same eligible-position slots it already supports. | Persists only generated `LeagueSettings`. | Has no ranking-source behavior. | Does not define live-provider configuration contracts. |
 | Cap adjustment diagnostics | No draft behavior changes. | Engine calculates and exposes adjustments. | Output remains derived and unpersisted. | Ranking snapshot remains an input. | Output remains source-agnostic. |
 | Typed export mapper and provenance | Exports input history, not derived final state. | Recommendations are excluded. | Reads typed workspace data without repository access or writes. | Embedded snapshots are read-only scenario context. | Provenance is not a provider ID contract. |
 | Immediate replay-to-target | Every pick uses the canonical transition. | Recommendations are recomputed after replay. | Candidate replay is local and atomic. | No ranking editing or source parsing is added. | No event timing or provider abstraction is introduced. |
