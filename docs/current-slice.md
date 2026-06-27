@@ -1,165 +1,158 @@
-# Current Slice: Restore Clean TypeScript Validation
+# Current Slice: Complete Recommendation Workflow Presentation Validation
 
 ## Source Context
 
 Task 10: Wire Recommendation Engine Into Draft Workflow.
 
-The first Task 10 wiring slice is implemented and passes its targeted tests, the full Vitest suite, and lint. Its required `npx tsc --noEmit` validation is blocked by four pre-existing test-only typing issues outside the wiring files.
+The production wiring is already implemented:
 
-This slice removes that validation blocker before Task 10 presentation/load validation continues.
+- `src/app/page.tsx` passes the hydrated draft, ranking snapshot, and league settings into `DraftRoom`.
+- `DraftRoom` calls `generatePlayerRecommendations` with the active draft, rankings, league settings, and persisted user team identity.
+- `RecommendationsPanel` displays engine ordering, total scores, and score-backed reason text.
+- Existing workflow tests prove recommendations update after picks and return to the prior output after undo.
+- Existing repository tests prove persisted hydration produces the same recommendations as equivalent in-memory state.
+- The full test suite, lint, and TypeScript no-emit validation currently pass.
+
+The remaining Task 10 gap is a focused presentation-boundary test proving that a loaded workspace reaches the rendered draft room with engine ordering, scores, and reasons intact.
 
 ## Goal
 
-Restore a clean TypeScript validation baseline by fixing only the reported test-type mismatches, without changing production behavior, weakening assertions, or broadening into runtime refactors.
-
-## Current TypeScript Failures
-
-`npx tsc --noEmit` currently reports:
-
-1. `src/lib/draftRepository.test.ts`
-   - The fake workspace mapper reads `draft.rankingSnapshot.id`, but `FakeDraftRecord` declares only `rankingSnapshot.rankings` even though fake records already store an id.
-2. `src/lib/leagueSettingsSnapshot.test.ts`
-   - The test accesses `snapshot.rosterSlots` directly even though the serializer intentionally returns a recursive JSON-value union.
-3. `src/lib/rankingSnapshot.test.ts`
-   - The test accesses `snapshot[0].player` directly even though each serialized array element is intentionally typed as a recursive JSON-value union.
-4. `src/lib/recommendations.scenario.test.ts`
-   - Component lookup helpers use a Vitest assertion for existence, but TypeScript cannot use that matcher to narrow the returned value before direct `.delta` access.
-
-These failures are in test support code. The newly wired page, Draft Room, Recommendations panel, and workflow test report no TypeScript errors.
+Complete Task 10 with an integration-style render test that loads a typed persisted-workspace fixture through the existing workspace loader, renders the existing Draft Room, and verifies its visible recommendations against direct output from the pure Recommendation Engine.
 
 ## Scope
 
 ### Goals
 
-- Align the fake repository record type with the fake record shape it already creates.
-- Add explicit runtime narrowing in snapshot tests before accessing serialized JSON properties.
-- Make scenario component helpers return a definitely present score component.
-- Preserve the meaning and strength of every existing assertion.
-- Run focused tests for all affected files.
-- Restore a clean full test, lint, and TypeScript validation baseline.
+- Exercise `loadDraftWorkspace` with a typed, non-default workspace fixture.
+- Render `DraftRoom` from the loaded workspace's draft, rankings, and league settings.
+- Compute expected recommendations directly with `generatePlayerRecommendations` using the same loaded domain inputs.
+- Verify the rendered recommendation order matches engine order.
+- Verify displayed scores use each recommendation's `totalScore` rounded to one decimal place.
+- Verify displayed reasons use the exact engine-provided `reason.text` values.
+- Confirm the loaded fixture's persisted picks affect availability before rendering.
+- Re-run the existing manual pick, undo, and persistence-parity tests as regression evidence.
+- Check off Task 10 only after all focused and full validation passes.
 
 ### Non-Goals
 
-- Changing production serializers, repository code, recommendation code, types, or runtime behavior.
-- Broadening JSON serializer return types.
-- Replacing meaningful reference-identity assertions with weaker existence assertions.
-- Using `any`, `@ts-ignore`, `@ts-expect-error`, or unchecked double casts to silence errors.
-- Refactoring fake database infrastructure.
-- Adding new product behavior or UI validation.
-- Checking off Task 10.
-- Updating `docs/tasks.md` or other planning documents.
+- Changing production recommendation, draft, loader, repository, or UI code unless the new test exposes a direct Task 10 defect.
+- Adding React Testing Library, a DOM emulator, or any package dependency.
+- Simulating clicks or duplicating the existing workflow transition tests.
+- Redesigning recommendation presentation.
+- Adding browser automation or completing the Phase 3 manual QA required by Task 11.
+- Changing scoring behavior, tuning, reason selection, persistence shape, or draft invariants.
+- Beginning Task 11.
 
 ## Expected Files
 
 - `docs/current-slice.md`
-- `src/lib/draftRepository.test.ts`
-- `src/lib/leagueSettingsSnapshot.test.ts`
-- `src/lib/rankingSnapshot.test.ts`
-- `src/lib/recommendations.scenario.test.ts`
+- `src/components/DraftRoom.test.tsx`
+- `docs/tasks.md`
 
-Do not modify production files.
+Production files should remain unchanged unless the focused test reveals a direct wiring defect.
 
 ## Implementation Details
 
-### Fake Repository Record
+### Loaded Workspace Fixture
 
-In `src/lib/draftRepository.test.ts`:
+In `src/components/DraftRoom.test.tsx`:
 
-- Add `id: string` to the nested `rankingSnapshot` property of `FakeDraftRecord`.
-- Do not change fake record creation or mapping behavior; both already create and consume the id.
-- Do not loosen `rankingSnapshot` to `unknown` or an index signature.
+- Create a small typed `DraftWorkspace` fixture with:
+  - non-default team and round counts;
+  - non-default roster slots;
+  - a ranking set large enough to produce multiple recommendations and score-backed reasons;
+  - at least one persisted pick so drafted-player exclusion is observable;
+  - a user team identity carried by the draft.
+- Use the existing draft-order and draft-state helpers where practical instead of hand-encoding inconsistent pick metadata.
+- Provide the fixture through an injected fake repository to `loadDraftWorkspace`.
+- Keep the fake repository local and minimal; do not create shared test infrastructure.
 
-### League Settings Snapshot Narrowing
+### Draft Room Render Boundary
 
-In the `serializes to fresh objects instead of reusing input references` test:
+- Mock `next/navigation` so `useRouter` returns the minimal router surface needed during render.
+- Mock `@/app/actions/draftActions` so importing `DraftRoom` does not cross into persistence or server-action runtime behavior.
+- Use React's existing `renderToStaticMarkup` API; do not add a DOM test dependency.
+- Render `DraftRoom` with `result.workspace.draft`, `result.workspace.rankings`, and `result.workspace.leagueSettings` from `loadDraftWorkspace`.
 
-- Keep assertions that:
-  - the serialized snapshot deeply equals the source settings;
-  - the root snapshot is a fresh object;
-  - the first roster slot is a fresh object;
-  - its `eligiblePositions` array is fresh.
-- Narrow the serialized JSON shape before nested access:
-  1. Confirm the snapshot is a non-null, non-array object.
-  2. Read `rosterSlots` through the narrowed record.
-  3. Confirm `rosterSlots` is an array and the first entry is a non-null, non-array object.
-  4. Confirm the first entry's `eligiblePositions` is an array.
-  5. Perform the existing reference-identity assertions on those narrowed values.
-- Throw explicit test errors if an expected serialized shape is absent. Do not rely on casts alone.
+### Engine-to-Presentation Assertions
 
-### Ranking Snapshot Narrowing
+- Generate expected output by calling `generatePlayerRecommendations` with the loaded workspace fields and `workspace.draft.userTeamId`.
+- Assert the persisted drafted player is absent from both expected recommendations and rendered recommendation rows.
+- Assert expected player names appear in engine order by comparing their positions in the rendered markup.
+- For each rendered recommendation under test, assert the markup contains:
+  - `Score ${recommendation.totalScore.toFixed(1)}`;
+  - every `recommendation.reasons[].text` value.
+- Assert at least one expected recommendation contains a reason so reason validation cannot pass vacuously.
+- Prefer player names and reason strings that do not rely on HTML escaping; if escaping is unavoidable, compare against the rendered representation explicitly.
+- Do not assert CSS class strings or unrelated Draft Room markup.
 
-In the equivalent fresh-object test:
+### Existing Regression Evidence
 
-- Keep assertions that:
-  - the serialized snapshot deeply equals the source rankings;
-  - the first serialized ranking is a fresh object;
-  - its nested player is a fresh object.
-- Narrow the first serialized JSON entry before nested access:
-  1. Read the first entry.
-  2. Confirm it is a non-null, non-array object.
-  3. Read its `player` property through the narrowed record.
-  4. Confirm `player` is a non-null, non-array object.
-  5. Perform the existing reference-identity assertions.
-- Throw explicit test errors for unexpected shape. Do not weaken the serializer test.
+Do not duplicate existing pick and undo scenarios. Re-run:
 
-### Scenario Component Helpers
+- `src/lib/draftWorkflow.test.ts` for manual pick updates and exact recommendation restoration after undo.
+- `src/lib/draftRepository.test.ts` for recommendation parity across persistence hydration.
+- `src/lib/draftWorkspaceLoader.test.ts` for selected/latest workspace loading behavior.
 
-In `src/lib/recommendations.scenario.test.ts`:
+If any of these fail for reasons unrelated to this slice, stop and report the blocker rather than broadening scope.
 
-- Update both `getRosterFitComponent` and `getScoreComponent`.
-- After `.find`, use an explicit `if (!component) { throw new Error(...) }` guard.
-- Return `component` after the guard so TypeScript infers `RecommendationScoreComponent` rather than `RecommendationScoreComponent | undefined`.
-- Preserve the current descriptive error messages.
-- Remove the redundant `expect(...).toBeDefined()` matcher if the explicit guard replaces it.
-- Do not change scenario data or assertions.
+### Task Status
+
+After all acceptance criteria pass:
+
+- Change only the Task 10 completion checkbox in `docs/tasks.md` from unchecked to checked.
+- Do not alter Task 10 wording, Task 11 status, testing-status prose, or backlog content.
 
 ## Implementation Steps
 
-1. Review the exact reported failures.
-   - Read `docs/current-slice.md`.
-   - Read only the affected ranges in the four test files.
-   - Read serializer return types only as needed to implement correct narrowing.
+1. Add the focused Draft Room integration test.
+   - Build the typed non-default persisted-workspace fixture.
+   - Inject it through `loadDraftWorkspace`.
+   - Mock navigation and draft actions at module boundaries.
+   - Render the loaded workspace with `renderToStaticMarkup`.
 
-2. Align the fake repository type.
-   - Add the existing snapshot id field to `FakeDraftRecord`.
+2. Compare presentation with pure engine output.
+   - Generate expected recommendations from the loaded domain fields.
+   - Assert drafted-player exclusion, recommendation ordering, formatted scores, and exact reason text.
+   - Keep assertions independent from CSS and unrelated panels.
 
-3. Narrow serialized JSON values in tests.
-   - Add explicit object/array guards in the league-settings and ranking snapshot fresh-reference tests.
-   - Preserve all original deep-equality and reference-identity assertions.
-
-4. Make scenario component lookups definite.
-   - Replace matcher-only existence checks with explicit throwing guards.
-
-5. Run focused validation.
-   - Run `npm test -- src/lib/draftRepository.test.ts src/lib/leagueSettingsSnapshot.test.ts src/lib/rankingSnapshot.test.ts src/lib/recommendations.scenario.test.ts`.
+3. Run focused validation.
+   - Run `npm test -- src/components/DraftRoom.test.tsx src/lib/draftWorkflow.test.ts src/lib/draftRepository.test.ts src/lib/draftWorkspaceLoader.test.ts`.
    - Run `npx tsc --noEmit`.
-   - If TypeScript reports a new error caused by these edits, fix only that error.
+   - Fix only direct defects introduced or exposed by this slice.
 
-6. Run full validation.
+4. Run full validation.
    - Run `npm test`.
    - Run `npm run lint`.
    - Run `npx tsc --noEmit` again after final edits.
-   - Stop if any unrelated new blocker appears; do not broaden scope.
 
-7. Stop after restoring the validation baseline.
-   - Do not begin Task 10 presentation/load validation.
-   - Do not check off Task 10.
+5. Complete Task 10.
+   - Check only the Task 10 completion checkbox in `docs/tasks.md` after all validation succeeds.
+   - Stop without beginning Task 11.
 
 ## Acceptance Criteria
 
-- `npx tsc --noEmit` exits successfully.
-- All four affected test files pass.
+- A loaded typed workspace renders recommendations through `DraftRoom` without persistence-shaped inputs entering the engine.
+- The rendered player order matches `generatePlayerRecommendations` output for the loaded workspace.
+- A player already drafted in the persisted fixture is absent from recommendations.
+- Rendered scores match engine `totalScore` values formatted to one decimal place.
+- Rendered reason text exactly matches score-backed engine reasons.
+- The integration fixture proves non-default league and roster settings reach the Recommendation Engine.
+- Existing manual pick and undo recommendation tests pass unchanged.
+- Existing persisted recommendation parity and workspace-loader tests pass unchanged.
 - The full Vitest suite passes.
 - Lint passes.
-- Snapshot tests still prove deep equality and fresh nested references.
-- Scenario tests retain all existing behavior assertions.
-- Fake repository runtime behavior is unchanged.
-- No `any`, suppression comments, unchecked double casts, or weakened assertions are introduced.
-- No production files are changed.
+- `npx tsc --noEmit` passes.
+- No package dependency is added.
+- Task 10 is checked complete only after successful validation.
+- Task 11 remains unchecked and is not started.
 
 ## Suggested Tests
 
-- Focused Vitest run for the four affected test files.
+- Focused Draft Room render integration test.
+- Existing draft workflow tests.
+- Existing repository persistence-parity tests.
+- Existing workspace-loader tests.
 - Full Vitest regression suite.
 - ESLint.
 - TypeScript no-emit validation.
@@ -169,7 +162,7 @@ In `src/lib/recommendations.scenario.test.ts`:
 Expected commands:
 
 ```txt
-npm test -- src/lib/draftRepository.test.ts src/lib/leagueSettingsSnapshot.test.ts src/lib/rankingSnapshot.test.ts src/lib/recommendations.scenario.test.ts
+npm test -- src/components/DraftRoom.test.tsx src/lib/draftWorkflow.test.ts src/lib/draftRepository.test.ts src/lib/draftWorkspaceLoader.test.ts
 npx tsc --noEmit
 npm test
 npm run lint
@@ -178,15 +171,15 @@ npx tsc --noEmit
 
 ## Follow-Up Slice
 
-After this validation baseline is clean:
+Plan Task 11: Phase 3 Completion Validation, including the short manual draft-room QA required before Phase 3 is marked complete.
 
-- Complete Task 10 presentation/load validation for rendered score-backed reasons and hydrated-workspace wiring, then check Task 10 complete if all acceptance criteria pass.
+Do not begin Task 11 automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It removes the exact blocker preventing clean validation of the completed wiring slice.
-- Concrete enough for implementation: yes. Each error, narrowing rule, preserved assertion, and validation command is explicit.
-- Avoids unnecessary architecture changes: yes. It is test-only type hygiene with no runtime changes.
-- Blast radius reasonable: yes. Four focused test files are affected.
-- Review/revert comfort: yes. Changes are local declarations and guards.
-- Observable/testable acceptance criteria: yes. Focused tests, full tests, lint, and TypeScript validation provide direct evidence.
+- Smallest meaningful increment: yes. It adds the one missing presentation-boundary proof and then closes the already implemented Task 10.
+- Concrete enough for implementation: yes. The fixture, mocks, render mechanism, expected-output source, assertions, and validation commands are explicit.
+- Avoids unnecessary architecture changes: yes. It adds test coverage around existing boundaries with no planned production change.
+- Blast radius reasonable: yes. One new test file and one task checkbox are expected beyond this slice document.
+- Review/revert comfort: yes. The implementation is isolated test coverage plus a completion-status change.
+- Observable/testable acceptance criteria: yes. Ordering, exclusion, scores, reasons, dynamic settings, regressions, lint, and TypeScript validation all have direct checks.
