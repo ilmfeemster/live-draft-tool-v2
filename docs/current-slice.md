@@ -1,263 +1,273 @@
-# Current Slice: Add Explanation Selection
+# Current Slice: Add Core Roster Construction Scenario Validation
 
 ## Source Task
 
-Task 8: Add Explanation Selection.
+Task 9: Add Recommendation Scenario Validation.
+
+This is the first Task 9 slice. It covers the core roster-construction scenarios only: heavy RB, heavy WR, and QB timing.
 
 ## Goal
 
-Generate concise, deterministic recommendation reasons directly from the score components already produced by the pure Recommendation Engine.
+Add deterministic scenario tests that validate how the completed Recommendation Engine balances base value against roster construction across representative early- and middle-draft states.
 
-This slice should make each returned recommendation explain its strongest score-backed signals without changing scoring behavior or introducing a separate reasoning system.
+This slice should lock down observable behavior without changing production scoring or tuning.
 
-## User-Visible Increment
+## Confidence Increment
 
-- Each player recommendation can include up to three concise reasons.
-- Reasons explain actual scoring signals such as roster fit, tier pressure, scarcity, observed runs, value opportunity, or a meaningful penalty.
-- Reason output is stable for identical recommendation inputs.
+- A heavy RB start demonstrably raises needed WRs above ordinary additional RB depth while preserving elite RB value.
+- A heavy WR start produces the symmetric RB behavior while preserving elite WR value.
+- QB recommendations remain value-sensitive early, rise when comparable in the middle rounds with an open starter slot, and fall after the QB slot is filled.
+- Key recommendation reasons match the score-backed behavior in each scenario.
 
 ## Current Context
 
-Previous Phase 3 slices established:
+Phase 3 now has a pure `generatePlayerRecommendations` engine with:
 
-- A pure `generatePlayerRecommendations` entry point.
-- Deterministic base, roster-fit, value-opportunity, tier-cliff, positional-scarcity, and positional-run score components.
-- Stable component ids, directions, priorities, and evidence.
-- `RecommendationReason` with `id`, `text`, `sourceComponentId`, and `priority`.
-- Tuning values for `positiveReasonThreshold`, `negativeReasonThreshold`, and `maxReasons`.
-- `PlayerRecommendation.reasons` currently remains empty.
-- `generateTopRecommendations` remains the legacy UI compatibility path and should not be changed for this slice.
+- Rank-derived base value.
+- Dynamic roster-fit and timing behavior.
+- Value opportunity.
+- Tier, scarcity, and observed-run urgency.
+- Deterministic, score-backed reasons.
+- Stable ordering for identical typed inputs.
 
-The approved design requires explanations to come from scoring components rather than generic strategy claims, predictions, AI-generated language, or a second scoring system.
+Focused unit tests already validate individual formulas, thresholds, caps, component evidence, reason selection, and deterministic ordering. Task 9 should now validate complete draft situations using small, readable fixtures and observable relative ordering.
+
+The approved design recommends asserting top recommendation sets or important relative ordering rather than every player in a full ranking list.
 
 ## Scope
 
 ### Goals
 
-- Add a pure reason-selection helper in `src/lib/recommendations.ts`.
-- Convert eligible score components into typed `RecommendationReason` candidates.
-- Use component evidence to produce concise, factual reason text.
-- Apply positive and negative reason thresholds from recommendation tuning.
-- Return at most `tuning.maxReasons` reasons.
-- Order reasons deterministically using component priority, component impact, and stable ids.
-- Include no more than one meaningful negative caveat and keep it last.
-- Use base value as a reason for a top-five available ranking value or as a fallback when no contextual positive reason qualifies.
-- Populate `PlayerRecommendation.reasons` without changing scores or ordering.
-- Add focused reason-selection tests.
+- Add a dedicated scenario test file for Recommendation Engine behavior.
+- Add small typed fixture helpers local to that test file.
+- Validate heavy RB roster construction.
+- Validate heavy WR roster construction.
+- Validate QB timing before and after filling the starter slot.
+- Assert important player-relative ordering, not complete score snapshots.
+- Assert key score-backed reasons for roster need and saturation.
+- Assert drafted players never appear in scenario recommendations.
+- Assert identical scenario inputs return identical recommendations and reasons.
+- Keep production recommendation code unchanged.
 
 ### Non-Goals
 
-- Changing score formulas, modifier deltas, caps, or recommendation ordering.
-- Adding AI-written or conversational explanations.
-- Predicting opponent behavior or whether a positional run will continue.
-- Adding generic strategy advice or unsupported upside claims.
-- Adding long-form insights.
-- Adding UI wiring or presentation changes.
-- Changing persistence, Prisma, server actions, draft sources, or Draft State Engine behavior.
-- Changing the `RecommendationReason` or score-component types unless a compile blocker appears.
-- Introducing a generic explanation registry or templating framework.
-- Updating `docs/tasks.md`, `docs/project.md`, `docs/architecture.md`, `docs/decisions.md`, or design docs.
+- Changing scoring constants, modifier ranges, caps, reason mappings, or engine tuning.
+- Fixing a scenario by weakening its assertion or changing production behavior without a separately approved slice.
+- Adding positional-run or tier-cliff scenario coverage; those belong in the next Task 9 slice.
+- Adding starter-filled, bench-depth, late-round DEF/K, or dynamic-roster scenario coverage.
+- Adding persisted-draft parity coverage.
+- Adding UI, workflow, database, Prisma, server action, or draft-source integration tests.
+- Using the full seed ranking dataset or CSV in scenario tests.
+- Refactoring existing test helpers into production or shared infrastructure.
+- Updating documentation other than `docs/current-slice.md`.
+
+If a scenario exposes behavior that directly contradicts the approved design, stop and report the discrepancy. Do not tune production scoring inside this validation-only slice.
 
 ## Expected Files
 
 - `docs/current-slice.md`
-- `src/lib/recommendations.ts`
-- `src/lib/recommendations.test.ts`
+- `src/lib/recommendations.scenario.test.ts`
 
-Do not modify `src/types/draft.ts` unless the existing typed reason contract creates a compile blocker.
+Do not modify `src/lib/recommendations.ts`, `src/lib/recommendations.test.ts`, or application types in this slice.
 
-## Reason Eligibility
+## Fixture Rules
 
-### Positive Context
+Create only the helpers needed by this scenario file:
 
-- Exclude neutral components.
-- Exclude `base_value` from the generic positive threshold path; handle it through the base-value rule below.
-- A positive component qualifies when:
-  - `component.direction === "positive"`
-  - `component.delta >= tuning.positiveReasonThreshold`
-- Supported positive components are:
-  - `roster_fit`
-  - `tier_cliff`
-  - `positional_scarcity`
-  - `positional_run`
-  - `value_opportunity`
+- `createScenarioRanking`
+  - Produces a complete `RankingEntry` with explicit id, overall rank, position, position rank, and tier.
+- `createScenarioDraft`
+  - Uses `createDraftTeams` and `generateSnakeDraftOrder`.
+  - Accepts explicit completed user and opponent player ids.
+  - Assigns player ids only to picks before `currentPickNumber`.
+  - Uses a two-team snake draft with enough rounds to place the scenario roster in the intended draft phase.
+- `createScenarioInput`
+  - Returns typed `RecommendationInput` using `defaultLeagueSettings` unless the scenario explicitly overrides it.
+- Small assertion helpers may:
+  - return a recommendation's array index by player id;
+  - return reason ids for a player;
+  - assert no drafted player id appears in results;
+  - call the engine twice and assert full deterministic equality.
 
-### Negative Caveat
+Keep fixtures local and explicit. Do not add a generic scenario framework or move existing unit-test helpers.
 
-- A negative component qualifies when:
-  - `component.direction === "negative"`
-  - `component.delta <= tuning.negativeReasonThreshold`
-- Supported negative components are:
-  - `roster_fit`
-  - `value_opportunity`
-- Select at most one caveat.
-- Choose the most negative delta first, then higher component priority, then stable reason id.
-- Append the caveat after positive reasons.
-- Reserve a slot for the caveat only when `maxReasons >= 2`; a one-reason result should retain its strongest positive or base-value explanation.
+All players assigned to completed picks must also exist in the scenario ranking snapshot so roster derivation and observed-pick behavior use realistic typed data. Give drafted filler players low enough ranking value that their exact rank does not affect available recommendation ordering.
 
-### Base Value
+## Scenario 1: Heavy RB Start
 
-- Compute each candidate's one-based value rank from `availableRankings` sorted by the existing stable draft-order comparator.
-- Add a `base_value` reason when either:
-  - the candidate is among the top five available ranking values, or
-  - no contextual positive reason qualifies.
-- Base value does not use its numeric score delta as a reason threshold because that score is on a different scale from context modifiers.
+### Setup
 
-## Reason Text Mapping
+- Use default roster settings.
+- Give the user ten drafted RBs, filling the configured RB starter, FLEX, and useful bench capacity for RB.
+- Complete enough opponent picks to keep the draft state internally consistent and place the draft before the late-phase threshold.
+- Available candidates must include:
+  - `elite-rb` at overall rank `1`.
+  - `ordinary-rb` at overall rank `17`.
+  - `needed-wr` at overall rank `18`.
+  - At least three additional nearby WRs in the next 24 ranks so `needed-wr` is not relying on scarcity credit.
+- Keep available candidate tiers flat enough that tier pressure is not the cause of the asserted ordering.
 
-Create text only from the source component's stored evidence. Use the following deterministic mappings:
+### Assertions
 
-- `base_value`
-  - `Ranked #<overallRank> overall.`
-- Positive `roster_fit`
-  - `direct_starter_need`: `Fills an open <position> starter slot.`
-  - `flex_need`: `Helps fill an open FLEX slot.`
-  - `bench_depth`: `Adds useful <position> depth.`
-- Negative `roster_fit`
-  - `early_def_k`: `Early for <position> relative to roster timing.`
-  - `saturated`: `<position> is already saturated on the roster.`
-  - `limited_need`: `Limited current roster need at <position>.`
-- `tier_cliff`
-  - `major_tier_cliff`: `A major <position> tier drop follows.`
-  - `last_in_tier`: `Last <position> available in this tier.`
-  - `mild_tier_pressure`: `Only <sameTierRemaining> <position> options remain in this tier.`
-- `positional_scarcity`
-  - `clear_scarcity`: `No nearby <position> options remain in the next <lookaheadRanks> ranks.`
-  - `mild_scarcity`: `Only <nearbySamePositionOptions> nearby <position> options remain.`
-- `positional_run`
-  - `mild_run` or `clear_run`: `<recentPositionPickCount> <position> players were drafted in the last <recentPickWindow> picks.`
-- Positive `value_opportunity`
-  - `Value at pick <currentPickNumber>: ranked #<overallRank> overall.`
-- Negative `value_opportunity`
-  - `Reach at pick <currentPickNumber>: ranked #<overallRank> overall.`
+- `needed-wr` ranks above `ordinary-rb` despite the ordinary RB's slightly better base rank.
+- `needed-wr` includes `roster_fit:direct_starter_need`.
+- `ordinary-rb` has a negative `roster_fit` component with saturation evidence.
+- `elite-rb` remains above `needed-wr` because the large base-value gap remains visible.
+- When returned within the requested limit, `elite-rb` includes the saturation caveat `roster_fit:saturated`.
+- No drafted RB or opponent filler appears in recommendations.
+- Repeated calls with the same input return identical full output.
 
-Do not create a reason when the component id, direction, threshold label, or required evidence does not match a supported mapping. Do not invent fallback evidence.
+Use a recommendation limit large enough to include all named candidates needed for relative assertions.
 
-Use stable reason ids derived from the component and matched evidence state, such as `roster_fit:direct_starter_need` or `tier_cliff:major_tier_cliff`. Set `sourceComponentId` to the exact component id and inherit `priority` from the component, defaulting to `0` only if absent.
+## Scenario 2: Heavy WR Start
 
-## Deterministic Selection Rules
+### Setup
 
-1. Build supported positive contextual reason candidates.
-2. Sort positive contextual candidates by:
-   - component priority descending
-   - component delta descending
-   - reason id ascending
-3. Add the eligible base-value candidate to the same ordered pool using the base component priority and delta.
-4. Re-sort the positive/base pool with the same comparator.
-5. Select the single eligible negative caveat using:
-   - component delta ascending
-   - component priority descending
-   - reason id ascending
-6. If a caveat qualifies and `maxReasons >= 2`, reserve one final slot for it.
-7. Fill remaining slots from the positive/base pool.
-8. Append the caveat last.
-9. Clamp the effective reason limit to a non-negative integer with `Math.max(0, Math.floor(tuning.maxReasons))`.
+- Mirror the heavy-RB scenario using ten drafted WRs.
+- Available candidates must include:
+  - `elite-wr` at overall rank `1`.
+  - `ordinary-wr` at overall rank `17`.
+  - `needed-rb` at overall rank `18`.
+  - At least three additional nearby RBs in the next 24 ranks so `needed-rb` is not relying on scarcity credit.
+- Keep available candidate tiers flat enough that tier pressure is not the cause of the asserted ordering.
+
+### Assertions
+
+- `needed-rb` ranks above `ordinary-wr`.
+- `needed-rb` includes `roster_fit:direct_starter_need`.
+- `ordinary-wr` has a negative `roster_fit` component with saturation evidence.
+- `elite-wr` remains above `needed-rb`.
+- When returned within the requested limit, `elite-wr` includes `roster_fit:saturated`.
+- No drafted player appears in recommendations.
+- Repeated calls return identical full output.
+
+## Scenario 3: QB Timing And Filled-Slot Behavior
+
+Use three related typed draft states with default single-QB roster settings. Keep QB and RB comparison tiers and nearby positional depth flat so tier and scarcity do not determine the assertions.
+
+### Early State
+
+- The user has no QB and has drafted a small balanced RB/WR core.
+- `elite-rb` is overall rank `1`.
+- `early-qb` is overall rank `40`.
+- Include at least three nearby available QBs after `early-qb`.
+
+Assertions:
+
+- `elite-rb` remains above `early-qb`; the open QB slot does not overcome a large base-value gap.
+- If `early-qb` is returned within the requested limit, its reason may identify the open QB starter slot but must not make an opponent prediction.
+
+### Middle State
+
+- Advance to a middle-round draft state without drafting a QB.
+- Fill the user's direct RB and WR starter slots so additional RB/WR candidates receive FLEX or depth treatment.
+- Compare `middle-qb` at overall rank `30` with `middle-rb` at overall rank `29`.
+- Include at least three nearby available QBs and RBs to neutralize scarcity.
+
+Assertions:
+
+- `middle-qb` ranks above the similarly ranked `middle-rb`.
+- `middle-qb` includes `roster_fit:direct_starter_need`.
+- The reason text is exactly `Fills an open QB starter slot.`
+
+### Filled-QB State
+
+- Start from the middle state and add one drafted user QB.
+- Compare `backup-qb` at overall rank `30` with `depth-rb` at overall rank `31`.
+- Include nearby QB and RB depth to neutralize scarcity and tier pressure.
+
+Assertions:
+
+- `depth-rb` ranks above `backup-qb` after the required QB slot is filled.
+- `backup-qb` has a negative `roster_fit` component with `limited_need` timing.
+- When returned within the requested limit, `backup-qb` includes `roster_fit:limited_need` as its final caveat.
+- No drafted QB appears in recommendations.
+
+For all three states, repeated calls must produce identical ordering and reasons.
 
 ## Implementation Steps
 
-1. Review the active implementation context.
+1. Review only the active scenario context.
    - Read `docs/current-slice.md`.
-   - Read Task 8 in `docs/tasks.md`.
-   - Read the Explanation Model section of `docs/design/recommendation-engine.md`.
-   - Read the recommendation types in `src/types/draft.ts`.
-   - Read `src/lib/recommendations.ts`.
-   - Read `src/lib/recommendations.test.ts`.
+   - Read Task 9 in `docs/tasks.md`.
+   - Read the Scenario Validation section of `docs/design/recommendation-engine.md`.
+   - Read the Recommendation Engine section of `docs/testing.md`.
+   - Read the public recommendation entry point and the existing recommendation-test fixture style.
 
-2. Add pure reason-candidate construction.
-   - Add a small internal candidate shape that retains the typed reason plus source component delta.
-   - Add evidence readers that safely accept only the expected primitive evidence types.
-   - Map only the supported component/evidence combinations listed in this slice.
-   - Keep all text factual and derived from component evidence.
+2. Create `src/lib/recommendations.scenario.test.ts`.
+   - Import only public domain/test helpers already used by recommendation tests.
+   - Add the small local fixture and assertion helpers described above.
+   - Keep scenario data compact and named for the behavior it represents.
 
-3. Add deterministic reason selection.
-   - Add an exported helper such as `selectRecommendationReasons` for focused unit testing.
-   - Inputs should include candidate ranking, score components, available value rank, and tuning.
-   - Apply the eligibility, base-value, sorting, caveat, and limit rules exactly as specified.
-   - Return `RecommendationReason[]`.
+3. Add the heavy RB scenario.
+   - Construct the complete typed ranking snapshot and draft state.
+   - Assert elite-value preservation, needed-WR promotion, RB saturation evidence/caveat, availability, and determinism.
 
-4. Integrate selection into the pure engine.
-   - Derive stable available value ranks once from `availableRankings`.
-   - Build each recommendation's existing component array without changing component order or values.
-   - Pass the candidate's ranking, components, available value rank, and tuning to the selection helper.
-   - Replace the empty `reasons` array with the selected reasons.
-   - Do not change score calculation, context composition, sorting, or result limits.
+4. Add the heavy WR scenario.
+   - Mirror the meaningful heavy-RB assertions without abstracting the scenario into unreadable parameterized data.
+   - Assert needed-RB promotion, WR saturation, elite-value preservation, availability, and determinism.
 
-5. Preserve compatibility boundaries.
-   - Do not change `generateTopRecommendations` or its string reasons.
-   - Do not change UI call sites.
-   - Do not introduce persistence or draft-source dependencies.
+5. Add the QB timing scenario.
+   - Add explicit early, middle, and filled-QB states.
+   - Assert the specified relative ordering, component evidence, reason ids/text, availability, and determinism.
 
-6. Add focused tests.
-   - Unit test that every emitted reason references a component present on the recommendation.
-   - Unit test deterministic priority ordering for multiple qualifying positive components.
-   - Unit test `maxReasons` and non-integer/negative limit handling.
-   - Unit test that a meaningful negative caveat is selected once and placed last.
-   - Unit test that below-threshold positive and negative components do not emit reasons.
-   - Unit test base value for a top-five available ranking value.
-   - Unit test base value fallback when no contextual positive reason qualifies.
-   - Unit test representative text/evidence mappings for roster need, tier cliff, scarcity, observed run, value opportunity, and a negative penalty.
-   - Unit test that identical inputs return identical reason arrays.
-   - Regression test that recommendation scores and ordering remain unchanged by reason selection.
-
-7. Run validation.
-   - Run `npm test -- src/lib/recommendations.test.ts` if the test runner accepts a file argument.
-   - If that command does not work, run `npm test`.
+6. Run validation.
+   - Run `npm test -- src/lib/recommendations.scenario.test.ts`.
+   - Run `npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts`.
    - Run `npm run lint`.
-   - Fix only failures caused by this slice.
-   - If validation fails for unrelated pre-existing reasons, document the blocker and stop.
+   - Fix only failures caused by the scenario fixtures or assertions.
+   - If a correctly constructed scenario contradicts the approved behavior, stop and report it rather than changing production scoring.
 
-8. Stop after Task 8.
-   - Do not start scenario validation, UI wiring, or later recommendation tasks.
-   - Do not update planning docs beyond this current slice.
+7. Stop after this Task 9 slice.
+   - Do not add urgency, late-draft, dynamic-roster, persistence, or workflow scenarios.
+   - Do not update task status or begin the next Task 9 slice automatically.
 
 ## Acceptance Criteria
 
-- Every emitted reason traces to an existing score component through `sourceComponentId`.
-- Reason text uses only evidence stored on the source component or ranking evidence already represented by `base_value`.
-- Recommendations return no more than the configured maximum of three reasons by default.
-- Meaningful roster need, tier cliff, scarcity, observed run, value opportunity, and negative caveat reasons can be selected.
-- Components below configured thresholds do not produce contextual reasons.
-- At most one negative caveat is returned, and it appears last.
-- Base value is available for top-five ranking values and as a fallback when contextual positives do not qualify.
-- Reason ordering is deterministic for the same input.
-- Recommendation scores, component values, and player ordering remain unchanged.
-- No generic advice, opponent prediction, AI-generated claim, or unsupported evidence is emitted.
-- Existing `generateTopRecommendations` behavior remains available for current UI compatibility.
-- No UI, persistence, server action, Prisma, or draft-source dependency is introduced.
+- Heavy RB and heavy WR scenarios prove roster need can reorder close ranking values.
+- Both heavy-position scenarios prove elite base value remains visible despite saturation.
+- Saturation and open-starter reasons trace to the expected `roster_fit` component evidence.
+- The early QB scenario proves an open QB slot does not overcome a large base-value gap.
+- The middle QB scenario proves a comparable QB can rise when its starter slot remains open.
+- The filled-QB scenario proves an ordinary backup QB falls after the required slot is solved.
+- Every scenario recommendation contains only available players.
+- Identical scenario inputs produce identical ordering, scores, components, and reasons.
+- Assertions focus on observable ordering and reasons rather than duplicating all internal score arithmetic.
+- No production recommendation code, tuning, UI, persistence, or draft behavior is changed.
 
 ## Suggested Tests
 
-- Unit test score-component traceability.
-- Unit test positive reason priority ordering.
-- Unit test reason count limit.
-- Unit test one negative caveat placed last.
-- Unit test threshold suppression.
-- Unit test top-five base-value reason and fallback behavior.
-- Unit test evidence-backed reason text for each supported component family.
-- Unit test deterministic reason output.
-- Regression test unchanged scores and recommendation ordering.
+- Scenario test for a heavy RB start.
+- Scenario test for a heavy WR start.
+- Scenario test for early QB restraint.
+- Scenario test for middle-round QB need.
+- Scenario test for backup-QB de-emphasis after filling the starter.
+- Availability invariant assertion in every scenario.
+- Full-output determinism assertion in every scenario.
 
 ## Validation Notes
 
 Expected validation commands:
 
 ```txt
-npm test -- src/lib/recommendations.test.ts
+npm test -- src/lib/recommendations.scenario.test.ts
+npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts
 npm run lint
 ```
 
-If targeted test execution is unsupported, run:
+## Follow-Up Task 9 Slices
 
-```txt
-npm test
-npm run lint
-```
+Do not implement these in the current slice:
+
+1. Urgency scenarios: positional run and tier cliff.
+2. Late-roster scenarios: starter positions filled, bench depth, and late-round DEF/K.
+3. Boundary scenarios: dynamic roster configuration and persisted-draft parity where practical.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It adds only deterministic reason selection from components that already exist.
-- Concrete enough for implementation: yes. Eligibility, mappings, ordering, limits, caveat behavior, integration, and tests are specified.
-- Avoids unnecessary architecture changes: yes. It uses the existing pure engine, component model, reason type, and tuning config without a registry or new subsystem.
-- Blast radius reasonable: yes. Expected implementation changes are limited to the recommendation library and its focused tests.
-- Review/revert comfort: yes. Reasons are derived output and do not alter scoring, UI, persistence, or draft state.
-- Observable/testable acceptance criteria: yes. Traceability, text mapping, thresholds, ordering, limits, determinism, and score stability are directly testable.
+- Smallest meaningful increment: yes. It validates one coherent behavior family: core roster construction and QB timing.
+- Concrete enough for implementation: yes. Draft states, candidate ranks, neutralized confounders, relative assertions, reasons, invariants, and validation commands are specified.
+- Avoids unnecessary architecture changes: yes. It adds scenario tests only and explicitly forbids production tuning.
+- Blast radius reasonable: yes. The implementation should add one dedicated test file.
+- Review/revert comfort: yes. The slice is isolated validation coverage with no production changes.
+- Observable/testable acceptance criteria: yes. Ordering, evidence, reasons, availability, and determinism are directly asserted.
