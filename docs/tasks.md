@@ -97,7 +97,7 @@ Establish the pure domain model and reusable invariant checks for mutable rankin
 
 ## Task 2 - Define Import Contracts, Diagnostics, and Format Profiles
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

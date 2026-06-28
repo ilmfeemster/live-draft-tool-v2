@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. This slice promotes Phase 5 Task 2. It defines import-stage boundaries, diagnostics, transport preflight, and the two approved format profiles without implementing either parser.
+Complete. Import-stage boundaries, structured diagnostics, the verified FantasyPros CSV V1 profile, Canonical Ranking Set JSON V1, fixed limits, and fatal UTF-8 byte preflight are implemented without adding parser behavior. Validation passed 15 focused tests, the full 29-file/344-test suite, TypeScript no-emit checking, focused lint, and repository-wide lint. Phase 5 Task 2 is checked complete; Task 3 has not begun.
 
 ## Source Context
 
