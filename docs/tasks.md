@@ -285,7 +285,7 @@ Convert either supported parsed source format into one source-neutral ranking ca
 
 ## Task 6 - Validate Complete Normalized Ranking Candidates
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

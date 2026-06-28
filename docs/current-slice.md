@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting approval. No implementation has started.
+Complete. Normalized ranking candidates now pass through a pure, source-located complete-candidate validation gate before domain conversion. Validation covers metadata, bounded collections, field values, identity and order collisions, supplied position ranks, position-local tier progression, capability consistency, neutral fallbacks, stable diagnostic ordering, and purity. Validation passed with 28 focused candidate-validation tests, 434 full-suite tests, TypeScript checking, and focused and repository-wide linting.
 
 ## Source Context
 
