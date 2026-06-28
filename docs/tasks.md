@@ -234,7 +234,7 @@ Parse Canonical Ranking Set JSON V1 into located source records without trusting
 
 ## Task 5 - Normalize Supported Sources into Ranking Candidates
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

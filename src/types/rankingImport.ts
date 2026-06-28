@@ -77,9 +77,33 @@ export type ParsedRankingSourceDocument = Readonly<{
   records: readonly ParsedRankingSourceRecord[];
 }>;
 
+export type RankingNormalizationContext = Readonly<{
+  name?: string;
+  sourceLabel?: string;
+  importedAt: Date;
+}>;
+
+export type NormalizedRankingCandidateField =
+  | "playerId"
+  | "playerName"
+  | "team"
+  | "position"
+  | "sourceOrder"
+  | "sourcePositionRank"
+  | "tier"
+  | "adpRank";
+
 export type NormalizedRankingCandidateEntry = Readonly<{
   sourceIndex: number;
-  location?: RankingImportDiagnosticLocation;
+  location: RankingImportDiagnosticLocation;
+  fieldLocations: Readonly<
+    Partial<
+      Record<
+        NormalizedRankingCandidateField,
+        RankingImportDiagnosticLocation
+      >
+    >
+  >;
   playerId: string | null;
   playerName: string | null;
   team: string | null;

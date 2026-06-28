@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting approval. No implementation has started.
+Complete. Both supported V1 parser outputs now normalize into one deterministic, source-neutral candidate with typed provenance, field locations, generated or preserved identity, explicit capability states, and safe CSV fallbacks. Validation passed with 19 focused normalization tests, 406 full-suite tests, TypeScript checking, and focused and repository-wide linting.
 
 ## Source Context
 
