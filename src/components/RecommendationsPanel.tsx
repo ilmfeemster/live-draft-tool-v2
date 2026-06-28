@@ -35,7 +35,15 @@ export function RecommendationsPanel({
       ) : (
         <div className="mt-4 grid gap-2">
           {recommendations.map((recommendation, index) => {
-            const { ranking, reasons, totalScore } = recommendation;
+            const {
+              ranking,
+              reasons,
+              totalScore,
+              baseScore,
+              contextScore,
+              components,
+              scoreAdjustments,
+            } = recommendation;
 
             return (
               <div
@@ -70,6 +78,115 @@ export function RecommendationsPanel({
                       </li>
                     ))}
                   </ul>
+
+                  <details className="mt-3 rounded border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-700">
+                    <summary className="cursor-pointer font-medium text-zinc-800">
+                      Score details
+                    </summary>
+
+                    <div className="mt-3 grid gap-3">
+                      <dl className="grid gap-1 sm:grid-cols-2">
+                        <DiagnosticValue label="Returned position" value={`#${index + 1}`} />
+                        <DiagnosticValue label="Player ID" value={ranking.player.id} />
+                        <DiagnosticValue label="Overall rank" value={`#${ranking.overallRank}`} />
+                        <DiagnosticValue label="Position rank" value={`#${ranking.positionRank}`} />
+                        <DiagnosticValue label="Final total" value={totalScore.toFixed(2)} />
+                        <DiagnosticValue label="Base value" value={baseScore.toFixed(2)} />
+                        <DiagnosticValue
+                          label="Applied context"
+                          value={contextScore.toFixed(2)}
+                        />
+                      </dl>
+
+                      <div>
+                        <h4 className="font-semibold text-zinc-900">Raw components</h4>
+                        <ul className="mt-1 grid gap-1">
+                          {components.map((component) => (
+                            <li
+                              key={component.id}
+                              className="rounded border border-zinc-200 bg-white p-2"
+                            >
+                              <div className="flex flex-wrap justify-between gap-2">
+                                <span className="font-medium">{component.id}</span>
+                                <span>
+                                  {formatSignedScore(component.delta)} ({component.direction})
+                                </span>
+                              </div>
+                              {component.evidence ? (
+                                <dl className="mt-1 grid gap-x-3 gap-y-1 text-zinc-500 sm:grid-cols-2">
+                                  {Object.entries(component.evidence).map(([key, value]) => (
+                                    <DiagnosticValue
+                                      key={key}
+                                      label={key}
+                                      value={String(value)}
+                                    />
+                                  ))}
+                                </dl>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div>
+                        <h4 className="font-semibold text-zinc-900">Cap adjustments</h4>
+                        {scoreAdjustments.length === 0 ? (
+                          <p className="mt-1 text-zinc-500">No cap adjustments.</p>
+                        ) : (
+                          <ul className="mt-1 grid gap-1">
+                            {scoreAdjustments.map((adjustment) => (
+                              <li
+                                key={adjustment.id}
+                                className="rounded border border-zinc-200 bg-white p-2"
+                              >
+                                <div className="flex flex-wrap justify-between gap-2">
+                                  <span className="font-medium">{adjustment.id}</span>
+                                  <span>
+                                    {formatSignedScore(adjustment.delta)} ({adjustment.direction})
+                                  </span>
+                                </div>
+                                <dl className="mt-1 grid gap-x-3 gap-y-1 text-zinc-500 sm:grid-cols-2">
+                                  {Object.entries(adjustment.evidence).map(([key, value]) => (
+                                    <DiagnosticValue
+                                      key={key}
+                                      label={key}
+                                      value={String(value)}
+                                    />
+                                  ))}
+                                </dl>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+
+                      <div>
+                        <h4 className="font-semibold text-zinc-900">
+                          Score-backed reasons
+                        </h4>
+                        {reasons.length === 0 ? (
+                          <p className="mt-1 text-zinc-500">
+                            No score-backed reasons.
+                          </p>
+                        ) : (
+                          <ul className="mt-1 grid gap-1">
+                            {reasons.map((reason) => (
+                              <li
+                                key={reason.id}
+                                className="rounded border border-zinc-200 bg-white p-2"
+                              >
+                                <div className="font-medium">{reason.id}</div>
+                                <div className="text-zinc-500">
+                                  Source: {reason.sourceComponentId}
+                                </div>
+                                <div className="mt-1">{reason.text}</div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  </details>
                 </div>
 
                 <div className="flex items-start md:justify-end">
@@ -89,4 +206,18 @@ export function RecommendationsPanel({
       )}
     </section>
   );
+}
+
+function DiagnosticValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2">
+      <dt className="font-medium text-zinc-600">{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
+function formatSignedScore(value: number): string {
+  const formatted = value.toFixed(2);
+  return value > 0 ? `+${formatted}` : formatted;
 }

@@ -42,6 +42,22 @@ export type RecommendationScoreComponent = {
   evidence?: Record<string, RecommendationEvidenceValue>;
 };
 
+export type RecommendationScoreAdjustmentId =
+  | "urgency_cap"
+  | "context_cap";
+
+export type RecommendationScoreAdjustment = {
+  id: RecommendationScoreAdjustmentId;
+  delta: number;
+  direction: RecommendationScoreComponentDirection;
+  evidence: {
+    rawScore: number;
+    adjustedScore: number;
+    minScore?: number;
+    maxScore?: number;
+  };
+};
+
 export type RecommendationReason = {
   id: string;
   text: string;
@@ -56,6 +72,7 @@ export type PlayerRecommendation = {
   baseScore: number;
   contextScore: number;
   components: RecommendationScoreComponent[];
+  scoreAdjustments: RecommendationScoreAdjustment[];
   reasons: RecommendationReason[];
 };
 

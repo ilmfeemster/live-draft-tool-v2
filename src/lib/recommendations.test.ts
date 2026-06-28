@@ -16,10 +16,26 @@ import {
 import type {
   Draft,
   LeagueSettings,
+  PlayerRecommendation,
   Position,
   RankingEntry,
   RecommendationScoreComponent,
 } from "@/types/draft";
+
+function expectScoreToReconcile(recommendation: PlayerRecommendation) {
+  const componentTotal = recommendation.components.reduce((total, component) => {
+    return total + component.delta;
+  }, 0);
+  const adjustmentTotal = recommendation.scoreAdjustments.reduce(
+    (total, adjustment) => total + adjustment.delta,
+    0,
+  );
+
+  expect(componentTotal + adjustmentTotal).toBeCloseTo(
+    recommendation.totalScore,
+    12,
+  );
+}
 
 function createRanking(
   id: string,
@@ -463,6 +479,8 @@ describe("generatePlayerRecommendations", () => {
       ]),
     );
     expect(recommendation.ranking.player.id).toBe("player-1");
+    expect(recommendation.scoreAdjustments).toEqual([]);
+    expectScoreToReconcile(recommendation);
   });
 
   it("adds roster fit to context score", () => {
@@ -697,6 +715,34 @@ describe("generatePlayerRecommendations", () => {
 
     expect(positiveRecommendation.contextScore).toBe(4);
     expect(negativeRecommendation.contextScore).toBe(-8);
+    expect(positiveRecommendation.scoreAdjustments).toEqual([
+      {
+        id: "context_cap",
+        delta: -12,
+        direction: "negative",
+        evidence: {
+          rawScore: 16,
+          adjustedScore: 4,
+          minScore: -24,
+          maxScore: 4,
+        },
+      },
+    ]);
+    expect(negativeRecommendation.scoreAdjustments).toEqual([
+      {
+        id: "context_cap",
+        delta: 12,
+        direction: "positive",
+        evidence: {
+          rawScore: -20,
+          adjustedScore: -8,
+          minScore: -8,
+          maxScore: 30,
+        },
+      },
+    ]);
+    expectScoreToReconcile(positiveRecommendation);
+    expectScoreToReconcile(negativeRecommendation);
   });
 
   it("adds small, clear, and major value opportunity deltas for falling players", () => {
@@ -1019,6 +1065,19 @@ describe("generatePlayerRecommendations", () => {
 
     expect(tierComponent).toEqual(expect.objectContaining({ delta: 12 }));
     expect(recommendation.contextScore).toBe(15);
+    expect(recommendation.scoreAdjustments).toEqual([
+      {
+        id: "urgency_cap",
+        delta: -10,
+        direction: "negative",
+        evidence: {
+          rawScore: 15,
+          adjustedScore: 5,
+          maxScore: 5,
+        },
+      },
+    ]);
+    expectScoreToReconcile(recommendation);
   });
 
   it("adds mild scarcity when one or two nearby same-position options remain", () => {
@@ -1192,12 +1251,13 @@ describe("generatePlayerRecommendations", () => {
         tuning: {
           ...defaultRecommendationTuningConfig,
           maxUrgencyScore: 7,
+          maxPositiveContextScore: 12,
         },
       },
     );
 
     expect(recommendation.playerId).toBe("candidate-rb");
-    expect(recommendation.contextScore).toBe(17);
+    expect(recommendation.contextScore).toBe(12);
     expect(recommendation.components).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "tier_cliff", delta: 12 }),
@@ -1205,6 +1265,30 @@ describe("generatePlayerRecommendations", () => {
         expect.objectContaining({ id: "positional_run", delta: 4 }),
       ]),
     );
+    expect(recommendation.scoreAdjustments).toEqual([
+      {
+        id: "urgency_cap",
+        delta: -12,
+        direction: "negative",
+        evidence: {
+          rawScore: 19,
+          adjustedScore: 7,
+          maxScore: 7,
+        },
+      },
+      {
+        id: "context_cap",
+        delta: -5,
+        direction: "negative",
+        evidence: {
+          rawScore: 17,
+          adjustedScore: 12,
+          minScore: -24,
+          maxScore: 12,
+        },
+      },
+    ]);
+    expectScoreToReconcile(recommendation);
   });
 
   it("does not let scarcity and run pressure move a much lower-value player above an elite player", () => {

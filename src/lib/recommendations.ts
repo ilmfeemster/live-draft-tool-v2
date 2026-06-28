@@ -6,6 +6,7 @@ import type {
   RankingEntry,
   Recommendation,
   RecommendationReason,
+  RecommendationScoreAdjustment,
   RecommendationScoreComponent,
   RecommendationInput,
   RecommendationTuningConfig,
@@ -1021,14 +1022,15 @@ export function generatePlayerRecommendations(
         rosterFitDelta: rosterFitComponent.delta,
         tuning,
       });
-      const urgencyScore = Math.min(
+      const rawUrgencyScore =
         tierCliffComponent.delta +
-          positionalScarcityComponent.delta +
-          positionalRunComponent.delta,
-        tuning.maxUrgencyScore,
-      );
+        positionalScarcityComponent.delta +
+        positionalRunComponent.delta;
+      const urgencyScore = Math.min(rawUrgencyScore, tuning.maxUrgencyScore);
+      const rawContextScore =
+        rosterFitComponent.delta + urgencyScore + valueOpportunityComponent.delta;
       const contextScore = clamp(
-        rosterFitComponent.delta + urgencyScore + valueOpportunityComponent.delta,
+        rawContextScore,
         tuning.maxNegativeContextScore,
         tuning.maxPositiveContextScore,
       );
@@ -1050,6 +1052,37 @@ export function generatePlayerRecommendations(
         positionalRunComponent,
         valueOpportunityComponent,
       ];
+      const scoreAdjustments: RecommendationScoreAdjustment[] = [];
+      const urgencyAdjustmentDelta = urgencyScore - rawUrgencyScore;
+
+      if (urgencyAdjustmentDelta !== 0) {
+        scoreAdjustments.push({
+          id: "urgency_cap",
+          delta: urgencyAdjustmentDelta,
+          direction: urgencyAdjustmentDelta > 0 ? "positive" : "negative",
+          evidence: {
+            rawScore: rawUrgencyScore,
+            adjustedScore: urgencyScore,
+            maxScore: tuning.maxUrgencyScore,
+          },
+        });
+      }
+
+      const contextAdjustmentDelta = contextScore - rawContextScore;
+
+      if (contextAdjustmentDelta !== 0) {
+        scoreAdjustments.push({
+          id: "context_cap",
+          delta: contextAdjustmentDelta,
+          direction: contextAdjustmentDelta > 0 ? "positive" : "negative",
+          evidence: {
+            rawScore: rawContextScore,
+            adjustedScore: contextScore,
+            minScore: tuning.maxNegativeContextScore,
+            maxScore: tuning.maxPositiveContextScore,
+          },
+        });
+      }
       const reasons = selectRecommendationReasons({
         ranking,
         components,
@@ -1064,6 +1097,7 @@ export function generatePlayerRecommendations(
         baseScore,
         contextScore,
         components,
+        scoreAdjustments,
         reasons,
       };
     })
