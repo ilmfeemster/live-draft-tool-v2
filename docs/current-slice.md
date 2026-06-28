@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting approval. No implementation has started.
+Complete. Valid canonical ranking sets now export as compact, deterministically ordered Canonical Ranking Set JSON V1 with an explicit export timestamp, optional non-authoritative source identity, preserved provenance/capabilities/entries, and frozen entry and UTF-8 byte bounds. Complete and safely degraded exports round-trip through every public import stage without losing domain-relevant values or reusing local identity. Validation passed with 14 focused exporter tests, 463 full-suite tests, TypeScript checking, and focused and repository-wide linting.
 
 ## Source Context
 

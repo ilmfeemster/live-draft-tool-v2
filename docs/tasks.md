@@ -380,7 +380,7 @@ Create complete canonical `RankingSet` aggregates only from validated candidates
 
 ## Task 8 - Export Canonical Ranking Set JSON V1
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
