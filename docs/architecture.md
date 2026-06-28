@@ -74,6 +74,41 @@ The MVP should favor straightforward models over generic abstractions.
 
 ---
 
+## Rankings & Data
+
+Phase 5 separates mutable ranking authoring data from immutable draft inputs.
+
+- A `RankingSet` is a named, mutable aggregate containing canonical ranking entries for future drafts.
+- A `RankingSnapshot` is a complete immutable copy captured for one draft or embedded scenario.
+- Updating or deleting a ranking set never changes an existing snapshot.
+- Ranking entries and snapshots remain domain values independent of Prisma, UI state, and external file formats.
+
+Supported imports cross explicit boundaries:
+
+```text
+source document
+      |
+format parser
+      |
+normalization
+      |
+domain validation
+      |
+domain conversion
+      |
+ranking set repository
+```
+
+Format adapters own source syntax and documented aliases. Shared domain validation owns ranking identity, ordering, position-rank, tier, and numeric invariants. New formats map into the same source-neutral candidate rather than introducing source fields into the engines.
+
+Mutable ranking sets should use first-class entry persistence behind a dedicated repository. Immutable draft ranking snapshots should remain whole serialized values because they are written once and loaded as complete engine inputs. The existing draft repository remains responsible for atomic draft-and-snapshot persistence.
+
+The Draft State Engine and Recommendation Engine continue to consume canonical `RankingEntry[]` values. They must not parse files, query ranking repositories, depend on mutable ranking-set identity, or know the source format.
+
+The detailed boundary and lifecycle design is defined in `docs/design/rankings-data.md`.
+
+---
+
 ## State Management
 
 Use:

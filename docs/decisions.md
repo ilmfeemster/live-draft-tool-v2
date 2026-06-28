@@ -354,6 +354,86 @@ Tradeoffs:
 
 ---
 
+## 2026-06-28
+
+### Phase 5 Mutable Ranking Sets and Immutable Draft Snapshots
+
+Decision:
+
+Treat ranking sets as mutable authoring aggregates and draft ranking snapshots as separate immutable historical inputs. Draft creation copies the selected ranking set; existing drafts never follow later ranking-set edits or deletion.
+
+Reason:
+
+Recommendations and replay must remain deterministic and reproducible while ranking data evolves independently.
+
+Tradeoffs:
+
+- Ranking values are duplicated between source sets and snapshots.
+- Correcting a ranking set does not rewrite existing drafts.
+- Snapshot provenance may refer to a source set that no longer exists, but the snapshot remains complete and usable.
+
+---
+
+## 2026-06-28
+
+### Phase 5 Staged Ranking Import Boundary
+
+Decision:
+
+Use an explicit import pipeline of format parsing, normalization, domain validation, and domain conversion. Begin with the documented FantasyPros CSV profile and a canonical versioned ranking-set JSON format. Add future formats as small explicit adapters into the same source-neutral candidate rather than building a generic plugin or column-mapping framework.
+
+Reason:
+
+The staged boundary keeps external syntax out of domain models, makes failures attributable and actionable, and preserves deterministic transformations without premature extensibility.
+
+Tradeoffs:
+
+- Each new source format requires its own adapter and conformance fixtures.
+- Unsupported variants fail instead of being guessed.
+- The initial format contract must be documented precisely before implementation.
+
+---
+
+## 2026-06-28
+
+### Phase 5 Hybrid Ranking Persistence
+
+Decision:
+
+Persist mutable ranking sets as first-class set metadata and entries behind a dedicated ranking-set repository. Continue storing immutable draft ranking snapshots as whole serialized values behind the draft repository.
+
+Reason:
+
+Mutable ranking sets need management, validation, and isolation. Snapshots are written once and loaded as complete draft inputs, so normalizing them would add complexity without a query or editing requirement.
+
+Tradeoffs:
+
+- Similar ranking data has two persistence mappings.
+- Repository mapping must keep both representations aligned with the canonical domain shape.
+- Draft snapshot compatibility must be preserved when the ranking domain evolves.
+
+---
+
+## 2026-06-28
+
+### Phase 5 Source-Local Player Identity
+
+Decision:
+
+Do not introduce a canonical cross-provider player catalog in Phase 5. Preserve explicit identities in canonical imports and allow supported external adapters to create deterministic identities that are stable within a ranking set and its snapshots.
+
+Reason:
+
+Draft state, recommendations, and replay require stable identity within a complete ranking context, not automatic reconciliation across unrelated sources.
+
+Tradeoffs:
+
+- Ranking sets cannot be safely merged or compared by player identity.
+- Ambiguous normalized players must fail import rather than being silently matched.
+- Cross-provider ID mapping remains deferred to later integration work.
+
+---
+
 ## Template
 
 ### YYYY-MM-DD

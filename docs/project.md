@@ -2,11 +2,11 @@
 
 ## Active Phase
 
-Phase 4 - Developer Tools & Simulator
+Phase 5 - Rankings & Data
 
-The current project phase is focused on making draft scenarios fast to reproduce, inspect, and reset so the decision engine can be developed with short, reliable feedback loops.
+The current project phase is focused on decoupling rankings from application code so ranking data can be imported, validated, managed, selected, and snapshotted without regenerating typed seed files or changing the application.
 
-Phase 1 established the manual draft simulator and in-memory Draft State Engine. Phase 2 added durable draft persistence. Phase 3 added deterministic, explainable recommendations. Phase 4 should preserve those workflows while adding local replay, scenario, and debugging capabilities around the existing engines.
+Phase 1 established the manual Draft State Engine, Phase 2 added durable draft persistence and ranking snapshots, Phase 3 added deterministic recommendations anchored to those snapshots, and Phase 4 added replay and simulator tooling. Phase 5 should preserve those workflows while making ranking sets first-class product data.
 
 ---
 
@@ -18,31 +18,33 @@ The tool helps users make better draft decisions by combining rankings, roster c
 
 The app is a companion decision engine, not a fantasy platform or replacement draft room.
 
-For Phase 4, the product should also function as an effective development environment for that decision engine. A developer should be able to recreate a meaningful draft situation, inspect the recommendation calculation, make changes, and repeat the scenario without manually rebuilding the draft each time.
+For Phase 5, ranking data should be able to evolve independently of application releases. A user or developer should be able to bring in a supported custom ranking source, correct and organize it, select it for a draft, and preserve the exact ranking state used for deterministic recommendations and replay.
 
 ---
 
 ## Target User
 
-The Phase 4 user is the developer building and tuning the decision engine.
+The Phase 5 user is a single user or developer who wants control over the ranking data that anchors recommendations.
 
-The developer needs to reproduce draft situations quickly, compare deterministic recommendation behavior, diagnose unexpected scores or reasons, and return the simulator to a known state. These tools support product development and regression confidence; they are not intended to become a polished end-user draft room.
+They need to maintain multiple ranking sets, understand validation failures, organize players into tiers, choose the appropriate set for a draft, and reproduce past recommendation behavior from a stable snapshot. Phase 5 supports deliberate data management; it is not an automated fantasy-news or projection service.
 
 ---
 
 ## Phase Goals
 
-Phase 4 should deliver:
+Phase 5 should deliver:
 
-- Deterministic replay of valid draft scenarios through the existing Draft State Engine.
-- Portable draft scenario import and export for supported draft configurations.
-- A small, curated scenario library for important recommendation and draft-state situations.
-- Recommendation debugging that exposes the score components and reasons already produced by the Recommendation Engine.
-- Reliable reset and restart controls that return a scenario or manual draft to a known valid state.
-- Focused manual simulator improvements that reduce the time required to create, replay, and inspect scenarios.
-- Regression confidence that manual entry, replay, and imported scenarios produce consistent domain state and recommendation output.
+- Ranking sets that are managed as first-class data rather than compiled application code.
+- Import of supported custom ranking sources through a deterministic parser and validation boundary.
+- Export of ranking sets in a documented, portable format.
+- Clear validation for malformed records, missing required data, duplicate players, invalid ranks, and invalid tier assignments.
+- Multiple named ranking sets that can coexist and be selected without changing code.
+- Tier management that allows valid ranking entries to be grouped and updated while preserving deterministic ordering.
+- Stable ranking snapshots that preserve the exact recommendation inputs used by a draft or replay.
+- Compatibility with the existing Draft State Engine, Recommendation Engine, persistence, and scenario workflows.
+- Focused automated and manual validation of ranking transformations and their effect on user-facing draft workflows.
 
-The phase is successful only if developers can recreate and investigate draft states in seconds without bypassing domain rules or duplicating recommendation logic.
+The phase is successful only if ranking data can change without an application code change while draft and recommendation behavior remains deterministic and reproducible.
 
 ---
 
@@ -50,35 +52,35 @@ The phase is successful only if developers can recreate and investigate draft st
 
 ### In Scope
 
-- Represent a reproducible scenario using the inputs needed to rebuild supported league settings, draft progress, ranking context, and user-team context.
-- Replay an ordered sequence of valid picks through the existing Draft State Engine.
-- Import a portable draft scenario and validate it before applying it.
-- Export a supported draft or scenario so it can be replayed later.
-- Provide a curated local library of representative scenarios.
-- Recreate intermediate and completed draft states without manually re-entering every pick.
-- Inspect recommendation totals, scoring components, penalties, and score-backed reasons for a replayed or manually created state.
-- Reset a scenario to its defined starting point.
-- Restart a draft from a clean state using its existing configuration.
-- Improve simulator controls only where they directly shorten scenario setup, replay, reset, or debugging.
-- Preserve the existing manual draft, persisted draft, and recommendation workflows.
-- Add deterministic unit, integration, scenario, and regression coverage for replay and scenario behavior.
+- Define a typed domain model for a ranking set and its ranking entries.
+- Create, name, list, select, update, and remove multiple ranking sets within the single-user product.
+- Import at least one documented ranking format suitable for custom ranking data.
+- Parse imported data into the existing domain-facing ranking shape without exposing parser or storage details to the engines.
+- Validate required player identity, supported positions, ranking order, duplicate records, numeric fields, and tier assignments before accepting imported or edited data.
+- Report actionable validation failures without partially replacing a valid ranking set.
+- Export a ranking set in a documented format that can be imported again without losing domain-relevant ranking information.
+- Assign and update tiers while maintaining an unambiguous overall ranking order.
+- Choose a ranking set when creating or configuring a supported draft or scenario.
+- Create an immutable ranking snapshot for a draft so later edits to the source ranking set do not alter that draft's recommendation inputs.
+- Continue loading existing persisted draft snapshots through typed repository boundaries.
+- Preserve the active `RankingEntry[]`-style input boundary consumed by the Draft State Engine and Recommendation Engine unless an approved design establishes a compatible domain replacement.
+- Provide deterministic unit, integration, regression, and manual workflow coverage proportional to ranking parsing, validation, persistence, snapshotting, and draft integration risk.
 
 ### Out of Scope
 
-- A polished end-user draft room.
-- Live platform integrations.
-- A generic external-provider interface or network event normalization.
-- ESPN, Yahoo, or Sleeper support.
-- Real-time synchronization, polling, or WebSockets.
-- Multi-user or collaborative simulation.
-- Authentication or accounts.
-- Automated draft strategy simulation or opponent modeling.
-- AI-generated recommendations or explanations.
-- New recommendation factors or Insight Engine behavior.
-- Runtime ranking management, arbitrary ranking source import, tier editing, or other Phase 5 capabilities.
-- Persisting recommendation output as source data.
-- A broad plugin or event-sourcing architecture.
-- Mobile-first or visual-polish work unrelated to developer speed.
+- Automated projection generation.
+- Automated news, injury, depth-chart, or ADP ingestion.
+- Scheduled ranking refreshes, web scraping, or third-party ranking APIs.
+- Real-time ranking feeds or provider synchronization.
+- Supporting arbitrary file formats or every external ranking source.
+- Automatic player identity resolution across external providers.
+- Combining or algorithmically blending multiple ranking sources.
+- Advanced statistical models, VORP, simulations, or machine learning.
+- New recommendation factors, strategic insights, or Phase 6 explainability work.
+- Live draft platform integrations.
+- Authentication, accounts, cloud sharing, or multi-user ranking collaboration.
+- A public ranking marketplace or community ranking library.
+- Broad UI redesign unrelated to ranking management.
 
 ---
 
@@ -107,159 +109,159 @@ The phase is successful only if developers can recreate and investigate draft st
 
 - 6 Bench Spots
 
-Scenario and replay infrastructure should respect the dynamic league settings already supported by the domain and persistence layers rather than introduce new hard-coded assumptions.
+Ranking sets and snapshots should remain compatible with the dynamic league settings already supported by the domain and persistence layers. Phase 5 does not expand the supported league formats.
 
 ---
 
 ## Core Workflow
 
-### Create or Select a Scenario
+### Add or Choose Rankings
 
-- Choose a curated scenario, import a portable scenario, or use the current manual draft configuration.
-- Validate the scenario configuration, ranking context, and pick history.
-- Establish a known starting state.
+- View the available named ranking sets.
+- Select an existing set or import a supported custom source.
+- Parse and validate the complete input before storing or activating it.
+- Receive clear errors for records that cannot form a valid ranking set.
 
-### Replay and Inspect
+### Manage Ranking Data
 
-- Replay picks through the Draft State Engine.
-- Stop at the required draft position or restore the scenario's defined target state.
-- Confirm available players, rosters, active pick, and other draft invariants.
-- Generate recommendations from the reconstructed state.
-- Inspect recommendation scores, contributing components, penalties, and reasons.
+- Review the ordered ranking entries and their tier assignments.
+- Make supported corrections or tier changes without editing application code.
+- Export a portable copy when needed.
+- Keep other ranking sets unchanged.
 
-### Iterate
+### Use Rankings in a Draft
 
-- Make additional manual picks when useful.
-- Reset the scenario to its starting state or restart the configured draft.
-- Replay the same inputs and compare deterministic output after engine changes.
-- Export a useful reproducible scenario for later development or regression testing.
+- Select a valid ranking set for a new supported draft or scenario.
+- Capture an immutable snapshot of that set as part of the draft's source configuration.
+- Feed the typed snapshot into the existing Draft State Engine and Recommendation Engine.
+- Continue receiving deterministic recommendations even if the source ranking set is later edited or removed.
+
+### Reproduce Past Behavior
+
+- Load or replay a draft using its captured ranking snapshot.
+- Confirm the same ranking inputs and recommendation output are available for the same draft state.
+- Distinguish the draft snapshot from the current mutable source ranking set.
 
 ---
 
 ## Milestones
 
-### Milestone 1 – Configurable League Settings
+### Milestone 1 - Ranking Domain and Validation Boundary
 
-Complete the league configuration system so supported draft formats can be created, persisted, validated, and consumed by the Draft State Engine.
+Establish the project-level contract for named ranking sets, ordered entries, optional supported metadata, tiers, validation results, and stable identity.
 
-Deliverables include:
+The contract should keep imported records, persistence models, and UI state outside the Draft State Engine and Recommendation Engine while remaining compatible with their typed ranking input.
 
-- configurable team count
-- configurable roster construction
-- configurable draft position
-- supported scoring/draft settings
-- persistence integration
-- validation
+### Milestone 2 - Ranking Import and Export
 
-Replay, scenarios, and recommendation tooling should consume these settings rather than introduce separate configuration.
+Provide deterministic parsing and complete pre-commit validation for at least one documented custom ranking format, plus a portable export format that preserves domain-relevant information through a round trip.
 
-### Milestone 2 - Reproducible Scenario Contract
+Invalid input should produce actionable errors and leave existing valid ranking data unchanged.
 
-Define the project-level information a portable scenario must carry to reconstruct supported draft state and recommendation inputs without exposing database records or transient React state.
+### Milestone 3 - Multiple Ranking Set Management
 
-The contract should support validation, deterministic replay, import/export round trips, and future evolution while leaving general live-provider concerns to Phase 7.
+Allow multiple named ranking sets to be stored, listed, selected, updated, and removed within the single-user application.
 
-### Milestone 3 - Replay System
+The existing built-in rankings should remain available through an explicit seed or migration path rather than continuing as the only code-owned runtime source.
 
-Provide a deterministic path for applying scenario picks through the existing Draft State Engine and recreating valid intermediate or completed states.
+### Milestone 4 - Tier Management
 
-Manual entry and replay should share draft rules and transitions so the same inputs produce equivalent domain state.
+Allow ranking entries to be assigned to valid tiers and allow tier information to evolve without making overall ranking order ambiguous.
 
-### Milestone 4 - Scenario Portability and Library
+Tier updates should flow through the same domain validation and persistence boundaries as other ranking changes.
 
-Allow supported scenarios to be imported, exported, and selected from a small curated library.
+### Milestone 5 - Snapshot and Draft Integration
 
-The library should emphasize representative draft-state and recommendation situations rather than attempt exhaustive coverage or become a ranking-management system.
+Connect a selected mutable ranking set to draft creation by capturing an immutable ranking snapshot. Existing persisted drafts should continue to load their saved snapshots, and Recommendation Engine inputs should remain source-agnostic.
 
-### Milestone 5 - Recommendation Debugger
+Scenario and replay workflows should consume captured ranking context without becoming coupled to ranking storage records.
 
-Make existing Recommendation Engine output inspectable at the component level for a selected scenario state.
+### Milestone 6 - Workflow Confidence
 
-Debug information should trace recommendation totals and reasons back to structured engine output without recalculating scoring rules in the UI.
+Validate import/export round trips, invalid input handling, multiple-set isolation, tier updates, snapshot immutability, persisted-draft compatibility, and deterministic recommendation behavior.
 
-### Milestone 6 - Fast Simulator Iteration
-
-Complete the reset, restart, and focused simulator improvements needed to move repeatedly from a known scenario to an inspectable recommendation state in seconds.
-
-Validate that replay remains deterministic, preserves draft invariants, and does not regress the existing manual or persisted draft workflows.
+Complete focused manual QA of the ranking-management-to-draft workflow without broadening into Phase 6 strategy or Phase 7 live integrations.
 
 ---
 
 ## Architecture Impact
 
-Phase 4 introduces replay and simulator infrastructure as local Draft Sources around the existing Draft State Engine. It does not introduce the full external-provider abstraction planned for Phase 7.
+Phase 5 introduces a first-class Rankings & Data capability alongside the existing draft persistence layer. Mutable ranking sets become managed source data; immutable ranking snapshots remain the inputs owned by individual drafts.
 
 The intended flow becomes:
 
 ```text
-Curated / Imported Scenario
-             |
-      Replay Draft Source
-             |
-      Draft State Engine
-             |
-   Recommendation Engine
-             |
-Recommendation Debugger
-
-Manual Simulator --------> Draft State Engine
-Persistence -------------> Draft State Engine hydration
+Supported Ranking Import
+          |
+  Parser + Validation
+          |
+ Mutable Ranking Sets <----> Ranking Management / Export
+          |
+   Snapshot Boundary
+          |
+ Immutable Draft Ranking Snapshot
+          |
+  Draft State Engine
+          |
+ Recommendation Engine
 ```
 
-The Draft State Engine remains the only owner of draft progression, pick validation, rosters, available players, and draft invariants. Replay should provide ordered inputs to that engine rather than inject a fabricated final state or reproduce draft rules.
+The Draft State Engine and Recommendation Engine should continue consuming typed domain ranking data. They should not parse files, query ranking persistence directly, depend on ranking-management UI state, or know whether data originated from built-in seed rankings or a custom import.
 
-The Recommendation Engine remains pure and derived. The debugger should present its structured scoring components and reasons rather than implement parallel scoring or explanation logic. Recommendation output should be recomputed from reconstructed draft state and ranking context, not imported as authoritative scenario data.
+The repository layer should hide the chosen storage representation for ranking sets and entries. Phase 2 draft snapshots stored as JSON remain valid immutable draft inputs; making source ranking sets first-class does not require past drafts to follow later edits or depend on a live ranking-set record.
 
 Important boundaries:
 
-- Scenario data should use a typed, validated, portable domain-facing contract rather than database rows, raw persistence JSON, or UI state.
-- Manual entry, replay, and imported scenarios should converge on the same Draft State Engine behavior.
-- Replay ordering and results should be deterministic.
-- Reset should restore a defined valid state without weakening draft invariants.
-- Ranking snapshots may be carried or referenced only as needed for reproducible Phase 4 scenarios; general ranking ingestion and management remain Phase 5 work.
-- Provider polling, reconnect behavior, remote identifiers, generalized event normalization, and live-provider interfaces remain Phase 7 work.
-- The solution should remain inside the monolith-first Next.js application and should not require new services, queues, or deployment infrastructure.
+- Parsing converts a supported external representation into typed candidate data; validation decides whether the complete candidate can become a ranking set.
+- Invalid imports or edits should be atomic from the user's perspective and must not corrupt an existing valid set.
+- A mutable ranking set and an immutable draft ranking snapshot are different lifecycle concepts.
+- Snapshot creation should copy the domain-relevant ranking values needed for deterministic recommendations and replay.
+- Player and ranking-set identity should be explicit enough to prevent silent duplicates or accidental cross-set updates.
+- Overall rank remains the deterministic ordering anchor; tiers add grouping information without replacing that order.
+- Recommendation output remains derived and is not stored as part of ranking data.
+- The solution should remain inside the monolith-first Next.js application and existing PostgreSQL/Prisma deployment model.
+- Automated feeds, background refresh jobs, external provider adapters, and generalized source plugins remain deferred.
 
 ### Architecture Tradeoff Assessment
 
-- **Complexity cost:** Phase 4 adds a scenario contract, validation, and replay orchestration, but should avoid a generalized event framework or provider SDK.
-- **Maintenance cost:** One shared draft-transition path limits duplicated rules; scenario format evolution will require explicit compatibility handling.
-- **Scaling implications:** Local replay is optimized for developer workflows, not concurrent users or high-volume event processing. No scaling architecture is required in this phase.
-- **Developer experience:** Curated and portable scenarios should make recommendation bugs reproducible and scoring changes easier to inspect.
-- **Deployment implications:** The tools should run within the existing application and deployment model without new infrastructure.
-- **Iteration speed:** Fast reset, replay, and score inspection should shorten the feedback loop for recommendation tuning and regression diagnosis.
+- **Complexity cost:** Phase 5 adds mutable ranking-set lifecycles, parser and validation boundaries, and an explicit snapshot transition. Keeping the number of supported import formats small avoids a premature provider framework.
+- **Maintenance cost:** Documented formats and validation rules require compatibility care as the ranking model evolves. Separating domain data from transport and persistence shapes localizes that maintenance.
+- **Scaling implications:** Ranking sets are small, single-user datasets used primarily as whole ordered collections. No distributed storage, caching, queues, or high-volume ingestion architecture is required.
+- **Developer experience:** First-class ranking data removes the seed-regeneration loop and makes realistic recommendation testing faster, but clear validation diagnostics are necessary to keep imports debuggable.
+- **Deployment implications:** Ranking management should use the existing application and database. Phase 5 should not add services, scheduled jobs, or new operational infrastructure.
+- **Iteration speed:** Stable snapshots let ranking data and recommendation logic evolve independently while preserving reproducible drafts and scenarios.
 
 ---
 
 ## Success Criteria
 
-Phase 4 is successful when a developer can:
+Phase 5 is successful when a user or developer can:
 
-1. Select or import a valid supported scenario and recreate its target draft state within seconds, without manually entering its full pick history.
-2. Replay the same scenario repeatedly and receive the same draft state and recommendation output for the same inputs.
-3. Export a supported scenario, import it again, and reproduce the same domain-relevant state and recommendation inputs.
-4. Use a curated scenario library to exercise representative recommendation and draft-state situations.
-5. Inspect each displayed recommendation's total score, contributing components, penalties, and score-backed reasons without consulting internal code.
-6. Reset a scenario to its defined starting point and restart a configured draft without leaving stale picks, rosters, available-player state, or recommendations.
-7. Confirm that replayed picks follow the same validation and state transitions as manual picks.
-8. Receive a clear validation failure for malformed or incompatible scenario data without corrupting the current draft state.
-9. Confirm draft invariants after replay, import, reset, and subsequent manual picks.
-10. Continue using existing manual and persisted draft workflows without regression.
-11. Validate replay equivalence, deterministic recommendations, import/export behavior, reset behavior, and representative scenarios with automated tests and focused manual QA.
-12. A developer can create and persist any supported league configuration without modifying code, and replay/scenario tooling respects those settings.
+1. Import a supported custom ranking source and create a valid named ranking set without changing or rebuilding application code.
+2. Receive clear, record-level validation feedback for malformed, duplicated, unsupported, or inconsistent ranking data before any valid existing set is replaced.
+3. Maintain at least two ranking sets independently and explicitly select which one will anchor a new supported draft.
+4. Export a valid ranking set, import it again, and preserve its domain-relevant player order, supported metadata, and tiers.
+5. Assign or update tiers while retaining deterministic overall rank ordering and valid Recommendation Engine input.
+6. Start a draft from a selected ranking set and capture an immutable snapshot containing the ranking information required by draft and recommendation behavior.
+7. Edit or remove the source ranking set without changing the snapshot or recommendations of an existing draft.
+8. Load an existing persisted draft and continue using its saved ranking snapshot without requiring the source ranking set to exist.
+9. Replay the same draft or scenario from the same state and ranking snapshot and receive the same recommendation ordering and score-backed reasons.
+10. Use built-in seed rankings through the new ranking-data workflow without losing the existing manual, persisted, replay, or recommendation workflows.
+11. Confirm through automated tests that parsing, validation, import/export round trips, set isolation, tier changes, and snapshot creation produce exact deterministic outputs.
+12. Complete focused manual QA of importing rankings, managing tiers, selecting a set, starting and saving a draft, changing the source set, and reloading the unchanged draft snapshot.
 
-The product should feel like a compact development workbench for the decision engine, not an expanded consumer draft room.
+Rankings should feel like durable, inspectable product data rather than a fixture embedded in the codebase.
 
 ---
 
 ## Product Principles
 
-- Optimize Phase 4 for reproducibility and iteration speed.
-- Reuse the Draft State Engine for every pick transition.
-- Keep recommendation behavior in the Recommendation Engine.
-- Make scenario inputs portable, typed, validated, and deterministic.
-- Prefer a small curated scenario library over a broad scenario-management product.
-- Preserve existing manual and persisted draft workflows.
-- Keep developer tooling local to the existing monolith and deployment model.
-- Defer live-provider generalization to Phase 7 and ranking management to Phase 5.
-- Avoid turning simulator improvements into end-user draft-room polish.
+- Treat ranking sets as first-class mutable source data and draft snapshots as immutable historical inputs.
+- Validate complete candidate data before changing stored rankings.
+- Keep ranking transport, persistence, and UI representations behind typed domain boundaries.
+- Preserve deterministic overall ordering and recommendation behavior.
+- Support a small number of documented formats before generalizing source adapters.
+- Keep the Recommendation Engine pure, derived, and unaware of ranking origin.
+- Preserve existing manual, persisted, replay, and scenario workflows.
+- Keep the feature inside the existing monolith and deployment model.
+- Defer automated ingestion, advanced strategy, live providers, accounts, and ranking marketplaces to later phases.
