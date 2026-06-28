@@ -57,12 +57,14 @@ Establish the pure domain model and reusable invariant checks for mutable rankin
 
 ### Scope
 
-- Define a domain `RankingSet` with local identity, unique display name, source provenance, canonical entries, and lifecycle metadata.
+- Define a domain `RankingSet` with local identity, unique display name, source provenance, field-capability metadata, canonical entries, and lifecycle metadata.
 - Preserve the existing `RankingEntry` and `Player` shapes as the Draft State and Recommendation Engine compatibility seam.
 - Define lightweight ranking-set summaries without persistence or UI types.
 - Treat player identity as opaque and unique only within a ranking set or snapshot.
 - Define overall rank as contiguous canonical order and position rank as derived contiguous order within each position.
-- Define tiers as positive, position-local, non-decreasing values whose gaps remain meaningful.
+- Define the canonical unknown-team value and nullable ADP behavior without adding scoring signal.
+- Define tiers as positive, position-local, non-decreasing values whose source gaps remain meaningful and whose neutral fallback disables tier-cliff behavior.
+- Define capability states for team, identity, source order, position rank, ADP, and per-position tier availability.
 - Add pure invariant checks over already-canonical ranking values with structured domain failures.
 - Keep all new domain types and checks independent of Prisma, React, files, and transport formats.
 
@@ -77,8 +79,9 @@ Establish the pure domain model and reusable invariant checks for mutable rankin
 ### Acceptance Criteria
 
 - Canonical ranking sets can be represented without importing persistence, UI, or format-specific types.
-- Invariant checks reject empty sets, duplicate player IDs, invalid canonical ranks, unsupported positions, invalid ADP, and invalid tier progression.
+- Invariant checks reject empty sets, duplicate player IDs, invalid canonical ranks, unsupported positions, malformed supplied ADP, invalid tier progression, and capability metadata inconsistent with canonical values.
 - Position rank is demonstrably derived from overall order rather than independently authoritative.
+- A neutral per-position tier produces no tier-cliff signal, while the capability records that source tiers were unavailable.
 - Two ranking sets may contain unrelated identities without being merged.
 - Existing Draft State, Recommendation Engine, snapshot, and scenario code continues compiling against `RankingEntry[]`.
 
@@ -86,6 +89,7 @@ Establish the pure domain model and reusable invariant checks for mutable rankin
 
 - Unit tests for valid canonical sets and every set-wide invariant.
 - Unit tests for position-local tier progression and preserved tier gaps.
+- Unit tests for unknown team, nullable ADP, neutral tiers, and capability consistency.
 - Unit tests for canonical overall and position rank ordering.
 - Type boundary test proving domain code has no Prisma or React dependency.
 
@@ -105,8 +109,9 @@ Define the typed handoffs between import stages and freeze the supported source 
 - Define structured diagnostics with stage, stable code, severity, message, and optional document, row, or field location.
 - Define bounded transport-preflight input and failure contracts.
 - Freeze the FantasyPros CSV Profile V1 contract using the source profile already used for seed rankings.
-- Define accepted encoding, required and optional columns, null markers, supported aliases, tier interpretation, and maximum input size for that profile.
+- Define accepted encoding, required and optional columns, null markers, supported aliases, tier interpretation, missing-field fallbacks, and maximum input size for that profile.
 - Define Canonical Ranking Set JSON V1 as a separate versioned format profile.
+- Define the explicit field-capability/fallback matrix as part of the shared import contract.
 - Keep Ranking Set JSON distinct from Scenario V1 JSON.
 - Define a small explicit supported-format identifier set without runtime plugin discovery.
 
@@ -122,7 +127,7 @@ Define the typed handoffs between import stages and freeze the supported source 
 
 - Every import stage has one documented input and output contract.
 - Parsed source records cannot be passed directly to engines or repositories.
-- The FantasyPros CSV fixture contract is precise enough to implement without guessing headers or tier semantics.
+- The FantasyPros CSV fixture contract is precise enough to implement complete and missing-optional-column inputs without guessing headers, fallbacks, or tier semantics.
 - Unsupported format and version failures have stable diagnostic categories.
 - Canonical ranking JSON and Scenario V1 cannot be confused at the type or format-selection boundary.
 
@@ -131,6 +136,7 @@ Define the typed handoffs between import stages and freeze the supported source 
 - Compile-time fixtures for stage handoffs.
 - Unit tests for transport-preflight bounds and format selection.
 - Contract fixtures for the minimum and representative FantasyPros CSV documents.
+- Contract fixtures omitting team, tier, ADP, player ID, and position-rank columns where the matrix permits it.
 - Contract fixtures for supported and unsupported canonical versions.
 
 ---
@@ -150,6 +156,7 @@ Parse the exact FantasyPros CSV Profile V1 syntax into located source records wi
 - Identify required source columns and preserve optional supported source values.
 - Return source-shaped records with row and field locations.
 - Report malformed CSV, missing required columns, duplicate required columns, and unsupported source shape as parser diagnostics.
+- Preserve the absence of optional columns as source-shape information for normalization rather than treating it as a parser failure.
 - Ignore or warn about documented non-domain columns without adding them to canonical types.
 - Keep source strings unnormalized for the next stage.
 
@@ -167,6 +174,7 @@ Parse the exact FantasyPros CSV Profile V1 syntax into located source records wi
 - Quoted values and supported line endings parse correctly.
 - Malformed syntax and header problems return parser-stage diagnostics.
 - Source records retain enough original location data for later normalization and validation errors.
+- Missing optional columns reach normalization without invented values.
 - No parsed record is a `RankingEntry` or `RankingSet`.
 
 ### Suggested Tests
@@ -174,6 +182,7 @@ Parse the exact FantasyPros CSV Profile V1 syntax into located source records wi
 - Fixture tests for minimum and representative valid CSV files.
 - Tests for quoted commas, escaped quotes, blank lines, and supported line endings.
 - Tests for missing, duplicate, and unknown headers.
+- Tests distinguishing missing required columns from missing optional columns.
 - Tests proving source casing and raw numeric strings are preserved.
 
 ---
@@ -193,6 +202,7 @@ Parse Canonical Ranking Set JSON V1 into located source records without trusting
 - Validate only the format envelope needed to identify schema version, metadata, and entry locations.
 - Reject missing or unsupported schema versions clearly.
 - Preserve entry field values as parsed source data for shared normalization and validation.
+- Preserve field-capability metadata from the portable envelope without trusting it as accurate.
 - Distinguish ranking-set JSON from Scenario V1 and other JSON documents.
 - Preserve portable player IDs as source values without yet declaring them valid.
 
@@ -208,7 +218,7 @@ Parse Canonical Ranking Set JSON V1 into located source records without trusting
 
 - Valid JSON V1 produces deterministic located source records.
 - Malformed JSON, incorrect roots, missing versions, unsupported versions, and scenario-shaped documents fail at the parser boundary.
-- Portable metadata and entry values remain available to later stages.
+- Portable metadata, capability metadata, and entry values remain available to later stages.
 - Local ranking-set identity is not accepted as authoritative import identity.
 - Parsed JSON records cannot be passed directly to repositories or engines.
 
@@ -218,6 +228,7 @@ Parse Canonical Ranking Set JSON V1 into located source records without trusting
 - Tests for malformed JSON and unsupported versions.
 - Test proving Scenario V1 is rejected as ranking-set JSON.
 - Test proving explicit portable player IDs survive parsing unchanged.
+- Test proving capability metadata is parsed but not treated as validated domain data.
 
 ---
 
@@ -237,6 +248,9 @@ Convert either supported parsed source format into one source-neutral ranking ca
 - Preserve explicit canonical player IDs.
 - Generate deterministic source-local player ID candidates for the CSV profile when no identity is supplied.
 - Preserve position-local tier gaps and the profile's documented tier semantics.
+- Apply the explicit field matrix: unknown team for absent team data, `null` for absent ADP, derived position rank, and one neutral tier for every player at a position with missing or partial tiers.
+- Record complete, partial, generated, derived, source, or `defaulted-neutral` capability states as defined for each field.
+- Emit warnings for safe degradation while keeping missing optional values distinct from malformed supplied values.
 - Return normalization diagnostics for values that cannot be interpreted under a documented format policy.
 - Keep normalization pure and deterministic.
 
@@ -246,22 +260,26 @@ Convert either supported parsed source format into one source-neutral ranking ca
 - Do not assign local ranking-set identity.
 - Do not persist candidates.
 - Do not resolve ambiguous players against other ranking sets.
-- Do not silently infer missing tiers or ambiguous order.
+- Do not invent strategic tier cliffs, silently discard malformed supplied values, or guess ambiguous order.
 
 ### Acceptance Criteria
 
 - Both supported formats produce the same source-neutral candidate shape.
 - Identical source values produce identical normalized output and generated player ID candidates.
 - Unsupported aliases, ambiguous order, and identity collisions remain diagnosable rather than guessed.
+- Missing optional fields produce deterministic materialized fallbacks, capability states, and warning diagnostics.
+- Missing tiers neutralize the entire affected position rather than mixing source and fallback tiers.
 - Source locations survive normalization.
 - Normalized candidates remain distinct from canonical domain ranking sets.
 
 ### Suggested Tests
 
 - Table tests for team, position, numeric, null, and text normalization.
+- Matrix tests for every required, derived, defaultable, and unsupported field classification.
 - Cross-format test showing semantically equivalent inputs produce equivalent candidates.
 - Determinism tests for generated player identity candidates.
-- Tests for ambiguous aliases, missing tiers, and unusable source order.
+- Tests for missing team, tier, ADP, ID, and position-rank columns.
+- Tests distinguishing safe absence from malformed values, ambiguous aliases, and unusable source order.
 
 ---
 
@@ -279,6 +297,9 @@ Validate complete source-neutral candidates and return actionable diagnostics wi
 - Validate player identity candidates, names, team labels, supported positions, ranks, ADP, and tiers.
 - Reject duplicate or colliding player identities and ambiguous overall ordering.
 - Validate position-local tier progression while preserving meaningful gaps.
+- Validate field-capability states against source availability and materialized fallback values.
+- Require every `defaulted-neutral` position to contain one consistent neutral tier and no fabricated tier gaps.
+- Reject malformed supplied optional values even when the same field supports a fallback when absent.
 - Validate cross-record consistency and all reusable canonical entry invariants that can be established before conversion.
 - Accumulate independent row-level errors where safe.
 - Return an explicit validated-candidate result that is the only accepted input to domain conversion.
@@ -296,14 +317,17 @@ Validate complete source-neutral candidates and return actionable diagnostics wi
 
 - Invalid candidates cannot reach domain conversion through the typed public boundary.
 - Multiple independent semantic problems are returned in one result when safe.
-- Duplicate identities, invalid values, ambiguous order, and invalid tier progression identify relevant source locations.
+- Duplicate identities, invalid values, ambiguous order, invalid tier progression, and inconsistent capability metadata identify relevant source locations.
+- Complete and safely degraded candidates both validate, while malformed supplied optional data fails.
 - A valid but small ranking set can pass set validation and later fail draft compatibility.
 - Validation is pure and deterministic.
 
 ### Suggested Tests
 
 - Unit tests for every field and set-wide rule.
+- Tests for capability/value consistency and neutral tier positions.
 - Tests for multiple accumulated errors and stable diagnostic ordering.
+- Tests distinguishing absent optional data from malformed supplied data.
 - Tests distinguishing fatal normalization failures from validation failures.
 - Test proving league capacity is not part of ranking-set validity.
 
@@ -324,7 +348,7 @@ Create complete canonical `RankingSet` aggregates only from validated candidates
 - Assign contiguous overall ranks from validated source order.
 - Derive contiguous position ranks from canonical overall order.
 - Remove parser locations and format-specific fields.
-- Create canonical source provenance and lifecycle metadata.
+- Create canonical source provenance, field-capability metadata, and lifecycle metadata.
 - Recheck canonical domain invariants before returning the aggregate.
 - Guarantee that conversion does not mutate the validated candidate.
 
@@ -340,7 +364,7 @@ Create complete canonical `RankingSet` aggregates only from validated candidates
 
 - Validated inputs produce complete canonical ranking sets.
 - Final overall and position ranks are contiguous and deterministic.
-- Source rank gaps do not alter canonical ordinal rank, while tier gaps remain intact.
+- Source rank gaps do not alter canonical ordinal rank, while source tier gaps remain intact and defaulted positions remain neutral.
 - Create and explicit replacement workflows have unambiguous identity behavior.
 - The output passes the canonical invariant checker and contains no parser-specific data.
 
@@ -348,6 +372,7 @@ Create complete canonical `RankingSet` aggregates only from validated candidates
 
 - Exact conversion tests for both source formats.
 - Tests for canonical overall and position rank assignment.
+- Tests preserving capability states and neutral fallback values.
 - Tests for create versus replacement identity behavior.
 - Immutability test for validated input.
 
@@ -363,9 +388,10 @@ Serialize a valid domain ranking set into one deterministic, lossless, versioned
 
 ### Scope
 
-- Map domain ranking-set metadata and entries into Canonical Ranking Set JSON V1.
+- Map domain ranking-set metadata, field-capability metadata, and entries into Canonical Ranking Set JSON V1.
 - Include explicit player identities and every value used by the engines.
 - Preserve canonical entry order and tier gaps.
+- Preserve the provenance of derived and defaulted fields so re-import does not present fallbacks as source data.
 - Treat local set identity as optional non-authoritative provenance, never import identity.
 - Produce deterministic serialization for identical domain values.
 - Parse, normalize, validate, and convert exported files through the public import stages in tests.
@@ -381,7 +407,7 @@ Serialize a valid domain ranking set into one deterministic, lossless, versioned
 
 ### Acceptance Criteria
 
-- Export followed by the public import pipeline preserves all domain-relevant entry values and portable metadata.
+- Export followed by the public import pipeline preserves all domain-relevant entry values, portable metadata, and field-capability states.
 - Repeated serialization of the same set is deterministic.
 - The exported document is clearly distinguishable from Scenario V1.
 - Local repository identity is not reused automatically after import.
@@ -391,6 +417,7 @@ Serialize a valid domain ranking set into one deterministic, lossless, versioned
 
 - Exact serialization test for a representative set.
 - Semantic export/import round-trip test.
+- Round-trip test for a safely degraded set with unknown team, nullable ADP, and defaulted-neutral tiers.
 - Determinism test.
 - Test proving excluded state is absent.
 
@@ -409,8 +436,9 @@ Provide pure domain operations for supported ranking corrections, reordering, an
 - Support rename, supported player-field correction, overall reorder, tier assignment, and tier update intents.
 - Recalculate canonical overall and position ranks after ordering changes.
 - Validate the complete proposed set before returning an updated aggregate.
-- Preserve local ranking-set identity, source provenance, and creation metadata while updating lifecycle metadata.
+- Preserve local ranking-set identity, source provenance, and creation metadata while updating lifecycle and field-capability metadata.
 - Reject name, identity, position, ADP, order, and tier changes that would violate domain invariants.
+- Recompute or verify affected capability states after edits; completing valid tiers for a defaulted position may replace `defaulted-neutral` with explicit tier availability.
 - Return structured domain failures suitable for later application and UI feedback.
 - Keep operations immutable and deterministic.
 
@@ -428,6 +456,7 @@ Provide pure domain operations for supported ranking corrections, reordering, an
 - Failed edits leave the original set unchanged.
 - Reordering deterministically recalculates overall and position ranks.
 - Tier edits preserve position-local non-decreasing progression and meaningful gaps.
+- Field-capability metadata remains consistent after correction, reorder, and tier edits.
 - No operation can target a snapshot.
 
 ### Suggested Tests
@@ -435,6 +464,7 @@ Provide pure domain operations for supported ranking corrections, reordering, an
 - Unit tests for every supported edit intent.
 - Tests for rank recalculation after movement across positions.
 - Tests for valid and invalid tier changes.
+- Tests for capability transitions after filling previously defaulted tier data or ADP values.
 - Immutability and deterministic-output tests.
 
 ---
@@ -449,7 +479,7 @@ Add a dedicated repository boundary for creating, loading, and listing first-cla
 
 ### Scope
 
-- Add persistence capable of storing ranking-set metadata and individually addressable canonical entries.
+- Add persistence capable of storing ranking-set metadata, field-capability metadata, and individually addressable canonical entries.
 - Add a ranking-set repository that accepts and returns domain values only.
 - Create a complete validated set transactionally.
 - Load one complete set by local identity and reconstruct canonical ordering.
@@ -468,7 +498,7 @@ Add a dedicated repository boundary for creating, loading, and listing first-cla
 
 ### Acceptance Criteria
 
-- A canonical ranking set can be created and loaded without losing domain values or order.
+- A canonical ranking set can be created and loaded without losing domain values, capability states, or order.
 - Listing summaries does not load full entry collections.
 - Duplicate names return an explicit conflict without partial data.
 - Domain callers never receive persistence records or Prisma types.
@@ -480,6 +510,7 @@ Add a dedicated repository boundary for creating, loading, and listing first-cla
 - Summary projection test proving entries are not loaded.
 - Name-conflict and transaction rollback tests.
 - Real persistence integration test for one representative set.
+- Real persistence round trip for one safely degraded set.
 
 ---
 
@@ -495,6 +526,7 @@ Complete the mutable ranking-set repository lifecycle while preserving set-wide 
 
 - Replace an existing set with a complete validated aggregate using the same local identity.
 - Replace metadata and entries atomically so readers never observe a partial set.
+- Replace field-capability metadata in the same transaction as its canonical entries.
 - Delete a ranking set by identity.
 - Return explicit not-found and name-conflict outcomes.
 - Prove multiple ranking sets remain isolated through replacement and deletion.
@@ -513,6 +545,7 @@ Complete the mutable ranking-set repository lifecycle while preserving set-wide 
 
 - Successful replacement is all-or-nothing and preserves local set identity.
 - Failed replacement leaves the previously stored set unchanged.
+- Replacement cannot persist capability metadata inconsistent with canonical fallback values.
 - Deleting one set leaves other sets and all draft snapshots unchanged.
 - Not-found and name conflicts do not leak database errors.
 - Repository behavior remains deterministic for canonical inputs.
@@ -520,6 +553,7 @@ Complete the mutable ranking-set repository lifecycle while preserving set-wide 
 ### Suggested Tests
 
 - Transactional replacement and rollback tests.
+- Capability consistency test across replacement and reload.
 - Multiple-set isolation tests.
 - Delete and not-found tests.
 - Integration test proving draft snapshot survival after source deletion.
@@ -540,6 +574,7 @@ Make the existing seed rankings available through the Phase 5 domain and reposit
 - Run seed data through canonical domain invariant checks before persistence.
 - Make bootstrap idempotent so repeated startup or setup does not duplicate the set.
 - Preserve existing player identities, canonical order, ADP, position ranks, and tiers.
+- Record complete source capabilities for the fields supplied by the seed data.
 - Provide a clear failure if existing seed data violates the new domain contract.
 - Keep the seed asset as bootstrap input rather than the runtime source for every new draft.
 - Prove recommendations from the managed seed set match recommendations from the existing seed array for identical draft inputs.
@@ -555,7 +590,7 @@ Make the existing seed rankings available through the Phase 5 domain and reposit
 ### Acceptance Criteria
 
 - One managed seed ranking set exists after bootstrap, even when bootstrap runs repeatedly.
-- The managed set is domain-equivalent to the current seed data.
+- The managed set is domain-equivalent to the current seed data and records no neutral fallback where complete source data exists.
 - Existing deterministic recommendation outputs remain unchanged for equivalent inputs.
 - New runtime ranking selection can load the seed set through the repository.
 - Bootstrap failure is explicit and leaves no partial set.
@@ -582,6 +617,7 @@ Orchestrate preflight, format parsing, normalization, validation, domain convers
 - Accept import text, explicit supported format, desired set name, and create or explicit replacement intent.
 - Execute the public import stages in the documented order.
 - Stop at the failing stage and return structured diagnostics.
+- Return successful degradation warnings and computed capability states alongside the saved result.
 - Create a new local set by default.
 - Preserve local set identity only for an explicit authorized replacement.
 - Commit only a complete canonical domain aggregate through the ranking-set repository.
@@ -599,6 +635,7 @@ Orchestrate preflight, format parsing, normalization, validation, domain convers
 ### Acceptance Criteria
 
 - Valid CSV and canonical JSON imports create independent managed sets.
+- CSV imports with permitted missing optional fields succeed with deterministic fallbacks, capability metadata, and warnings.
 - Invalid import at any stage creates or replaces nothing.
 - Replacement requires explicit intent and preserves the target set's local identity.
 - Diagnostics retain stage and source location through the application boundary.
@@ -607,6 +644,7 @@ Orchestrate preflight, format parsing, normalization, validation, domain convers
 ### Suggested Tests
 
 - End-to-end application tests for both supported formats.
+- End-to-end import test for a source missing team, tier, ADP, ID, and position-rank columns.
 - Failure isolation test for each import stage.
 - Create-versus-replace identity tests.
 - Test proving an existing valid set survives failed replacement.
@@ -628,6 +666,7 @@ Expose repository-backed list, load, edit, delete, and canonical export operatio
 - Apply supported pure edit intents and persist only complete valid replacements.
 - Delete a ranking set without affecting snapshots.
 - Export a loaded valid set through the canonical serializer.
+- Preserve and return field-capability metadata for inspection and export.
 - Return structured not-found, conflict, validation, and persistence failures.
 - Keep application results free of persistence records and framework-specific state.
 
@@ -646,6 +685,7 @@ Expose repository-backed list, load, edit, delete, and canonical export operatio
 - Invalid edits and conflicts preserve the current stored set.
 - Delete leaves existing draft snapshots loadable.
 - Export is deterministic and performs no persistence mutation.
+- Editing and export never recast neutral fallback values as source-provided data.
 
 ### Suggested Tests
 
@@ -668,10 +708,12 @@ Create a pure snapshot boundary that copies canonical ranking entries and preser
 
 - Add or formalize pure snapshot creation from a valid `RankingSet` or validated ranking context.
 - Deep-copy every domain-relevant player and ranking value.
+- Copy field-capability metadata for inspection while keeping canonical entry values authoritative for scoring.
 - Keep source-set identity and name optional, non-authoritative provenance outside engine input.
 - Expose no snapshot update or refresh operation.
 - Preserve the current Phase 2 serialized ranking-array reader as a supported legacy representation.
 - Ensure Scenario V1 continues embedding complete canonical ranking entries.
+- Keep neutral tiers and nullable ADP materialized so Scenario V1 replay does not require capability metadata to reproduce recommendation behavior.
 - Reuse canonical ranking-entry validation between managed imports, snapshots, and scenarios without conflating their document rules.
 
 ### Non-Goals
@@ -685,6 +727,7 @@ Create a pure snapshot boundary that copies canonical ranking entries and preser
 ### Acceptance Criteria
 
 - Snapshot creation returns a complete value copy with no shared mutable player or entry objects.
+- New snapshots preserve capability metadata without making it an independent Recommendation Engine input.
 - Changing or deleting the source set cannot change the snapshot value.
 - Existing Phase 2 snapshots still parse and hydrate exactly.
 - Existing Scenario V1 files still validate and replay.
@@ -695,6 +738,7 @@ Create a pure snapshot boundary that copies canonical ranking entries and preser
 - Deep-copy and source-mutation tests.
 - Legacy snapshot parsing regression tests.
 - Scenario V1 validation and replay regression tests.
+- Replay regression proving a defaulted-neutral position produces no tier-cliff signal without scenario capability metadata.
 - Deterministic snapshot serialization test.
 
 ---
@@ -723,7 +767,7 @@ Create new drafts from an explicitly selected managed ranking set while preservi
 - Do not add draft-setup UI selection yet.
 - Do not edit or refresh an existing draft snapshot.
 - Do not persist source-set dependence in engine inputs.
-- Do not add ranking merge or fallback behavior.
+- Do not add ranking merge or new draft-time fallback behavior; all field fallbacks must already be materialized by import normalization.
 - Do not alter recommendation scoring.
 
 ### Acceptance Criteria
@@ -754,9 +798,11 @@ Allow a user to view managed ranking sets, import supported files, export a set,
 ### Scope
 
 - Display lightweight ranking-set summaries with name, source kind, entry count, and lifecycle metadata.
+- Surface concise capability status for missing team, ADP, and per-position tier data.
 - Add explicit FantasyPros CSV and Canonical JSON import choices.
 - Read selected local files and submit text to the application import workflow.
 - Display parser, normalization, validation, conflict, and persistence diagnostics with row or field locations when available.
+- Distinguish successful degradation warnings from import-blocking errors and explain which features are neutralized.
 - Refresh the library after successful import or deletion.
 - Export the selected set using the canonical JSON workflow.
 - Confirm destructive deletion and explain that existing draft snapshots remain unchanged.
@@ -774,6 +820,7 @@ Allow a user to view managed ranking sets, import supported files, export a set,
 
 - A user can import each supported format and see the resulting set in the library.
 - Invalid files show actionable stage-specific diagnostics and create no set.
+- Files missing permitted optional columns import successfully and clearly disclose their fallbacks.
 - A user can export canonical JSON and re-import it as an independent set.
 - Deleting a set removes it from the library without affecting existing drafts.
 - UI code performs no ranking normalization, validation, or export mapping.
@@ -783,6 +830,7 @@ Allow a user to view managed ranking sets, import supported files, export a set,
 - Component tests for summary loading and empty state.
 - Integration tests for successful CSV and JSON import.
 - Component tests for stage-specific diagnostics.
+- Component tests for capability badges and successful fallback warnings.
 - Export/re-import and delete-confirmation workflow tests.
 - Manual QA with one valid and one invalid source file.
 
@@ -800,10 +848,12 @@ Allow supported ranking corrections, reordering, and tier changes while keeping 
 
 - Load one complete ranking set from the application management workflow.
 - Display canonical order, position rank, player facts, ADP, and position-local tier.
+- Display whether each supported field is source-provided, derived, absent, or defaulted-neutral.
 - Collect rename, supported player-field correction, reorder, and tier-change intents.
 - Submit edits through pure domain operations and atomic application replacement.
 - Display structured validation and conflict failures without replacing the current valid view.
 - Refresh from the saved canonical aggregate after success.
+- Refresh capability states after edits, including replacement of neutral tier fallback with complete valid manual tiers.
 - Clearly distinguish mutable ranking sets from immutable draft snapshots.
 
 ### Non-Goals
@@ -819,6 +869,7 @@ Allow supported ranking corrections, reordering, and tier changes while keeping 
 - Supported edits persist and reload as a valid canonical ranking set.
 - Reordering displays domain-derived overall and position ranks after save.
 - Invalid tier or player edits return useful feedback and preserve stored data.
+- Capability provenance remains accurate and visible after successful edits.
 - Existing drafts created from earlier set values remain unchanged.
 - UI contains no duplicated domain validation or rank calculations.
 
@@ -827,6 +878,7 @@ Allow supported ranking corrections, reordering, and tier changes while keeping 
 - Component tests for loading and displaying canonical values.
 - Integration tests for rename, reorder, correction, and tier edits.
 - Failure tests for invalid tiers, conflicts, and stale not-found targets.
+- Tests for capability-state changes after completing missing tier or ADP data.
 - Snapshot-isolation regression after editing a source set.
 
 ---
@@ -845,6 +897,7 @@ Allow the user to choose which managed ranking set will anchor a new draft.
 - Require an explicit valid ranking-set selection.
 - Default to the managed seed set when available without hard-coding its entries into draft creation.
 - Show set name, source kind, and player count needed to make a useful selection.
+- Show a concise warning when the selected set has neutralized tier positions or missing optional data without blocking draft creation.
 - Surface league-capacity incompatibility before or during authoritative creation validation.
 - Submit ranking-set identity to the shared draft-creation application workflow.
 - Preserve cancel behavior and existing in-progress-draft confirmation.
@@ -863,6 +916,7 @@ Allow the user to choose which managed ranking set will anchor a new draft.
 - A user can create two drafts from different sets and receive the corresponding deterministic recommendations.
 - The managed seed set provides a quick default path.
 - Missing, deleted, or insufficient ranking sets produce clear failures without partial draft creation.
+- Safely degraded sets remain selectable and produce deterministic recommendations from their materialized canonical values.
 - Refresh and resume continue using each draft's captured snapshot.
 - Draft setup UI passes identity only and contains no ranking-copy logic.
 
@@ -887,9 +941,11 @@ Prove Phase 5 meets its success criteria without regressing deterministic draft,
 
 - Run focused and full automated validation across domain, import, persistence, application, snapshot, draft, replay, and UI boundaries.
 - Confirm FantasyPros CSV and Canonical JSON contracts with frozen fixtures.
+- Confirm every field-capability matrix row with complete, missing, and malformed source fixtures as applicable.
 - Confirm import/export semantic round trips and deterministic serialization.
 - Confirm invalid imports and edits never partially replace stored data.
 - Confirm multiple-set isolation, tier management, and atomic lifecycle behavior.
+- Confirm neutral team, ADP, and tier fallbacks never fabricate recommendation evidence and remain visible through export, persistence, snapshots, and UI.
 - Confirm source edits and deletion do not affect existing draft snapshots or Scenario V1 replay.
 - Confirm legacy Phase 2 snapshots and existing persisted drafts still load.
 - Confirm recommendation output remains deterministic for identical draft and snapshot inputs.
@@ -908,6 +964,7 @@ Prove Phase 5 meets its success criteria without regressing deterministic draft,
 
 - Every Phase 5 task acceptance criterion is satisfied.
 - Both supported import profiles pass exact positive and negative fixtures.
+- Permitted missing-column imports succeed with exact warnings, capability states, and canonical fallback values; malformed supplied values fail.
 - A canonical export/import round trip preserves domain-relevant ranking values.
 - At least two managed sets remain isolated through import, edit, selection, and deletion.
 - Existing drafts and scenarios remain usable after their source set changes or is deleted.
@@ -919,6 +976,7 @@ Prove Phase 5 meets its success criteria without regressing deterministic draft,
 - Run the full automated suite and project validation commands.
 - Complete a real persistence round trip for a managed set and selected draft snapshot.
 - Run existing curated scenarios before and after managed ranking changes.
+- Compare complete-source recommendations with safely degraded inputs and verify only unavailable signals are neutralized.
 - Complete the Phase 5 manual QA checklist.
 - Compare exact recommendation output for repeated identical snapshot inputs.
 
