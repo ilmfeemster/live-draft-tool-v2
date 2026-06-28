@@ -3,6 +3,10 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AvailablePlayersTable } from "@/components/AvailablePlayersTable";
+import {
+  DeveloperWorkbenchPanel,
+  type WorkbenchStatus,
+} from "@/components/DeveloperWorkbenchPanel";
 import { DraftSetupForm } from "@/components/DraftSetupForm";
 import { DraftStatusPanel } from "@/components/DraftStatusPanel";
 import { RecommendationsPanel } from "@/components/RecommendationsPanel";
@@ -17,7 +21,23 @@ import type {
   LeagueSetupInput,
   LeagueSetupValidationError,
 } from "@/lib/leagueSetup";
+import {
+  curatedScenarioCatalog,
+  type CuratedScenarioId,
+} from "@/lib/curatedScenarios";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
+import { exportWorkspaceToScenarioV1 } from "@/lib/scenarioPortability";
+import {
+  createTransientScenarioSession,
+  draftPlayerInTransientSession,
+  requiresTransientSessionConfirmation,
+  resetTransientScenarioSession,
+  restartTransientSession,
+  type TransientDraftSession,
+  type TransientSessionLoadResult,
+  undoLastPickInTransientSession,
+} from "@/lib/scenarioSession";
+import { serializeScenarioV1 } from "@/lib/scenarioSerialization";
 import type {
   Draft,
   LeagueSettings,
@@ -31,6 +51,11 @@ type DraftRoomProps = {
   rankings: RankingEntry[];
 };
 
+type TransientSource =
+  | { kind: "curated"; id: CuratedScenarioId }
+  | { kind: "imported"; fileName: string }
+  | { kind: "restart" };
+
 export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   const router = useRouter();
   const [activeDraft, setActiveDraft] = useState<Draft>(draft);
@@ -40,24 +65,35 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
     LeagueSetupValidationError[]
   >([]);
   const [draftSetupFormError, setDraftSetupFormError] = useState<string | null>(null);
+  const [transientSession, setTransientSession] =
+    useState<TransientDraftSession | null>(null);
+  const [transientSource, setTransientSource] =
+    useState<TransientSource | null>(null);
+  const [workbenchErrors, setWorkbenchErrors] = useState<string[]>([]);
+  const [isWorkbenchPending, setIsWorkbenchPending] = useState(false);
+
+  const displayedDraft = transientSession?.draft ?? activeDraft;
+  const activeRankings = transientSession?.rankings ?? rankings;
+  const activeLeagueSettings = transientSession?.leagueSettings ?? leagueSettings;
+  const isAnyPending = isMutationPending || isWorkbenchPending;
 
   const draftedPlayerIds = useMemo(() => {
     return new Set(
-      activeDraft.picks
+      displayedDraft.picks
         .map((pick) => pick.playerId)
         .filter((playerId): playerId is string => Boolean(playerId)),
     );
-  }, [activeDraft.picks]);
+  }, [displayedDraft.picks]);
 
   const availableRankings = useMemo(() => {
-    return rankings.filter((entry) => !draftedPlayerIds.has(entry.player.id));
-  }, [draftedPlayerIds, rankings]);
+    return activeRankings.filter((entry) => !draftedPlayerIds.has(entry.player.id));
+  }, [activeRankings, draftedPlayerIds]);
 
   const userRosterPlayers = useMemo<UserRosterPlayer[]>(() => {
-    return activeDraft.picks
-      .filter((pick) => pick.teamId === activeDraft.userTeamId && pick.playerId)
+    return displayedDraft.picks
+      .filter((pick) => pick.teamId === displayedDraft.userTeamId && pick.playerId)
       .map((pick) => {
-        const ranking = rankings.find((entry) => entry.player.id === pick.playerId);
+        const ranking = activeRankings.find((entry) => entry.player.id === pick.playerId);
 
         if (!ranking) {
           return undefined;
@@ -72,9 +108,9 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
       })
       .filter((player): player is NonNullable<typeof player> => Boolean(player))
       .sort((a, b) => a.pickNumber - b.pickNumber);
-  }, [activeDraft.picks, activeDraft.userTeamId, rankings]);
+  }, [activeRankings, displayedDraft.picks, displayedDraft.userTeamId]);
 
-  const recommendations = useMemo(() => {
+  const persistedRecommendations = useMemo(() => {
     return generatePlayerRecommendations({
       draft: activeDraft,
       rankings,
@@ -82,22 +118,31 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
       userTeamId: activeDraft.userTeamId,
     });
   }, [activeDraft, leagueSettings, rankings]);
+  const recommendations =
+    transientSession?.recommendations ?? persistedRecommendations;
 
-  const currentPick = activeDraft.picks.find(
-    (pick) => pick.pickNumber === activeDraft.currentPickNumber,
+  const currentPick = displayedDraft.picks.find(
+    (pick) => pick.pickNumber === displayedDraft.currentPickNumber,
   );
-  const isUserPick = currentPick?.teamId === activeDraft.userTeamId;
-  const totalPicks = activeDraft.teamCount * activeDraft.rounds;
+  const isUserPick = currentPick?.teamId === displayedDraft.userTeamId;
+  const totalPicks = displayedDraft.teamCount * displayedDraft.rounds;
   const isDraftComplete =
-    activeDraft.picks.length === totalPicks &&
-    activeDraft.picks.every((pick) => Boolean(pick.playerId));
-  const canUndoLastPick = draftedPlayerIds.size > 0 && !isMutationPending;
-  const isResetDisabled = isMutationPending;
-  const isNewDraftDisabled = isMutationPending;
-  const areDraftActionsDisabled = isDraftComplete || isMutationPending;
+    displayedDraft.picks.length === totalPicks &&
+    displayedDraft.picks.every((pick) => Boolean(pick.playerId));
+  const canUndoLastPick = draftedPlayerIds.size > 0 && !isAnyPending;
+  const isResetDisabled = isAnyPending;
+  const isNewDraftDisabled = isAnyPending;
+  const areDraftActionsDisabled = isDraftComplete || isAnyPending;
 
   async function draftPlayer(playerId: string) {
-    if (isMutationPending) {
+    if (isAnyPending) {
+      return;
+    }
+
+    if (transientSession) {
+      setTransientSession(
+        draftPlayerInTransientSession(transientSession, playerId),
+      );
       return;
     }
 
@@ -117,7 +162,12 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   }
 
   async function undoLastPick() {
-    if (isMutationPending) {
+    if (isAnyPending) {
+      return;
+    }
+
+    if (transientSession) {
+      setTransientSession(undoLastPickInTransientSession(transientSession));
       return;
     }
 
@@ -137,7 +187,17 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   }
 
   async function resetDraft() {
-    if (isMutationPending) {
+    if (isAnyPending) {
+      return;
+    }
+
+    if (transientSession?.kind === "scenario") {
+      resetScenario();
+      return;
+    }
+
+    if (transientSession?.kind === "manual") {
+      restartConfiguration();
       return;
     }
 
@@ -165,11 +225,22 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   }
 
   function openDraftSetup() {
-    if (isMutationPending) {
+    if (isAnyPending) {
       return;
     }
 
-    const isInProgressDraft = draftedPlayerIds.size > 0 && !isDraftComplete;
+    if (
+      transientSession &&
+      requiresTransientSessionConfirmation(transientSession, "replace") &&
+      !window.confirm(
+        "Start a new draft? Unexported transient changes will be lost after creation.",
+      )
+    ) {
+      return;
+    }
+
+    const isInProgressDraft =
+      !transientSession && draftedPlayerIds.size > 0 && !isDraftComplete;
 
     if (isInProgressDraft) {
       const shouldCreateDraft = window.confirm(
@@ -186,7 +257,7 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   }
 
   function closeDraftSetup() {
-    if (isMutationPending) {
+    if (isAnyPending) {
       return;
     }
 
@@ -200,7 +271,7 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   }
 
   async function createConfiguredDraft(input: LeagueSetupInput) {
-    if (isMutationPending) {
+    if (isAnyPending) {
       return;
     }
 
@@ -224,6 +295,200 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
     }
   }
 
+  function shouldReplaceTransientSession() {
+    if (
+      transientSession &&
+      requiresTransientSessionConfirmation(transientSession, "replace")
+    ) {
+      return window.confirm(
+        "Replace this transient session? Unexported local changes will be lost.",
+      );
+    }
+
+    return true;
+  }
+
+  function installScenarioSession(
+    sourceJson: string,
+    source: Exclude<TransientSource, { kind: "restart" }>,
+  ) {
+    const result = createTransientScenarioSession(sourceJson);
+
+    if (!result.ok) {
+      setWorkbenchErrors(formatSessionFailure(result));
+      return false;
+    }
+
+    setTransientSession(result.session);
+    setTransientSource(source);
+    setWorkbenchErrors([]);
+    return true;
+  }
+
+  function selectCuratedScenario(id: CuratedScenarioId) {
+    if (isAnyPending || !shouldReplaceTransientSession()) {
+      return;
+    }
+
+    setWorkbenchErrors([]);
+    const entry = curatedScenarioCatalog.find((candidate) => candidate.id === id);
+
+    if (!entry) {
+      setWorkbenchErrors([`Curated scenario ${id} is unavailable.`]);
+      return;
+    }
+
+    installScenarioSession(entry.json, { kind: "curated", id });
+  }
+
+  async function importScenarioFile(file: File) {
+    if (isAnyPending || !shouldReplaceTransientSession()) {
+      return;
+    }
+
+    setIsWorkbenchPending(true);
+    setWorkbenchErrors([]);
+
+    try {
+      const sourceJson = await file.text();
+      installScenarioSession(sourceJson, {
+        kind: "imported",
+        fileName: file.name,
+      });
+    } catch (error) {
+      console.error("Failed to read a scenario file.", error);
+      setWorkbenchErrors(["Unable to read the selected scenario file."]);
+    } finally {
+      setIsWorkbenchPending(false);
+    }
+  }
+
+  function exportScenario() {
+    if (isAnyPending) {
+      return;
+    }
+
+    setWorkbenchErrors([]);
+
+    try {
+      const activeScenario =
+        transientSession?.kind === "scenario" ? transientSession.scenario : null;
+      const scenario = exportWorkspaceToScenarioV1(
+        {
+          draft: displayedDraft,
+          rankings: activeRankings,
+          leagueSettings: activeLeagueSettings,
+        },
+        {
+          name: activeScenario?.metadata.name,
+          provenance: {
+            sourceKind:
+              transientSession?.kind === "scenario"
+                ? "scenario"
+                : transientSession?.kind === "manual"
+                  ? "manual"
+                  : "persisted",
+            sourceId: activeScenario?.metadata.id ??
+              (transientSession ? undefined : activeDraft.id),
+            exportedAt: new Date().toISOString(),
+          },
+        },
+      );
+      const json = serializeScenarioV1(scenario);
+      const blob = new Blob([json], { type: "application/json" });
+      const objectUrl = URL.createObjectURL(blob);
+
+      try {
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download = `${sanitizeFileName(scenario.metadata.name)}.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    } catch (error) {
+      console.error("Failed to export the active draft.", error);
+      setWorkbenchErrors(["Unable to export the active draft."]);
+    }
+  }
+
+  function resetScenario() {
+    if (isAnyPending || transientSession?.kind !== "scenario") {
+      return;
+    }
+
+    if (
+      requiresTransientSessionConfirmation(transientSession, "reset") &&
+      !window.confirm(
+        "Reset this scenario? Unexported local changes will be lost.",
+      )
+    ) {
+      return;
+    }
+
+    setWorkbenchErrors([]);
+    const result = resetTransientScenarioSession(transientSession);
+
+    if (!result.ok) {
+      setWorkbenchErrors(formatSessionFailure(result));
+      return;
+    }
+
+    setTransientSession(result.session);
+  }
+
+  function restartConfiguration() {
+    if (isAnyPending || !transientSession) {
+      return;
+    }
+
+    if (
+      requiresTransientSessionConfirmation(transientSession, "restart") &&
+      !window.confirm(
+        "Restart this configuration? Unexported local changes will be lost.",
+      )
+    ) {
+      return;
+    }
+
+    setTransientSession(restartTransientSession(transientSession));
+    setTransientSource({ kind: "restart" });
+    setWorkbenchErrors([]);
+  }
+
+  const selectedCuratedScenarioId =
+    transientSession?.kind === "scenario" && transientSource?.kind === "curated"
+      ? transientSource.id
+      : "";
+  const workbenchStatus: WorkbenchStatus = transientSession
+    ? {
+        mode:
+          transientSession.kind === "scenario"
+            ? "scenario"
+            : "transient-manual",
+        name:
+          transientSession.kind === "scenario"
+            ? transientSession.scenario.metadata.name
+            : "Restarted Configuration",
+        source: formatTransientSource(transientSource),
+        replayTarget:
+          transientSession.kind === "scenario"
+            ? transientSession.scenario.replayTarget.appliedPickCount
+            : null,
+        appliedPickCount: draftedPlayerIds.size,
+        isDirty: transientSession.isDirty,
+      }
+    : {
+        mode: "persisted",
+        name: activeDraft.id,
+        source: "Persisted workspace",
+        replayTarget: null,
+        appliedPickCount: draftedPlayerIds.size,
+        isDirty: false,
+      };
+
   if (isDraftSetupOpen) {
     return (
       <DraftSetupForm
@@ -239,34 +504,85 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   }
 
   return (
-    <div className="grid min-h-0 gap-6 xl:grid-cols-[1fr_320px]">
-      <div className="flex min-h-0 flex-col gap-6">
-        <RecommendationsPanel
-          isDraftComplete={areDraftActionsDisabled}
-          isUserPick={isUserPick}
-          recommendations={recommendations}
-          onDraftPlayer={draftPlayer}
-        />
-        <AvailablePlayersTable
-          isDraftComplete={areDraftActionsDisabled}
-          rankings={availableRankings}
-          onDraftPlayer={draftPlayer}
-        />
-      </div>
-      <div className="flex flex-col gap-6">
-        <DraftStatusPanel
-          draft={activeDraft}
-          canUndoLastPick={canUndoLastPick}
-          isNewDraftDisabled={isNewDraftDisabled}
-          isResetDisabled={isResetDisabled}
-          isDraftComplete={isDraftComplete}
-          isUserPick={isUserPick}
-          onCreateNewDraft={openDraftSetup}
-          onResetDraft={resetDraft}
-          onUndoLastPick={undoLastPick}
-        />
-        <UserRosterPanel players={userRosterPlayers} />
+    <div className="grid gap-6">
+      <DeveloperWorkbenchPanel
+        status={workbenchStatus}
+        selectedCuratedScenarioId={selectedCuratedScenarioId}
+        errors={workbenchErrors}
+        isPending={isAnyPending}
+        canResetScenario={transientSession?.kind === "scenario"}
+        canRestartTransient={Boolean(transientSession)}
+        onSelectCuratedScenario={selectCuratedScenario}
+        onImportFile={importScenarioFile}
+        onExport={exportScenario}
+        onResetScenario={resetScenario}
+        onRestartTransient={restartConfiguration}
+      />
+
+      <div className="grid min-h-0 gap-6 xl:grid-cols-[1fr_320px]">
+        <div className="flex min-h-0 flex-col gap-6">
+          <RecommendationsPanel
+            isDraftComplete={areDraftActionsDisabled}
+            isUserPick={isUserPick}
+            recommendations={recommendations}
+            onDraftPlayer={draftPlayer}
+          />
+          <AvailablePlayersTable
+            isDraftComplete={areDraftActionsDisabled}
+            rankings={availableRankings}
+            onDraftPlayer={draftPlayer}
+          />
+        </div>
+        <div className="flex flex-col gap-6">
+          <DraftStatusPanel
+            draft={displayedDraft}
+            canUndoLastPick={canUndoLastPick}
+            isNewDraftDisabled={isNewDraftDisabled}
+            isResetDisabled={isResetDisabled}
+            isDraftComplete={isDraftComplete}
+            isUserPick={isUserPick}
+            onCreateNewDraft={openDraftSetup}
+            onResetDraft={resetDraft}
+            onUndoLastPick={undoLastPick}
+          />
+          <UserRosterPanel players={userRosterPlayers} />
+        </div>
       </div>
     </div>
   );
+}
+
+function formatSessionFailure(
+  result: Extract<TransientSessionLoadResult, { ok: false }>,
+): string[] {
+  if (result.stage === "validation") {
+    return result.errors.map((error) => `${error.path}: ${error.message}`);
+  }
+
+  return [`Pick ${result.error.pickIndex + 1}: ${result.error.message}`];
+}
+
+function formatTransientSource(source: TransientSource | null): string {
+  if (!source) {
+    return "Transient session";
+  }
+
+  switch (source.kind) {
+    case "curated":
+      return `Curated: ${source.id}`;
+    case "imported":
+      return `Imported file: ${source.fileName}`;
+    case "restart":
+      return "Restarted transient configuration";
+  }
+}
+
+function sanitizeFileName(value: string): string {
+  const sanitized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return sanitized || "draft-scenario";
 }

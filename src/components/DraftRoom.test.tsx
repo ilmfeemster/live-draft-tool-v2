@@ -60,6 +60,12 @@ describe("DraftRoom loaded workspace recommendations", () => {
     );
 
     expect(markup).not.toContain("New Draft Setup");
+    expect(markup).toContain("Developer Workbench");
+    expect(markup).toContain("Persisted Draft");
+    expect(markup).toContain("Persisted workspace");
+    expect(markup).toContain("Not applicable");
+    expect(markup).toContain("Export Scenario");
+    expect(markup).not.toContain("Transient Scenario");
 
     expect(repository.getDraftWorkspaceById).toHaveBeenCalledWith(
       persistedWorkspace.draft.id,
