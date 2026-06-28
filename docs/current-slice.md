@@ -1,295 +1,311 @@
-# Current Slice: Add Recommendation Diagnostics and Debugger
+# Current Slice: Add Transient Scenario Sessions and Reset/Restart
 
 ## Source Context
 
-Phase 4 Task 9: Add Recommendation Diagnostics and Debugger.
+Phase 4 Task 10: Add Transient Scenario Sessions and Reset/Restart.
 
-Tasks 1 through 8 are complete. Manual, hydrated persisted, replayed, imported, and curated draft states all converge on the same pure Recommendation Engine. Existing `PlayerRecommendation` output already includes ranking data, base score, context score, final total, raw components, evidence, and score-backed reasons. The remaining reconciliation gap is that urgency and context caps can change the applied score without exposing those adjustments.
+Tasks 1 through 9 are complete. Scenario JSON can be validated, replayed, imported, exported, selected from a curated library, and inspected through engine-owned recommendation diagnostics. Existing DraftRoom manual and hydrated persisted sessions still use server actions and repository mutations. This slice adds the pure transient session model that Task 11 will connect to workbench controls.
 
-The current `RecommendationsPanel` already receives the engine's authoritative ordered array from `DraftRoom`. This slice can add a read-only native-details debugger there without new state, routing, or DraftRoom orchestration.
+The persistence boundary must remain explicit: transient scenario and restarted-manual sessions use only existing pure draft transitions in memory. They never call the repository or server actions. Persisted DraftRoom behavior is not changed in this slice.
 
 ## Goal
 
-Make every recommendation total arithmetically reconcilable from engine-owned structured output and display that output in a compact read-only debugger while preserving scoring, reasons, and returned order exactly.
+Add a pure discriminated transient-session model that supports local pick/undo exploration, baseline-aware dirty tracking, scenario reset through fresh validation/replay, zero-pick restart with the same configuration, and a reusable confirmation policy for Task 11.
 
 ## Scope
 
 ### Goals
 
-- Add a small structured score-adjustment type to recommendation output.
-- Expose urgency-cap adjustment only when raw urgency exceeds its configured cap.
-- Expose context-cap adjustment only when raw context exceeds its positive or negative configured bound.
-- Ensure raw component deltas plus adjustment deltas reconcile to the final total.
-- Preserve all existing component values, evidence, reasons, totals, and ordering.
-- Add an expandable read-only diagnostics section to each existing recommendation card.
-- Display returned position, ranking/tie-break values, base score, context subtotal, final total, raw components, cap adjustments, and exact engine reasons.
-- Keep positive, neutral, and negative component/adjustment values visible.
-- Make the debugger available automatically for existing manual and hydrated persisted DraftRoom workflows.
-- Add focused engine and static-render component coverage.
+- Create a transient scenario session from successful JSON import.
+- Retain the source JSON and normalized scenario needed for later reset/export/UI context.
+- Store current draft, rankings, league settings, recommendations, baseline draft, and dirty status.
+- Route local pick and undo through `draftPlayerInDraft` and `undoLastDraftPick`.
+- Recompute recommendations after every accepted local transition.
+- Mark a session dirty only when its current draft differs from its baseline.
+- Clear dirty status when local transitions return exactly to the baseline.
+- Reset a scenario by reparsing and replaying its retained source JSON.
+- Restart either transient mode at a fresh zero-pick draft with the same settings, rankings, and user-team identity.
+- Return restart as a transient manual session, not a scenario-target session.
+- Expose a small dirty-only confirmation policy for reset, restart, and replacement.
+- Preserve validation/replay failure data during initial load and reset.
+- Prove the module has no persistence or action dependencies.
 
 ### Non-Goals
 
-- Recalculating totals, caps, reasons, or recommendation order in React.
-- Changing scoring weights, tuning defaults, cap behavior, comparator behavior, or reason selection.
-- Adding a new tie-break model.
-- Sorting or filtering recommendations in the UI.
-- Editing weights, live tuning, strategy profiles, or recommendation inputs.
-- AI-generated explanations or new recommendation factors.
-- Persisting or exporting diagnostics or recommendations.
-- Scenario-session UI, selectors, import/export controls, reset, or restart.
-- Redesigning the Draft Room or recommendation cards.
-- Adding package dependencies or a disclosure component library.
-- Beginning Phase 4 Task 10.
+- Integrating sessions into `DraftRoom` or React state.
+- Adding scenario selector, file import/export controls, reset/restart buttons, labels, or layout.
+- Calling `window.confirm` inside domain/session code.
+- Calling server actions, repositories, Prisma, or database APIs.
+- Autosaving transient sessions or adding persistence tables.
+- Converting a transient restart into a persisted draft.
+- Changing existing persisted pick, undo, reset, new-draft, or confirmation behavior.
+- Global `beforeunload`, navigation blocking, crash recovery, or session recovery.
+- Caching a reset snapshot as the authoritative reset mechanism.
+- Changing scenario, replay, portability, Draft State, or Recommendation Engine behavior.
+- Adding a state-management or package dependency.
+- Beginning Phase 4 Task 11.
 
-## Engine Output Contract
+## Public Session Boundary
 
-Update `src/types/draft.ts` with:
+Add `src/lib/scenarioSession.ts`.
+
+Use public types equivalent to:
 
 ```ts
-export type RecommendationScoreAdjustmentId =
-  | "urgency_cap"
-  | "context_cap";
+export const TRANSIENT_MANUAL_DRAFT_ID = "transient-manual" as const;
 
-export type RecommendationScoreAdjustment = {
-  id: RecommendationScoreAdjustmentId;
-  delta: number;
-  direction: RecommendationScoreComponentDirection;
-  evidence: {
-    rawScore: number;
-    adjustedScore: number;
-    minScore?: number;
-    maxScore?: number;
-  };
+export type TransientSessionCore = {
+  draft: Draft;
+  baselineDraft: Draft;
+  rankings: RankingEntry[];
+  leagueSettings: LeagueSettings;
+  recommendations: PlayerRecommendation[];
+  isDirty: boolean;
 };
+
+export type TransientScenarioSession = TransientSessionCore & {
+  kind: "scenario";
+  sourceJson: string;
+  scenario: ScenarioV1;
+};
+
+export type TransientManualSession = TransientSessionCore & {
+  kind: "manual";
+};
+
+export type TransientDraftSession =
+  | TransientScenarioSession
+  | TransientManualSession;
+
+export type TransientSessionLoadResult =
+  | { ok: true; session: TransientScenarioSession }
+  | Extract<ImportScenarioV1Result, { ok: false }>;
+
+export type TransientSessionResetResult = TransientSessionLoadResult;
+
+export type TransientDestructiveAction =
+  | "reset"
+  | "restart"
+  | "replace";
+
+export function createTransientScenarioSession(
+  sourceJson: string,
+): TransientSessionLoadResult;
+
+export function draftPlayerInTransientSession(
+  session: TransientDraftSession,
+  playerId: string,
+): TransientDraftSession;
+
+export function undoLastPickInTransientSession(
+  session: TransientDraftSession,
+): TransientDraftSession;
+
+export function resetTransientScenarioSession(
+  session: TransientScenarioSession,
+): TransientSessionResetResult;
+
+export function restartTransientSession(
+  session: TransientDraftSession,
+): TransientManualSession;
+
+export function requiresTransientSessionConfirmation(
+  session: TransientDraftSession,
+  action: TransientDestructiveAction,
+): boolean;
 ```
 
-Add this required field to `PlayerRecommendation`:
+Local naming may vary narrowly, but keep one discriminated union and avoid classes, reducers, contexts, or event frameworks.
+
+## Session Creation
+
+`createTransientScenarioSession` should:
+
+1. Call `importScenarioV1Json(sourceJson)`.
+2. Return validation or replay failures unchanged when import fails.
+3. On success, create a `kind: "scenario"` session.
+4. Store the original `sourceJson` exactly for future reset.
+5. Store the normalized imported `scenario`.
+6. Use imported scenario rankings and league settings.
+7. Use the replayed target draft and recommendations as current values.
+8. Retain the replayed target draft as `baselineDraft` for dirty comparison only.
+9. Set `isDirty` to `false`.
+
+Do not serialize the normalized scenario back over the original JSON. Reset must exercise the same raw source and import boundary again.
+
+The shared `draft`/`baselineDraft` reference is safe at creation because existing transitions are immutable. Do not deep-clone merely to create a second reference.
+
+## Local Pick and Undo
+
+### Pick
+
+`draftPlayerInTransientSession` should:
+
+1. Call `draftPlayerInDraft(session.draft, playerId)` exactly once.
+2. If the returned draft is the same reference, return the original session unchanged.
+3. Otherwise recompute recommendations from the next draft, session rankings, session settings, and next draft user-team ID.
+4. Return the same session kind and source context with updated draft/recommendations.
+5. Recalculate dirty status by comparing the next draft with `baselineDraft`.
+
+The function must not pre-validate player availability with a second draft-rule implementation.
+
+### Undo
+
+`undoLastPickInTransientSession` follows the same pattern with `undoLastDraftPick`:
+
+- Same-reference no-op returns the original session.
+- Accepted undo recomputes recommendations.
+- Dirty status reflects divergence from the baseline, not merely whether an action occurred.
+
+This means:
+
+- Undoing a baseline scenario pick makes the scenario dirty.
+- Re-applying the same player through the canonical transition can return the session to a clean baseline.
+- Adding and then undoing an exploratory pick can return the session to clean.
+- A restarted manual session becomes dirty after a pick and clean again when that pick is undone.
+
+## Baseline Equality
+
+Add one private draft equality helper used only for dirty tracking.
+
+Compare complete typed draft value relevant to the session:
+
+- Draft ID.
+- Team count and rounds.
+- User-team ID.
+- Current pick number.
+- Team identities/order.
+- Generated pick fields/order and assigned player IDs.
+
+A direct deterministic structural comparison such as `JSON.stringify(left) === JSON.stringify(right)` is acceptable because both values are trusted normalized in-memory `Draft` objects with stable property order and no cycles.
+
+Do not compare recommendations for dirtiness. They are derived from draft state and ranking context.
+
+## Reset Scenario
+
+`resetTransientScenarioSession` accepts only `TransientScenarioSession` and must:
+
+1. Call `createTransientScenarioSession(session.sourceJson)`.
+2. Re-run byte checks, parsing, validation, and full deterministic replay.
+3. On success, return a newly reconstructed clean scenario session.
+4. On failure, return the original validation/replay failure shape and no replacement session.
+
+Do not restore `baselineDraft`, cached recommendations, or `scenario` directly. Those fields support comparison and display but are not the reset authority.
+
+This design lets Task 11 keep the active session unchanged when reset fails.
+
+## Restart Configured Draft
+
+`restartTransientSession` accepts either transient session kind and must:
+
+1. Create a fresh draft with `hydrateDraftFromSettings` using:
+   - `TRANSIENT_MANUAL_DRAFT_ID`.
+   - The active session's league settings.
+   - The active draft's user-team ID.
+   - No pick history.
+2. Recompute recommendations using the full active ranking snapshot.
+3. Return `kind: "manual"`.
+4. Set both current draft and baseline draft to the fresh zero-pick value.
+5. Preserve rankings and league settings as typed values.
+6. Set `isDirty` to `false`.
+7. Drop scenario-only source JSON and metadata from the returned type.
+
+Restart does not mutate or delete a persisted draft and does not call persisted reset. It creates an isolated transient manual workspace.
+
+## Confirmation Policy
+
+`requiresTransientSessionConfirmation` provides policy only; Task 11 owns the native prompt and whether an action proceeds.
+
+- `restart` and `replace` return `session.isDirty` for either transient kind.
+- `reset` returns `session.isDirty` for a scenario session.
+- `reset` returns `false` for a transient manual session because scenario reset is not an available operation in that mode.
+- Clean sessions return `false`.
+
+Do not store confirmation state in the session or invoke browser APIs.
+
+## Recommendation Recalculation
+
+Use one private helper equivalent to:
 
 ```ts
-scoreAdjustments: RecommendationScoreAdjustment[];
+generatePlayerRecommendations({
+  draft,
+  rankings: session.rankings,
+  leagueSettings: session.leagueSettings,
+  userTeamId: draft.userTeamId,
+});
 ```
 
-Use the existing direction vocabulary:
+Use it after accepted pick, accepted undo, and restart. Scenario reset receives freshly recomputed recommendations from the existing import/replay path.
 
-- Positive delta -> `positive`.
-- Negative delta -> `negative`.
-- Zero delta -> `neutral`, although zero adjustments are not emitted.
+Do not reuse stale recommendations or calculate availability/rosters in the session module.
 
-The adjustment collection is engine-owned derived output. It is not added to scenario data, persistence, or export.
+## Persistence Boundary
 
-## Adjustment Semantics
+`src/lib/scenarioSession.ts` may import only pure domain/scenario modules and types needed for:
 
-Update `generatePlayerRecommendations` in `src/lib/recommendations.ts` without changing scoring results.
+- Draft hydration.
+- Draft pick/undo transitions.
+- Recommendation generation.
+- Scenario import.
 
-### Urgency Cap
+It must not import:
 
-Define:
+- `draftRepository` or repository mapping.
+- Server actions.
+- Prisma.
+- React or Next.js navigation.
+- Browser APIs.
 
-```text
-raw urgency = tier_cliff + positional_scarcity + positional_run
-applied urgency = min(raw urgency, maxUrgencyScore)
-urgency adjustment = applied urgency - raw urgency
-```
-
-When the adjustment is non-zero, emit:
-
-```ts
-{
-  id: "urgency_cap",
-  delta: appliedUrgency - rawUrgency,
-  direction: "negative",
-  evidence: {
-    rawScore: rawUrgency,
-    adjustedScore: appliedUrgency,
-    maxScore: tuning.maxUrgencyScore,
-  },
-}
-```
-
-Do not modify the raw urgency component deltas. Their original values remain the evidence for why the cap was needed.
-
-### Context Cap
-
-After applying the urgency cap, define:
-
-```text
-raw context = roster_fit + applied urgency + value_opportunity
-applied context = clamp(raw context, min context, max context)
-context adjustment = applied context - raw context
-```
-
-When the adjustment is non-zero, emit:
-
-```ts
-{
-  id: "context_cap",
-  delta: appliedContext - rawContext,
-  direction: delta > 0 ? "positive" : "negative",
-  evidence: {
-    rawScore: rawContext,
-    adjustedScore: appliedContext,
-    minScore: tuning.maxNegativeContextScore,
-    maxScore: tuning.maxPositiveContextScore,
-  },
-}
-```
-
-A positive adjustment is expected when a negative raw context is raised to the configured minimum; it is still a cap/floor reconciliation adjustment rather than a strategic bonus.
-
-### Ordering and Reconciliation
-
-Store adjustments in applied calculation order:
-
-1. `urgency_cap`, when present.
-2. `context_cap`, when present.
-
-For every recommendation:
-
-```text
-sum(recommendation.components[].delta)
-+ sum(recommendation.scoreAdjustments[].delta)
-= recommendation.totalScore
-```
-
-Use tolerance only for unavoidable floating-point comparison in tests. Do not round engine values or change score calculation order to make display arithmetic prettier.
-
-Reasons continue to be selected from raw scoring components exactly as today. Adjustments do not generate reasons in this slice, and existing reason content/order must remain unchanged.
-
-## Read-Only Debugger
-
-Update `src/components/RecommendationsPanel.tsx` rather than adding DraftRoom state or a separate route.
-
-For each recommendation card, retain the existing rank badge, player identity, score, reasons, and Draft button. Add a native `<details>` block below the existing reason chips with summary text `Score details`.
-
-The expanded content should display engine-owned values only.
-
-### Ordering and Ranking Context
-
-- `Returned #<index + 1>` from the existing mapped array position.
-- Player ID.
-- Overall rank.
-- Position rank.
-
-The returned position is display-only. Do not sort a copied array or reproduce `comparePlayerRecommendations`.
-
-### Score Summary
-
-- Final total from `totalScore`.
-- Base value from `baseScore`.
-- Applied context subtotal from `contextScore`.
-
-Use consistent numeric formatting, preferably two decimal places in diagnostics. Keep the existing one-decimal summary score unchanged.
-
-### Raw Components
-
-Render every `components` entry in its engine-provided order with:
-
-- Component ID.
-- Signed raw delta.
-- Direction.
-- Evidence as compact key/value rows when present.
-
-Do not hide zero or negative components. Negative roster/timing/value components are the current penalty representation and must remain inspectable.
-
-Formatting evidence keys and primitive values is allowed. Do not interpret evidence into new strategic claims.
-
-### Cap Adjustments
-
-- Render every `scoreAdjustments` entry in engine order with ID, signed delta, direction, raw score, adjusted score, and configured bound evidence.
-- When the array is empty, render `No cap adjustments.`.
-- Label this section `Cap adjustments` so it cannot be confused with scoring factors.
-
-### Score-Backed Reasons
-
-- Render the existing `reasons` array in its engine order.
-- Show reason ID, source component ID, and exact reason text.
-- When there are no reasons, render `No score-backed reasons.`.
-
-Do not create debugger-only explanations or modify reason text.
-
-## Presentation Constraints
-
-- Use semantic HTML (`details`, `summary`, lists, definition-style labels) and existing Tailwind utilities.
-- Keep the debugger visually subordinate to the existing recommendation and Draft action.
-- Keep it read-only: no inputs, sliders, toggles that change values, or mutation callbacks.
-- A native disclosure is sufficient; do not add component state or a dependency.
-- Add small local formatting helpers only for signed numeric display and evidence primitive rendering.
-- Formatting helpers must not sum scores, infer caps, or calculate rank/order.
+Existing persisted workflows remain untouched because this slice does not modify `DraftRoom`, actions, loaders, or repositories.
 
 ## Testing Strategy
 
-### Engine Tests
+Add `src/lib/scenarioSession.test.ts` with small scenarios loaded through the public JSON path. Reuse a curated scenario where useful and build focused typed fixtures only where a specific transition is easier to observe.
 
-Extend `src/lib/recommendations.test.ts`.
+### Required Test Cases
 
-Required cases:
+1. Successful import creates a clean `kind: scenario` session at the declared target with normalized source context and recommendations.
+2. Validation and replay failures remain staged and create no session.
+3. A local scenario pick uses the canonical transition, updates recommendations, remains transient, and marks dirty.
+4. A rejected/no-op local pick returns the original session reference.
+5. Undo uses the canonical transition and recomputes recommendations.
+6. Adding then undoing an exploratory pick returns exactly to the baseline and clears dirty status.
+7. Undoing a baseline pick marks dirty; re-applying the same player restores the baseline and clears dirty status.
+8. Reset after exploration reparses/replays source JSON and returns the exact declared target, recommendations, and clean status.
+9. Reset does not trust a mutated/corrupted cached `baselineDraft`; successful output still comes from source JSON.
+10. Reset failure returns validation/replay errors and no partial replacement session.
+11. Restart from a scenario produces a zero-pick `kind: manual` session with the same settings, rankings, user-team identity, full availability implied by draft state, and fresh recommendations.
+12. Restart from an already transient manual session returns a new clean zero-pick baseline.
+13. A restarted manual session becomes dirty after a local pick and clean after undo.
+14. Dirty scenario reset/restart/replacement require confirmation; clean equivalents do not.
+15. Dirty transient manual restart/replacement require confirmation; manual reset does not.
+16. Repository/server-action spies or injected fakes remain untouched throughout local pick, undo, reset, and restart tests.
+17. Existing persisted DraftRoom action tests continue to pass unchanged.
 
-1. An uncapped recommendation returns `scoreAdjustments: []`.
-2. An urgency-capped recommendation exposes exact raw, adjusted, max, and negative delta values.
-3. A positive context cap exposes the correct negative adjustment and bounds.
-4. A negative context floor exposes the correct positive adjustment and bounds.
-5. A case where both urgency and context caps apply emits both adjustments in calculation order.
-6. For capped and uncapped recommendations, component delta sum plus adjustment delta sum equals final total within floating-point tolerance.
-7. Existing `totalScore`, `baseScore`, `contextScore`, component values, recommendation order, and reasons remain unchanged.
-
-Use the existing cap-oriented fixtures and tuning overrides near the current context/urgency tests rather than creating a parallel test harness.
-
-### Component Tests
-
-Add `src/components/RecommendationsPanel.test.tsx` using the existing `renderToStaticMarkup` strategy.
-
-Build a small `PlayerRecommendation[]` fixture containing:
-
-- At least one positive component.
-- At least one negative component/penalty.
-- An urgency-cap adjustment.
-- A context-cap adjustment.
-- A score-backed reason.
-
-Assert that markup includes:
-
-- Recommendations in supplied order and returned positions.
-- Existing visible summary scores and reason text.
-- `Score details`, player/ranking values, total/base/context values.
-- Raw positive and negative deltas.
-- Both cap IDs and their evidence values.
-- Exact reason ID, source component ID, and text.
-- Draft buttons retain existing enabled/disabled behavior.
-- No-cap and no-reason fallback text in a second fixture/state.
-
-Static rendering does not need to simulate expanding `<details>`; its child markup is rendered and directly assertable.
-
-Existing `DraftRoom.test.tsx` already proves the loaded persisted workspace preserves engine ordering, displayed score, and reasons. Do not modify it unless the required `PlayerRecommendation` type addition creates a direct compile failure there.
+Tests should compare transition results with direct `draftPlayerInDraft`/`undoLastDraftPick` output and exact Recommendation Engine output, proving reuse rather than parallel behavior.
 
 ## Implementation Steps
 
-1. Add `RecommendationScoreAdjustment` types and required `scoreAdjustments` output to `src/types/draft.ts`.
-2. Update `generatePlayerRecommendations` to calculate and emit non-zero urgency/context adjustments without changing totals, components, reasons, or sorting.
-3. Extend `src/lib/recommendations.test.ts` with adjustment, reconciliation, and unchanged-output coverage.
-4. Extend `src/components/RecommendationsPanel.tsx` with the native read-only diagnostics disclosure while preserving existing cards and actions.
-5. Add `src/components/RecommendationsPanel.test.tsx` for ordering, positive/negative values, caps, evidence, reasons, fallbacks, and button states.
-6. Run focused engine, scenario, curated, panel, and DraftRoom tests, then the full suite, lint, and TypeScript validation.
-7. If all acceptance criteria and validation pass, check only Phase 4 Task 9 complete in `docs/tasks.md`. Do not begin Task 10.
+1. Add `src/lib/scenarioSession.ts` with the discriminated session types, public creation/transition/reset/restart/policy functions, private draft equality, and recommendation helper.
+2. Add `src/lib/scenarioSession.test.ts` with public import, transition equivalence, dirty-baseline, fresh reset, restart, confirmation, failure, and no-persistence coverage.
+3. Run focused session, portability, replay, curated, Draft State, workflow, DraftRoom, action, and repository tests, then the full suite, lint, and TypeScript validation.
+4. If all acceptance criteria and validation pass, check only Phase 4 Task 10 complete in `docs/tasks.md`. Do not begin Task 11.
 
 ## Expected Files
 
-- `src/types/draft.ts`
-- `src/lib/recommendations.ts`
-- `src/lib/recommendations.test.ts`
-- `src/components/RecommendationsPanel.tsx`
-- `src/components/RecommendationsPanel.test.tsx`
-- `docs/tasks.md` only to mark Phase 4 Task 9 complete after validation passes
+- `src/lib/scenarioSession.ts`
+- `src/lib/scenarioSession.test.ts`
+- `docs/tasks.md` only to mark Phase 4 Task 10 complete after validation passes
 
-Five production/test files plus the completion checkbox are expected. No DraftRoom production change is needed because it already passes current manual and hydrated recommendations into the panel.
-
-Do not modify scenario contracts/data, replay, portability, persistence, actions, Prisma, or other Draft Room components. If the existing panel cannot display the engine-owned output without calculating domain values, stop and report the missing structured field rather than duplicating logic in the UI.
+Do not modify `DraftRoom`, components, actions, repositories, Prisma, scenario contracts/data, replay, portability, Draft State, Recommendation Engine, or domain types. If the session cannot be expressed by composing those existing public functions, stop and report the exact contract conflict rather than expanding scope.
 
 ## Automated Validation
 
 Run from the repository root in this order:
 
 ```text
-npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/curatedScenarios.test.ts src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx
+npm test -- src/lib/scenarioSession.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioReplay.test.ts src/lib/curatedScenarios.test.ts src/lib/draftState.test.ts src/lib/draftWorkflow.test.ts src/components/DraftRoom.test.tsx src/app/actions/draftActions.test.ts src/lib/draftRepository.test.ts
 npm test
 npm run lint
 npx tsc --noEmit
@@ -297,49 +313,50 @@ npx tsc --noEmit
 
 Expected result:
 
-- Focused engine, scenario, curated, panel, and DraftRoom tests pass.
+- Focused transient-session and persisted-workflow regression tests pass.
 - The full Vitest suite passes.
 - ESLint exits successfully with no errors or warnings.
 - TypeScript no-emit validation exits successfully.
 - No dependency or lockfile change is introduced.
 
-No browser or database manual QA is required because the debugger uses server-renderable semantic markup over already-tested engine output. Automated render coverage is sufficient for this read-only slice.
+No browser or database manual QA is required because this slice adds a pure unintegrated session boundary. Task 11 will own UI confirmation and workbench interaction QA.
 
 ## Acceptance Criteria
 
-- Every recommendation includes an engine-owned `scoreAdjustments` collection.
-- Uncapped recommendations expose an empty collection.
-- Urgency and positive/negative context caps expose exact non-zero reconciliation adjustments only when applied.
-- Raw components remain unchanged and visible.
-- Component deltas plus adjustment deltas reconcile to the final total.
-- Existing scores, reasons, deterministic ordering, and recommendation behavior are unchanged.
-- Every recommendation card exposes a read-only `Score details` disclosure.
-- The debugger displays returned position, player/ranking context, final/base/context scores, all raw components, negative penalties, cap adjustments, evidence, and exact reasons.
-- The UI preserves the engine array order and performs no scoring, cap, reason, or comparator logic.
-- Manual and hydrated persisted DraftRoom recommendations automatically receive the debugger.
-- Diagnostics are neither persisted nor exported.
-- No tuning controls, package dependency, route, or Draft Room redesign is introduced.
+- Successful scenario import creates a clean transient scenario session at its declared target.
+- Local transient picks and undo use existing pure Draft State transitions and recompute recommendations.
+- Dirty status represents actual divergence from the appropriate baseline and clears when state returns to it.
+- Reset reparses and replays retained source JSON rather than restoring cached state.
+- Reset failure exposes structured failure and no partial replacement session.
+- Restart creates a clean zero-pick transient manual session with the same settings, rankings, and user-team identity.
+- Restarted sessions use a deterministic transient ID and no persisted identity.
+- Dirty destructive reset/restart/replacement actions require confirmation; clean actions proceed without it.
+- Transient operations import no repository, action, Prisma, React, Next.js, or browser code and cause no persistence writes.
+- Existing persisted manual/hydrated workflows and confirmations remain unchanged.
+- Recommendations are deterministic and current after pick, undo, reset, and restart.
+- No autosave, recovery system, package dependency, or final workbench UI is introduced.
 - Focused tests, the full suite, lint, and TypeScript validation pass.
-- Only Phase 4 Task 9 is checked complete after implementation validation.
-- Task 10 is not started.
+- Only Phase 4 Task 10 is checked complete after implementation validation.
+- Task 11 is not started.
 
 ## Failure Handling
 
-- If raw components and adjustments do not reconcile, fix adjustment calculation in the Recommendation Engine; do not patch totals in the UI.
-- If adding `scoreAdjustments` changes order, reasons, or totals, stop and correct the engine refactor before proceeding.
-- If a diagnostic value is unavailable, add only the smallest engine-owned structured field justified by the acceptance criteria; do not infer it from React state.
-- If static markup cannot cover interactive disclosure toggling, assert its semantic markup and read-only contents; do not add a browser test dependency.
+- If import or reset fails, return its existing staged failure shape; do not convert it into an empty or partial session.
+- If a local transition returns the same draft reference, preserve the original session and recommendations.
+- If dirty comparison cannot be deterministic over normalized `Draft`, stop and define a small explicit field comparison; do not compare recommendations or UI state.
+- If restart would require persisted data not present in the session, report the missing typed input rather than reading the repository.
+- If a focused test reveals an existing persisted-flow regression, stop and report it instead of changing persisted semantics in this slice.
 - If automated validation exposes an unrelated failure, report it without expanding scope.
 
 ## Follow-Up Slice
 
-After this slice is implemented and reviewed, plan Phase 4 Task 10: Add Transient Scenario Session, Reset, Restart, and Dirty-State Behavior. Do not begin it automatically.
+After this slice is implemented and reviewed, plan Phase 4 Task 11: Integrate the Focused Developer Workbench Controls. Do not begin it automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. One engine diagnostic collection closes arithmetic gaps, and one native disclosure makes it usable without workbench orchestration.
-- Concrete enough for implementation: yes. Types, formulas, ordering, evidence, UI fields, tests, files, and commands are explicit.
-- Avoids unnecessary architecture changes: yes. It extends existing derived output and existing recommendation cards without new state or routes.
-- Blast radius reasonable: yes. Two engine/type files, two focused tests, and one existing component are changed/added; the task checkbox is documentation-only completion tracking.
-- Review/revert comfort: yes. The scoring path remains behaviorally identical and the UI addition is isolated and read-only.
-- Observable/testable acceptance criteria: yes. Exact adjustment evidence, reconciliation, unchanged ordering/reasons, and rendered diagnostics are directly asserted.
+- Smallest meaningful increment: yes. It establishes the transient state/persistence boundary and reset/restart semantics before adding controls.
+- Concrete enough for implementation: yes. Session types, creation, transitions, equality, reset authority, restart, confirmation policy, tests, files, and commands are explicit.
+- Avoids unnecessary architecture changes: yes. One pure module composes existing functions without React state libraries, repositories, or event abstractions.
+- Blast radius reasonable: yes. One production module, one focused test, and the completion checkbox are expected.
+- Review/revert comfort: yes. The slice is additive, synchronous, pure, and not connected to existing persisted UI behavior.
+- Observable/testable acceptance criteria: yes. Exact session state, reference behavior, dirty transitions, fresh replay, zero restart, confirmation policy, recommendations, and persistence isolation are directly asserted.
