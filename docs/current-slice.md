@@ -66,7 +66,7 @@ Record exact test-file/test counts and each command result in the handoff. A fai
 
 ### 3. Phase 4 Manual QA Record
 
-Create `docs/manual-phase-4-qa.md` as the durable exit-validation record. It should contain:
+Create `docs/qa/manual-phase-4-qa.md` as the durable exit-validation record. It should contain:
 
 - date;
 - commit or branch;
@@ -126,7 +126,7 @@ The checklist should be executable in the following order so temporary state is 
 
 #### F. Manual Draft and Invariants
 
-- Re-run the existing default full-draft workflow in `docs/manual-full-draft-qa.md`, recording new Phase 4 evidence in `docs/manual-phase-4-qa.md` rather than overwriting the historical checklist.
+- Re-run the existing default full-draft workflow in `docs/qa/manual-full-draft-qa.md`, recording new Phase 4 evidence in `docs/qa/manual-phase-4-qa.md` rather than overwriting the historical checklist.
 - Confirm a player exists in exactly one location, drafted players are unavailable, available players are not rostered, drafted count matches pick progression, each drafted player belongs to one team, undo restores valid state, and recommendations contain only available players.
 - Confirm the final pick completes the draft and blocks extra picks without a crash or stale recommendation/roster state.
 
@@ -139,12 +139,12 @@ Only after the acceptance audit, automated gates, and every required manual chec
 - retain the note that Phase 3's prior manual evidence was covered by the Phase 4 exit regression;
 - do not change the active phase in `docs/project.md` or plan Phase 5 in the same slice.
 
-If any required criterion fails, leave Task 12 unchecked, record the failure in `docs/manual-phase-4-qa.md`, and report the smallest recommended correction slice.
+If any required criterion fails, leave Task 12 unchecked, record the failure in `docs/qa/manual-phase-4-qa.md`, and report the smallest recommended correction slice.
 
 ## Implementation Steps
 
 1. Audit Tasks 1 through 11 against existing automated coverage, accepted focused QA, and the planned Phase 4 manual checklist.
-2. Create `docs/manual-phase-4-qa.md` with the evidence fields and ordered checklist above.
+2. Create `docs/qa/manual-phase-4-qa.md` with the evidence fields and ordered checklist above.
 3. Run the full automated suite, lint, TypeScript, Prisma schema validation, and production build.
 4. Complete and record the Phase 4 manual QA checklist, including the default full-draft regression.
 5. Review the resulting diff and dependency/lockfile status to confirm validation introduced no production or dependency changes.
@@ -153,7 +153,7 @@ If any required criterion fails, leave Task 12 unchecked, record the failure in 
 
 ## Expected Files
 
-- `docs/manual-phase-4-qa.md`
+- `docs/qa/manual-phase-4-qa.md`
 - `docs/tasks.md` only after all validation passes
 
 No production source, tests, package manifest, lockfile, architecture, decisions, project-scope, or roadmap changes are expected.
