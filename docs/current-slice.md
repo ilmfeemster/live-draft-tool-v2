@@ -1,354 +1,371 @@
-# Current Slice: Convert Validated Candidates into Canonical Ranking Sets
+# Current Slice: Export Canonical Ranking Set JSON V1
 
 ## Completion Status
 
-Complete. Validated candidates now convert into canonical `RankingSet` aggregates through explicit create or replacement lifecycle requests. Conversion assigns contiguous overall and derived position ranks, preserves player values, tier gaps, fallbacks, provenance, and capabilities, removes import-only fields, owns new nested values and dates, and rechecks the final aggregate with `validateRankingSet`. Validation passed with 15 focused conversion tests, 449 full-suite tests, TypeScript checking, and focused and repository-wide linting.
+Planned and awaiting approval. No implementation has started.
 
 ## Source Context
 
-Phase 5 Tasks 1 through 6 are complete:
+Phase 5 Tasks 1 through 7 are complete:
 
-- `RankingSet`, canonical entries, source provenance, capabilities, and lifecycle metadata are defined;
-- reusable canonical domain validation exists in `validateRankingSet`;
-- both supported V1 formats cross explicit preflight, parsing, and normalization boundaries;
-- normalized candidates retain source order, source-only diagnostics, materialized fallbacks, and capability states;
-- complete-candidate validation rejects malformed values, identity/order collisions, invalid tier progression, and inconsistent capabilities;
-- successful candidate validation returns the existing `ValidatedRankingCandidate` wrapper required by conversion.
+- canonical `RankingSet` aggregates and domain invariants are defined;
+- Canonical Ranking Set JSON V1 transport types, profile, and parser exist;
+- both supported import formats normalize into one candidate contract;
+- complete candidates validate before conversion;
+- validated candidates convert into canonical aggregates with local lifecycle identity and deterministic ranks;
+- canonical imports preserve source provenance and declared capabilities while ignoring portable local identity;
+- import preflight enforces valid UTF-8, a fixed 1 MiB input limit, and a 1,000-entry format limit.
 
-This slice promotes Phase 5 Task 7 only. It is the boundary where validated source-neutral data becomes a canonical domain aggregate. It assigns local lifecycle values and canonical ranks, removes import-only fields, and rechecks the final aggregate without persisting it.
+This slice promotes Phase 5 Task 8 only. It adds the inverse portable boundary for canonical domain values: validate, map, and serialize one `RankingSet` as deterministic Canonical Ranking Set JSON V1 that can traverse the existing public import stages without losing domain-relevant values.
 
 ## Goal
 
-Convert a validated ranking candidate into a complete canonical `RankingSet` for either an explicit create or replacement workflow, assigning deterministic contiguous ranks and lifecycle values while preserving domain-relevant source data, fallbacks, capabilities, identity, and tier gaps.
+Serialize a valid canonical `RankingSet` into deterministic, bounded, versioned Canonical Ranking Set JSON V1, preserving every engine-relevant entry value and provenance capability while excluding local lifecycle, draft, recommendation, parser, persistence, and UI state.
 
 ## Scope
 
 ### Goals
 
-- Add one conversion entry point that accepts only `ValidatedRankingCandidate`.
-- Support exactly two explicit conversion workflows: create and replace.
-- Require caller-issued local identity and lifecycle timestamps so conversion remains deterministic, repository-free, and clock-free.
-- Assign a newly allocated caller-supplied local ID for create workflows.
-- Preserve the caller-supplied existing local ID and original creation time only for replacement workflows.
-- Sort a copied view of candidate entries by validated source order.
-- Assign contiguous overall ranks from 1 through the entry count.
-- Derive contiguous position ranks from canonical overall order.
-- Preserve player identity, normalized name, team, position, ADP, tier values, and source tier gaps.
-- Preserve materialized `UNKNOWN_TEAM`, null ADP, and `NEUTRAL_TIER` fallbacks.
-- Copy source provenance and capability metadata into new domain-owned values.
-- Remove source index, source order, supplied source-position rank, record location, and field locations from canonical entries.
-- Recheck the completed aggregate with `validateRankingSet` before returning it.
-- Map any final canonical invariant failure into stable convert-stage diagnostics.
-- Guarantee that conversion does not mutate or alias mutable nested values from the validated candidate or conversion request.
-- Add exact tests for create, replace, rank assignment, source formats, fallbacks, lifecycle failures, invariant recheck, and immutability.
-- Check Phase 5 Task 7 complete only after all validation passes.
+- Add one pure Canonical Ranking Set JSON V1 exporter.
+- Require an explicit export timestamp so serialization remains deterministic and clock-free.
+- Optionally include the local ranking-set ID as non-authoritative `sourceRankingSetId` provenance.
+- Validate the domain aggregate with `validateRankingSet` before export.
+- Enforce the existing portable entry-count and UTF-8 byte limits before returning success.
+- Map the exact V1 envelope in a frozen property order.
+- Preserve ranking-set name, source provenance, capabilities, canonical entry order, player identity, player values, ADP, position ranks, and tier gaps.
+- Preserve `UNKNOWN_TEAM`, null ADP, `NEUTRAL_TIER`, and `defaulted-neutral` provenance exactly.
+- Serialize source and export dates as ISO strings.
+- Produce compact JSON with identical bytes for deeply equal ranking sets and equal export requests.
+- Return the typed portable document, serialized text, and UTF-8 byte length.
+- Build new transport objects without mutating or sharing nested domain objects.
+- Prove complete and safely degraded export/import round trips through public preflight, parser, normalizer, candidate validator, and converter stages.
+- Prove optional local identity is never reused automatically after import.
+- Check Phase 5 Task 8 complete only after all validation passes.
 
 ### Non-Goals
 
-- Parsing, normalizing, validating, repairing, or defaulting an unvalidated candidate.
-- Generating UUIDs or reading the clock inside conversion.
-- Proving that a create ID is unused or that a replacement ID exists in persistence.
-- Persisting, loading, listing, replacing, or deleting a ranking set.
-- Enforcing case-insensitive ranking-set name uniqueness.
+- Exporting FantasyPros CSV or Scenario V1.
+- Adding automatic format selection or a serializer registry.
+- Reading files, choosing file names, triggering downloads, or adding UI.
+- Querying repositories or persistence.
+- Generating export timestamps inside the exporter.
+- Persisting raw export documents.
+- Importing the export implicitly or replacing an existing ranking set.
 - Reusing portable `sourceRankingSetId` as local identity.
-- Preserving source rank gaps as canonical overall-rank magnitude.
-- Recomputing or changing capability states.
-- Changing tier values, compressing tier gaps, or inventing tier cliffs.
-- Creating a draft snapshot or validating league capacity.
-- Refactoring the canonical validator, import stages, engines, scenarios, persistence, or UI.
-- Adding dependencies, ID factories, repositories, or generic conversion infrastructure.
+- Exporting local `createdAt` or `updatedAt` lifecycle timestamps.
+- Exporting recommendations, drafts, league settings, scenarios, raw source records, diagnostics, source locations, or UI state.
+- Recomputing canonical ranks, capabilities, fallbacks, tiers, or provenance.
+- Repairing an invalid ranking set to make it exportable.
+- Adding dependencies, migrations, generated code, or transport abstractions.
 
 ## Implementation Design
 
-### Public API and Workflow Requests
+### Public API
 
-Add `src/lib/rankingSetConversion.ts` with:
+Add `src/lib/canonicalRankingJsonExporter.ts` with:
 
 ```ts
-type RankingSetCreateConversionRequest = Readonly<{
-  workflow: "create";
-  rankingSetId: string;
-  timestamp: Date;
+type CanonicalRankingJsonExportRequest = Readonly<{
+  exportedAt: Date;
+  includeSourceRankingSetId?: boolean;
 }>;
 
-type RankingSetReplaceConversionRequest = Readonly<{
-  workflow: "replace";
-  rankingSetId: string;
-  createdAt: Date;
-  timestamp: Date;
+type CanonicalRankingJsonExportValue = Readonly<{
+  document: CanonicalRankingSetDocumentV1;
+  text: string;
+  byteLength: number;
 }>;
 
-type RankingSetConversionRequest =
-  | RankingSetCreateConversionRequest
-  | RankingSetReplaceConversionRequest;
+type CanonicalRankingJsonExportErrorCode =
+  | "invalid-export-date"
+  | "invalid-export-option"
+  | "invalid-ranking-set"
+  | "entry-limit-exceeded"
+  | "output-too-large";
 
-convertValidatedRankingCandidate(
-  validatedCandidate: ValidatedRankingCandidate,
-  request: RankingSetConversionRequest,
-): RankingImportStageResult<
-  ConvertedRankingSet,
-  RankingSetConversionDiagnosticCode
->
+type CanonicalRankingJsonExportError = Readonly<{
+  code: CanonicalRankingJsonExportErrorCode;
+  message: string;
+  path?: string;
+}>;
+
+type CanonicalRankingJsonExportResult =
+  | Readonly<{
+      ok: true;
+      value: CanonicalRankingJsonExportValue;
+    }>
+  | Readonly<{
+      ok: false;
+      errors: readonly CanonicalRankingJsonExportError[];
+    }>;
+
+exportCanonicalRankingSetJson(
+  rankingSet: RankingSet,
+  request: CanonicalRankingJsonExportRequest,
+): CanonicalRankingJsonExportResult
 ```
 
-The application boundary will eventually allocate local IDs and timestamps. This converter only assigns the explicit values it receives. It must not import persistence, call `crypto.randomUUID`, call `Date.now`, or create a current timestamp implicitly.
+Keep export results separate from `RankingImportStageResult`. Export is not one of the staged import transitions, and adding a fictional import stage would blur the existing pipeline contract.
 
-For create:
+The exporter must not call `Date.now`, allocate a timestamp, access the filesystem, or query persistence.
 
-- `rankingSetId` is the newly allocated local identity;
-- `createdAt` and `updatedAt` both copy `timestamp`.
+### Request and Domain Validation
 
-For replace:
+Validate in this order:
 
-- `rankingSetId` is the existing local identity to preserve;
-- `createdAt` copies the existing aggregate's original creation time;
-- `updatedAt` copies `timestamp`;
-- `timestamp` must not be earlier than `createdAt`.
+1. `request.exportedAt` is a valid `Date`;
+2. when present, `includeSourceRankingSetId` is a boolean;
+3. `validateRankingSet(rankingSet)` succeeds;
+4. entry count is no greater than `RANKING_IMPORT_LIMITS.maxEntries`;
+5. serialized UTF-8 output is no greater than `RANKING_IMPORT_LIMITS.maxBytes`.
 
-Do not add these workflow request types to `src/types/rankingImport.ts`; they belong to the conversion operation and are exported beside it.
+Map each ordered canonical domain failure to `invalid-ranking-set`, preserving its message and path. Return no partial export when any error exists.
 
-### Conversion Diagnostics
+A ranking set may satisfy domain invariants yet exceed the portable format limits because domain collection and string sizes are not transport concerns. Such a set fails export explicitly rather than producing a document that public preflight or parsing cannot re-import.
 
-Define `RankingSetConversionDiagnosticCode` as:
+Do not trim, default, reorder, or mutate valid domain values during validation.
 
-- `invalid-validated-candidate`
-- `invalid-workflow`
-- `invalid-ranking-set-id`
-- `invalid-lifecycle-date`
-- `invalid-lifecycle-order`
-- `canonical-invariant-failed`
+### Frozen Document Mapping
 
-All diagnostics use stage `convert` and severity `error`. Conversion emits no warnings.
+Build a new `CanonicalRankingSetDocumentV1` with this root property order:
 
-Validate request fields in this order:
+1. `schemaVersion`
+2. `metadata`
+3. `capabilities`
+4. `entries`
 
-1. validated wrapper;
-2. workflow discriminator;
-3. ranking-set ID;
-4. create timestamp, or replacement creation time followed by update timestamp;
-5. replacement lifecycle ordering.
+Use `CANONICAL_RANKING_JSON_V1_PROFILE.schemaVersion` rather than a duplicate numeric constant.
 
-`rankingSetId` must be a non-empty string but must not be trimmed or rewritten. Each supplied date must be a valid `Date`. Reject an unknown runtime workflow rather than treating it as create or replace.
+Map `metadata` in this order:
 
-If `validateRankingSet` reports failures after conversion, return one `canonical-invariant-failed` diagnostic per domain failure, preserving domain error order and message. Map the domain error path to `location.path`. Do not return the invalid aggregate.
+1. `name`
+2. `exportedAt`
+3. optional `sourceRankingSetId`
+4. `source`
 
-### Validated Input Boundary
+`exportedAt` is `request.exportedAt.toISOString()`.
 
-Require an object with `validated === true` and a candidate object. A malformed runtime wrapper returns `invalid-validated-candidate` before request or conversion work.
+Include `sourceRankingSetId: rankingSet.id` only when `includeSourceRankingSetId === true`. Omit the property otherwise. It is portable provenance only; the current normalizer ignores it and later create conversion requires a separately supplied local ID.
 
-The converter does not rerun normalization or complete-candidate validation. `ValidatedRankingCandidate` is the typed public gate. It may defensively reject a malformed wrapper, but it must not accept a raw `NormalizedRankingCandidate` or silently manufacture the wrapper.
+Always include source provenance because every canonical domain set has it. Map source properties in this order:
 
-Do not expose an overload that accepts unvalidated candidates.
+1. `kind`
+2. optional `formatId`
+3. optional `formatVersion`
+4. optional `label`
+5. optional `importedAt` as `toISOString()`
 
-### Canonical Ordering and Rank Assignment
+Do not export local `createdAt` or `updatedAt`; those describe the current repository aggregate, not portable ranking meaning.
 
-Create a new sorted array with:
+### Capability and Entry Mapping
+
+Build a new capabilities object with fixed property order:
+
+1. `team`
+2. `playerIdentity`
+3. `overallOrder`
+4. `positionRank`
+5. `adp`
+6. `tiers`
+
+Build the tier map in supported position order: `QB`, `RB`, `WR`, `TE`, `DST`, `K`. Include only positions present in `rankingSet.capabilities.tiers`. Domain validation already proves the keys match represented positions.
+
+Map entries in existing canonical array order. Do not sort again or recalculate ranks. Each exported entry uses this property order:
+
+1. `player`
+2. `overallRank`
+3. `positionRank`
+4. `tier`
+5. `adpRank`
+
+Map player properties in this order:
+
+1. `id`
+2. `name`
+3. `team`
+4. `position`
+
+Copy every domain-relevant value exactly. In particular:
+
+- preserve explicit player IDs;
+- preserve canonical overall and position ranks;
+- preserve source tier values and gaps;
+- preserve neutral tier values;
+- preserve `UNKNOWN_TEAM` and null ADP;
+- preserve capability states that distinguish source data from generated, derived, partial, absent, or defaulted data.
+
+No domain object may be reused as a nested transport object.
+
+### Deterministic Serialization and Bounds
+
+Serialize the newly mapped document exactly once with:
 
 ```ts
-[...validatedCandidate.candidate.entries].sort(
-  (left, right) => left.sourceOrder - right.sourceOrder,
-)
+const text = JSON.stringify(document);
 ```
 
-The source order is already positive and unique because Task 6 validated it. Do not add a file-order tie breaker or repair invalid order.
+Do not pretty-print, append a newline, depend on source-object insertion order, or use a generic key-sorting serializer. Determinism comes from the explicit mapping order above.
 
-Walk the sorted entries once:
+Calculate UTF-8 byte length with `new TextEncoder().encode(text).byteLength`. Return this value with the text and document.
 
-1. canonical `overallRank` is the sorted zero-based index plus one;
-2. keep a per-position counter initialized on first occurrence;
-3. canonical `positionRank` is the next one-based counter for that entry's position;
-4. create a new embedded `player` object;
-5. copy `adpRank` and `tier` unchanged.
+If the encoded size exceeds `RANKING_IMPORT_LIMITS.maxBytes`, return `output-too-large` and no export value. An output exactly at the byte limit is allowed.
 
-Source order gaps disappear only from canonical ordinal rank. For example, validated source orders `2`, `10`, and `40` become overall ranks `1`, `2`, and `3`. Tier values such as `1`, `1`, and `4` remain `1`, `1`, and `4`.
+Repeated calls with deeply equal ranking sets and equal request values must return deeply equal documents, identical text, and equal byte lengths.
 
-The canonical output must not contain:
+### Import Round-Trip Contract
 
-- `sourceIndex`;
-- `location`;
-- `fieldLocations`;
-- `sourceOrder`;
-- `sourcePositionRank`;
-- parser metadata or format-specific values.
+Round-trip tests must pass the exported text through the public boundaries in order:
 
-### Domain Aggregate Construction
+1. UTF-8 encode the export text;
+2. `preflightRankingImport` with `canonical-ranking-json` version `1`;
+3. `parseCanonicalRankingJson`;
+4. `normalizeRankingSource` with an explicit import timestamp only where the canonical source contract needs it;
+5. `validateNormalizedRankingCandidate`;
+6. `convertValidatedRankingCandidate` with a newly supplied local create ID and timestamp.
 
-Construct one new `RankingSet` with:
+Compare the round-tripped set to the source set semantically:
 
-- local `id` from the validated workflow request;
-- `name` from the candidate;
-- a newly allocated source provenance object with optional fields copied exactly;
-- a newly allocated capabilities object and tier-capability map;
-- newly allocated canonical entries and player objects;
-- cloned lifecycle `Date` values.
+- same name;
+- same source provenance;
+- same capabilities and tier provenance;
+- same canonical entries, player identities, order, ADP, and tiers.
 
-If source provenance includes `importedAt`, clone that `Date`. Do not share candidate or request `Date` objects with the returned aggregate.
+Expected differences are:
 
-Copy capabilities without recomputation:
+- a new caller-issued local ID;
+- new local lifecycle timestamps;
+- export timestamp remains document metadata rather than domain lifecycle.
 
-- team availability;
-- player identity provenance;
-- overall-order provenance;
-- derived position-rank state;
-- ADP availability;
-- per-position tier provenance.
+When `sourceRankingSetId` was included, assert that parsing preserves it as portable metadata, normalization does not turn it into local identity, and conversion still uses the new caller-issued ID.
 
-Task 6 already established that capability states match materialized candidate values. The final `validateRankingSet` call rechecks their consistency with canonical entries.
+### Distinction from Scenario V1 and Excluded State
 
-### Create and Replacement Identity Rules
+The root must contain `schemaVersion`, `metadata`, `capabilities`, and `entries`. It must not contain Scenario V1 sections such as:
 
-Create and replace differ only in lifecycle authority:
+- `rankingContext`;
+- `leagueSettings`;
+- `draftConfiguration`;
+- `userTeamContext`;
+- `pickHistory`;
+- `replayTarget`.
 
-| Workflow | Output ID | `createdAt` | `updatedAt` |
-| --- | --- | --- | --- |
-| `create` | caller-issued new local ID | request `timestamp` | request `timestamp` |
-| `replace` | caller-supplied existing local ID | request `createdAt` | request `timestamp` |
+It also must not contain recommendations, draft state, repository records, raw parser records, diagnostics, locations, or UI state. The existing canonical parser should accept it, while Scenario V1 recognition remains untriggered.
 
-No portable metadata field may influence output ID. Canonical import normalization has already discarded portable `sourceRankingSetId`; conversion must not search for or reconstruct it.
+### Ownership and Purity
 
-The repository will later prove create uniqueness and replacement existence atomically. This slice validates only that workflow identity and dates are structurally valid and unambiguous.
+The exporter must not mutate the ranking set, entries, players, source, capabilities, tier map, or dates.
 
-### Purity and Ownership
+The returned document must own new metadata, source, capabilities, tier map, entry, and player objects. The serialized text is derived from those new values. Mutating test-side copies must not demonstrate shared nested references with the domain input.
 
-Conversion must not mutate:
-
-- the validated wrapper;
-- the candidate;
-- candidate entry order;
-- candidate entries or players;
-- source provenance;
-- capability or tier maps;
-- any candidate or request `Date`.
-
-The returned aggregate must own new objects for source, capabilities, tier capabilities, entries, players, and dates. Tests should mutate cloned test-side references where practical to prove no shared nested object or date reference crosses the boundary, without weakening readonly production types.
-
-Repeated conversion with deeply equal validated input and request values must produce deeply equal output. Object identity may differ between calls.
-
-### Canonical Invariant Recheck
-
-Call `validateRankingSet` exactly once after the complete aggregate is constructed.
-
-On success, return:
-
-```ts
-{
-  ok: true,
-  value: {
-    converted: true,
-    rankingSet,
-  },
-  warnings: [],
-}
-```
-
-The returned `rankingSet` should be the same aggregate reference accepted by `validateRankingSet`.
-
-The invariant recheck is defense in depth for conversion logic and lifecycle context. It does not authorize repair of a forged or invalid candidate. A hand-built forged validated wrapper may be used only to prove that a final domain failure becomes `canonical-invariant-failed` and no aggregate escapes.
+The optional source ID and export timestamp are request-controlled metadata only. Export does not alter the ranking set or create a new domain revision.
 
 ### Focused Tests
 
-Add `src/lib/rankingSetConversion.test.ts` covering:
+Add `src/lib/canonicalRankingJsonExporter.test.ts` covering:
 
-- exact create conversion from a validated complete FantasyPros candidate;
-- exact create conversion from a validated Canonical JSON candidate;
-- explicit source order gaps and out-of-array source order becoming contiguous overall ranks;
-- interleaved positions receiving independently contiguous position ranks;
-- supplied source-position ranks removed and recomputed rather than copied;
-- player IDs, names, teams, positions, ADP, and tiers preserved exactly;
-- source tier gaps preserved while source overall-rank gaps disappear;
-- degraded candidates preserving `UNKNOWN_TEAM`, null ADP, `NEUTRAL_TIER`, and defaulted capabilities;
-- source provenance and capability metadata copied exactly into new objects;
-- create using its caller-issued ID with equal cloned creation/update dates;
-- replace preserving its caller-supplied existing ID and original creation time while assigning a later update time;
-- create and replace date objects not shared with request values;
-- portable canonical source identity never becoming local output identity;
-- invalid validated wrapper, unknown workflow, empty ID, invalid dates, and replacement timestamp earlier than creation;
-- final aggregate accepted by `validateRankingSet`;
-- forged validated input producing mapped `canonical-invariant-failed` diagnostics and no result value;
-- validated candidate, entry order, nested values, capabilities, source, and dates unchanged;
-- repeated conversion producing deeply equal outputs without shared aggregate objects;
-- type-facing proof that successful output is `ConvertedRankingSet`, not `ValidatedRankingCandidate` or a persistence record.
+- exact compact JSON text for a representative complete set;
+- exact root, metadata, source, capability, tier-key, entry, and player property order;
+- exported timestamp ISO conversion;
+- optional `sourceRankingSetId` included only when explicitly requested;
+- canonical entry order retained without resorting;
+- explicit player identity and every engine-used value retained;
+- source tier gaps retained exactly;
+- safely degraded values and capability provenance retained exactly;
+- source provenance optional fields omitted rather than serialized as null;
+- local `createdAt` and `updatedAt` excluded;
+- Scenario V1, draft, recommendation, parser, location, persistence, and UI fields absent;
+- identical input values producing identical document, text, and byte length;
+- ranking set and nested values unchanged and not shared with the returned document;
+- invalid export date and invalid include-ID option;
+- ordered mapping of canonical domain validation failures;
+- 1,001 valid canonical entries rejected by the portable entry limit;
+- multibyte UTF-8 content counted by bytes rather than JavaScript string length;
+- output over 1 MiB rejected before success;
+- representative complete export traversing every public import stage and preserving semantic domain values;
+- safely degraded export/import round trip preserving unknown team, null ADP, neutral tiers, and defaulted capabilities;
+- included portable source ID observable after parsing but ignored for new local identity during conversion;
+- exported document accepted by canonical parsing and not recognized as Scenario V1;
+- type-facing proof that the document satisfies `CanonicalRankingSetDocumentV1`.
 
-Use the existing public parser, normalizer, and candidate validator for the two representative format-path tests. Use a small validated-candidate builder for precise rank, fallback, replacement, request-failure, and immutability coverage. No fixture files, database, network, browser, or manual QA are required.
+Use small inline domain builders. A large-output test may use repeated valid strings and entries but must not read fixture files or weaken transport limits. No database, browser, file download, or manual QA is required.
 
 ## Implementation Steps
 
-1. Add exported create/replace request types, diagnostic codes, runtime request checks, and result helpers in `rankingSetConversion.ts`.
-2. Implement non-mutating source-order sorting plus contiguous overall- and position-rank assignment into new canonical entry/player values.
-3. Construct new source, capability, tier-map, lifecycle, and aggregate values for create and replacement workflows.
-4. Recheck the completed aggregate with `validateRankingSet` and map ordered domain failures into convert-stage diagnostics.
-5. Add focused direct and full import-path tests for both formats, ranks, fallbacks, identity workflows, invariant mapping, determinism, and ownership.
+1. Add export request, value, error, and result types plus request/domain validation helpers in `canonicalRankingJsonExporter.ts`.
+2. Map metadata, optional local-ID provenance, source provenance, capabilities, ordered tiers, canonical entries, and players into new V1 transport values.
+3. Serialize once with compact `JSON.stringify`, calculate UTF-8 byte length, and enforce entry/byte bounds.
+4. Add focused exact-output, deterministic, ownership, invalid-input, bound, exclusion, and Scenario-distinction tests.
+5. Add complete and degraded public import-pipeline round-trip tests, including proof that portable local ID is not reused.
 6. Run focused tests, TypeScript, and focused lint.
 7. Run the full test suite and repository-wide lint.
-8. After all acceptance criteria pass, mark only Phase 5 Task 7 complete in `docs/tasks.md` and update this slice status.
-9. Report results and stop. Do not begin Task 8 export.
+8. After all acceptance criteria pass, mark only Phase 5 Task 8 complete in `docs/tasks.md` and update this slice status.
+9. Report results and stop. Do not begin Task 9 editing operations.
 
 ## Expected Files
 
-- `src/lib/rankingSetConversion.ts`
-- `src/lib/rankingSetConversion.test.ts`
+- `src/lib/canonicalRankingJsonExporter.ts`
+- `src/lib/canonicalRankingJsonExporter.test.ts`
 - `docs/tasks.md`
 - `docs/current-slice.md` for completion status
 
-No import type, parser, preflight, normalizer, candidate validator, canonical validator, domain type, engine, snapshot, scenario, persistence, dependency, generated, or UI file should change.
+No import type, format profile, parser, preflight, normalizer, candidate validator, converter, canonical validator, domain type, engine, scenario, snapshot, persistence, dependency, generated, or UI file should change.
 
 ## Automated Validation
 
 Run from the repository root:
 
 ```text
-npm test -- src/lib/rankingSetConversion.test.ts
+npm test -- src/lib/canonicalRankingJsonExporter.test.ts
 npx tsc --noEmit
-npm run lint -- src/lib/rankingSetConversion.ts src/lib/rankingSetConversion.test.ts
+npm run lint -- src/lib/canonicalRankingJsonExporter.ts src/lib/canonicalRankingJsonExporter.test.ts
 npm test
 npm run lint
 ```
 
 Expected result:
 
-- Focused conversion tests pass with exact canonical aggregates, ranks, workflow identity, dates, ownership, and diagnostics.
+- Focused export tests pass with exact JSON, property order, bounds, exclusions, ownership, and round-trip assertions.
 - TypeScript no-emit validation passes.
 - Focused lint passes without warnings.
 - The full Vitest suite passes.
 - Repository-wide lint passes.
-- Existing Tasks 1 through 6 behavior remains unchanged.
+- Existing Tasks 1 through 7 behavior remains unchanged.
 - No database, network, browser, environment-variable, build, migration, generated-client, or manual-QA requirement is introduced.
 
 ## Acceptance Criteria
 
-- Only an explicit `ValidatedRankingCandidate` wrapper can enter the conversion API.
-- Create and replacement requests have distinct, deterministic identity and lifecycle behavior.
-- Validated source order becomes contiguous canonical overall order without mutating candidate order.
-- Canonical position rank is derived independently per position from canonical overall order.
-- Player values, ADP, tier values, tier gaps, fallbacks, provenance, and capabilities are preserved.
-- Import-only locations, indexes, source ranks, and supplied position ranks do not cross into canonical entries.
-- Portable ranking-set identity never becomes local ranking-set identity.
-- Returned nested values and dates are owned by the aggregate rather than shared with inputs.
-- The completed aggregate passes `validateRankingSet` before it is returned.
-- Any final invariant failure produces ordered convert-stage diagnostics and no aggregate.
-- Conversion is deterministic, repository-free, clock-free, and does not mutate its inputs.
+- A valid portable-size canonical ranking set exports as typed Canonical Ranking Set JSON V1.
+- Exported JSON is compact and byte-for-byte deterministic for equal domain values and request values.
+- The V1 envelope, metadata, source, capability, tier, entry, and player property order is explicit and stable.
+- Every engine-relevant player and ranking value survives export/import unchanged.
+- Tier gaps, materialized fallbacks, and capability provenance survive export/import unchanged.
+- Optional local identity is clearly non-authoritative and never reused automatically after import.
+- Local lifecycle, draft, recommendation, Scenario V1, parser, persistence, and UI state are absent.
+- Exported text passes public canonical preflight and parsing and is distinguishable from Scenario V1.
+- Domain-invalid, entry-limit-exceeding, or byte-limit-exceeding sets return explicit failures and no partial export.
+- Export is pure, clock-free, repository-free, and owns new transport values.
 - Focused tests, TypeScript, focused lint, full tests, and repository-wide lint pass.
-- Only Phase 5 Task 7 is checked complete after validation.
+- Only Phase 5 Task 8 is checked complete after validation.
 - No dependency, migration, generated code, or unrelated documentation change is introduced.
 
 ## Failure Handling
 
-- If conversion needs to infer a missing identity, timestamp, or lifecycle fact, return a conversion diagnostic rather than generating or guessing it.
-- If a validated candidate lacks a value needed for canonical construction, allow the canonical invariant recheck to fail and return mapped diagnostics; do not default or repair it.
-- If source order is tied or malformed despite the wrapper, do not add a tie breaker. Treat the wrapper as forged and return no successful aggregate.
-- If create uniqueness or replacement existence must be checked, leave it to the repository/application workflow and do not add persistence to this slice.
-- If canonical validation disagrees with an output that should follow the documented conversion, stop and report the rule mismatch rather than weakening either validator.
+- If the existing V1 transport type and parser disagree about field presence or shape, stop and report the contract mismatch rather than choosing a new format silently.
+- If a domain-valid set cannot fit the frozen portable entry or byte bound, return the explicit export-limit failure rather than bypassing import preflight limits.
+- If round-trip import changes an engine-relevant value or capability state, stop and report the boundary mismatch rather than weakening the comparison.
+- If local identity would be reused without an explicit new conversion request, stop and preserve the existing create/replacement boundary.
+- If deterministic output would require relying on uncontrolled object property order, replace that mapping with explicit ordered construction rather than adding a generic canonicalizer.
 - If unrelated tests fail, report them separately and do not broaden the slice.
 
 ## Follow-Up Slice
 
-Promote Phase 5 Task 8: export canonical ranking sets deterministically as Canonical Ranking Set JSON V1, preserving every domain-relevant value and provenance needed for lossless re-import.
+Promote Phase 5 Task 9: add pure ranking-set edit and tier-management operations over complete canonical aggregates, preserving overall order and validating whole-set replacements.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It adds only the validated-candidate-to-domain conversion boundary.
-- Executable by a lower-reasoning pass: yes. Workflow inputs, rank assignment, ownership, diagnostics, invariant mapping, and tests are explicit.
-- Avoids unnecessary architecture changes: yes. Caller-issued lifecycle context keeps conversion pure without adding repositories, clocks, factories, or framework abstractions.
-- Blast radius reasonable: yes. Two source/test files plus Task 7 and slice-status documentation are expected.
-- Review/revert comfort: yes. The converter is additive and isolated before persistence and application orchestration.
-- Observable/testable acceptance criteria: yes. Exact aggregate values, ranks, identity, dates, removed fields, domain validation, and immutability are directly testable.
+- Smallest meaningful increment: yes. It adds only the canonical portable export and lossless round-trip boundary.
+- Executable by a lower-reasoning pass: yes. API, mapping order, bounds, serialization, diagnostics, exclusions, and round-trip steps are explicit.
+- Avoids unnecessary architecture changes: yes. One explicit V1 serializer uses existing domain, transport, validation, and import contracts without a registry or new dependency.
+- Blast radius reasonable: yes. Two source/test files plus Task 8 and slice-status documentation are expected.
+- Review/revert comfort: yes. The exporter is additive, pure, and isolated from persistence, application workflows, engines, and UI.
+- Observable/testable acceptance criteria: yes. Exact bytes, typed document values, round-trip semantics, limits, exclusions, and ownership are directly testable.
