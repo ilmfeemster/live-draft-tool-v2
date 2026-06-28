@@ -189,7 +189,7 @@ Parse the exact FantasyPros CSV Profile V1 syntax into located source records wi
 
 ## Task 4 - Parse Canonical Ranking Set JSON V1
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

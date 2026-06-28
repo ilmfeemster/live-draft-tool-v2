@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. This slice promotes Phase 5 Task 4. It parses the frozen Canonical Ranking Set JSON V1 envelope into located source records without trusting imported values as valid domain data.
+Complete. The frozen Canonical Ranking Set JSON V1 envelope now parses into deterministic, located source records without trusting imported values as valid domain data. Validation passed with 22 focused parser tests, 387 full-suite tests, TypeScript checking, and focused and repository-wide linting.
 
 ## Source Context
 
