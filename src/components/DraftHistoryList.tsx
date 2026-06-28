@@ -70,11 +70,12 @@ export function DraftHistoryList({
             return candidate.status !== "COMPLETE";
           }) ?? remainingSummaries[0];
 
-        router.replace(
-          nextSummary
-            ? `/?draftId=${encodeURIComponent(nextSummary.id)}`
-            : "/",
-        );
+        const destination = nextSummary
+          ? `/?draftId=${encodeURIComponent(nextSummary.id)}`
+          : "/";
+
+        window.location.replace(destination);
+        return;
       }
 
       router.refresh();
