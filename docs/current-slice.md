@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. This corrective follow-up belongs to Phase 5 Task 1. Task 1 must not be treated as fully closed, and Task 2 must not begin, until both review findings and their regression tests pass.
+Complete. Indexed validation now rejects sparse entry holes, and tier-capability validation rejects unknown own enumerable keys after known-position checks in lexical order. Validation passed 24 focused tests, the full 28-file/329-test suite, TypeScript no-emit checking, focused lint, and repository-wide lint. Phase 5 Task 1 remains complete; Task 2 has not begun.
 
 ## Source Context
 

@@ -181,7 +181,8 @@ function validateEntries(
   let allTeamsValid = true;
   let allAdpRanksValid = true;
 
-  entries.forEach((value, index) => {
+  for (let index = 0; index < entries.length; index += 1) {
+    const value = entries[index];
     const path = `entries[${index}]`;
     const entry = asRecord(value);
     const player = asRecord(entry?.player);
@@ -304,7 +305,7 @@ function validateEntries(
       positionTiers.push(tier as number);
       tiersByPosition.set(position, positionTiers);
     }
-  });
+  }
 
   return {
     teams,
@@ -421,6 +422,17 @@ function validateCapabilities(
       }
     }
   });
+
+  Object.keys(tiers)
+    .filter((key) => !POSITIONS.includes(key as Position))
+    .sort()
+    .forEach((key) => {
+      errors.push({
+        code: "invalid-capability",
+        path: `capabilities.tiers.${key}`,
+        message: `Tier capability position ${key} is unsupported.`,
+      });
+    });
 }
 
 function validateNonEmptyString(

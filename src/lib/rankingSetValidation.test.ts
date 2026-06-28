@@ -108,6 +108,31 @@ describe("validateRankingSet", () => {
     expectError(result, "empty-entries", "entries");
   });
 
+  it("rejects a sparse entry at its actual array index", () => {
+    const entries = new Array<RankingEntry>(1);
+    const result = validateRankingSet(
+      createCompleteRankingSet({
+        entries,
+        capabilities: createCapabilities({
+          team: "none",
+          adp: "none",
+          tiers: {},
+        }),
+      }),
+    );
+
+    expectFailure(result);
+    expect(result.errors.map(({ code, path }) => ({ code, path }))).toEqual([
+      { code: "invalid-player-id", path: "entries[0].player.id" },
+      { code: "invalid-player-name", path: "entries[0].player.name" },
+      { code: "invalid-team", path: "entries[0].player.team" },
+      { code: "invalid-position", path: "entries[0].player.position" },
+      { code: "invalid-overall-rank", path: "entries[0].overallRank" },
+      { code: "invalid-adp-rank", path: "entries[0].adpRank" },
+      { code: "invalid-tier", path: "entries[0].tier" },
+    ]);
+  });
+
   it("rejects invalid player fields and duplicate player IDs", () => {
     const entries = [...createCompleteRankingSet().entries];
     entries[0] = {
@@ -238,6 +263,48 @@ describe("validateRankingSet", () => {
     expect(result.errors.map(({ code, path }) => ({ code, path }))).toEqual([
       { code: "invalid-capability", path: "capabilities.tiers.RB" },
       { code: "invalid-capability", path: "capabilities.tiers.WR" },
+    ]);
+  });
+
+  it("rejects an unsupported tier-capability position", () => {
+    const result = validateRankingSet(
+      createCompleteRankingSet({
+        capabilities: createCapabilities({
+          tiers: {
+            QB: "source",
+            RB: "source",
+            DL: "source",
+          } as unknown as RankingSetCapabilities["tiers"],
+        }),
+      }),
+    );
+
+    expectFailure(result);
+    expect(result.errors.map(({ code, path }) => ({ code, path }))).toEqual([
+      { code: "invalid-capability", path: "capabilities.tiers.DL" },
+    ]);
+  });
+
+  it("reports unknown tier keys after known positions in lexical order", () => {
+    const result = validateRankingSet(
+      createCompleteRankingSet({
+        capabilities: createCapabilities({
+          tiers: {
+            QB: "source",
+            WR: "source",
+            ZZZ: "source",
+            AAA: "source",
+          } as unknown as RankingSetCapabilities["tiers"],
+        }),
+      }),
+    );
+
+    expectFailure(result);
+    expect(result.errors.map(({ code, path }) => ({ code, path }))).toEqual([
+      { code: "invalid-capability", path: "capabilities.tiers.RB" },
+      { code: "invalid-capability", path: "capabilities.tiers.WR" },
+      { code: "invalid-capability", path: "capabilities.tiers.AAA" },
+      { code: "invalid-capability", path: "capabilities.tiers.ZZZ" },
     ]);
   });
 
