@@ -1,117 +1,108 @@
-# Current Slice: Stabilize Drafting Scroll and Collapse Utility Panels
+# Current Slice: Restore Page Position After Draft State Commits
 
 ## Source Context
 
-Phase 4 Task 11 is complete, but focused use exposed two usability problems before Phase 4 exit validation:
+Phase 4 Task 11 and the prior focused QA are complete. Developer Workbench and Active Drafts can now be minimized, and the Available Players table attempts to preserve its nested and page position after a full-list pick.
 
-1. When a developer is scrolled into the full Available Players list and drafts a player who also appears in Recommendations, the recommendation refresh can change content height above the table. The table and browser scroll positions can move, making the screen appear to jump away from the drafting context.
-2. Developer Workbench and the Active Drafts history group occupy substantial vertical space even when the developer is focused on drafting.
+One scroll regression remains: drafting the first recommendation can still jump the page. The current full-list correction awaits `onDraftPlayer` and schedules one animation-frame restoration from `AvailablePlayersTable`. React can commit the refreshed draft and recommendation markup after that callback boundary, so the correction can run before the layout change it is intended to compensate for. It also does not cover Draft buttons inside Recommendations.
 
-These are presentation and interaction corrections. Draft state, recommendation output, persistence, and scenario behavior must remain authoritative and unchanged.
+The reliable completion boundary is the Draft Room render that applies the new `displayedDraft`. Page restoration should occur in a layout effect after that committed draft update and before the browser paints the changed recommendation list.
 
 ## Goal
 
-Keep the developer's visible position stable when drafting from the full player list, and allow Developer Workbench and Active Drafts to be minimized without removing or redesigning their existing controls.
+Keep the browser page at the same scroll position after any successful player draft, including removal of the first recommendation, while preserving the Available Players table's independent nested scroll position.
 
 ## Scope
 
 ### Goals
 
-- Preserve the Available Players table's internal scroll position while a selected player is removed.
-- Preserve the table viewport's page position when recommendation content above it refreshes after a full-list draft action.
-- Apply the scroll stabilization to persisted and transient draft sessions through the existing `onDraftPlayer` callback.
-- Make Developer Workbench collapsible and expanded by default.
-- Make the Active Drafts group collapsible and expanded by default.
-- Keep a compact, meaningful summary visible for each minimized section.
-- Use accessible native disclosure behavior with keyboard-operable summaries.
-- Preserve all existing workbench, history, draft, recommendation, and deletion behavior.
+- Capture the browser page position when a valid player-draft action begins.
+- Restore that exact page position after the resulting persisted or transient draft state commits.
+- Cover Draft buttons in both Recommendations and Available Players through the shared `DraftRoom` mutation handler.
+- Preserve the Available Players table's internal `scrollTop` correction.
+- Remove the table-owned window-scroll adjustment so only one component owns page restoration.
+- Clear a pending restoration when a persisted draft action fails or returns no workspace.
+- Preserve all completed minimization, draft, recommendation, persistence, and scenario behavior.
 
 ### Non-Goals
 
-- Changing Recommendation Engine output, recommendation count, scoring, order, or card content.
-- Making Recommendations, Available Players, Draft Status, User Roster, or completed draft history newly collapsible.
-- Persisting minimized state across reloads, routes, or browser sessions.
-- Adding sticky page regions, virtualized tables, custom scroll containers, or global scroll restoration.
-- Changing draft actions, optimistic state, persistence, scenario sessions, or deletion navigation.
-- Redesigning the Draft Room or Draft History.
-- Adding a DOM interaction-test dependency or beginning Phase 4 Task 12.
+- Changing recommendation content, order, scoring, or card height.
+- Keeping the clicked recommendation card mounted after it is drafted.
+- Scrolling to a selected player, recommendation, table row, or page landmark.
+- Applying automatic page restoration to undo, reset, restart, replay-target, import, deletion, or navigation actions.
+- Persisting scroll positions across reloads or routes.
+- Adding global scroll management, sticky layout, fixed recommendation heights, virtualization, or a dependency.
+- Reopening Phase 4 Task 11 or beginning Phase 4 Task 12.
 
 ## Implementation Design
 
-### Stable Full-List Drafting Position
+### Draft-Commit Page Restoration
+
+Update `src/components/DraftRoom.tsx`.
+
+- Import `useLayoutEffect` and `useRef` from React.
+- Add a ref for one pending draft-action page position containing `window.scrollX` and `window.scrollY`.
+- In the shared `draftPlayer(playerId)` handler, after the existing pending guard and before either persisted or transient mutation, capture the current page position in that ref.
+- Keep all draft transitions on their existing paths:
+  - transient sessions continue through `draftPlayerInTransientSession`;
+  - persisted drafts continue through `draftPlayerAction` and `setActiveDraft`.
+- Add a layout effect keyed to `displayedDraft`. When a successful draft update changes the displayed draft and a pending page position exists:
+  1. Clear the pending ref.
+  2. Call `window.scrollTo` with the captured coordinates and `behavior: "auto"`.
+- A layout effect is intentional: it runs after React commits the changed recommendation and player markup but before paint, preventing the user from seeing an intermediate browser-anchored position.
+- If `draftPlayerAction` returns no workspace or throws, clear the pending ref without scrolling.
+- Do not populate the ref from undo, reset, restart, import, replay, deletion, or navigation handlers.
+
+### Table Scroll Ownership
 
 Update `src/components/AvailablePlayersTable.tsx`.
 
-- Keep a ref to the existing `max-h-[620px]` table scroll container.
-- Allow `onDraftPlayer` to return `void` or `Promise<void>` so the table can wait for the existing Draft Room mutation to settle without changing draft ownership.
-- When a full-list Draft button is used:
-  1. Capture the table container's `scrollTop` and its top position in the viewport.
-  2. Await `onDraftPlayer(playerId)`.
-  3. On the next animation frame, if the table container is still mounted, restore its internal `scrollTop`.
-  4. Measure the table container's new viewport top and adjust the window by only that delta so the table returns to its prior visible position.
-- Do not scroll to the drafted row, to Recommendations, or to the top of the page.
-- Do not run this correction for recommendation-card Draft buttons; the reported regression is the full-list workflow and the table owns the relevant scroll context.
-- If the draft action fails or produces no layout change, the measured delta should be zero and visible position should remain unchanged.
+- Keep capturing and restoring the table container's internal `scrollTop` around full-list Draft actions.
+- Remove capture of the table's viewport top.
+- Remove the table's `window.scrollBy` adjustment.
+- Continue awaiting `onDraftPlayer` and restoring the internal table position on the next animation frame.
 
-This keeps the correction local to the surface that owns the nested table scroll position. `DraftRoom` remains the owner of persisted and transient draft mutations.
+After this change, ownership is explicit:
 
-### Collapsible Developer Workbench
+- `DraftRoom` preserves browser page position for every player-draft entry point.
+- `AvailablePlayersTable` preserves only its nested table position for full-list drafting.
 
-Update `src/components/DeveloperWorkbenchPanel.tsx`.
-
-- Wrap the existing panel body in an expanded-by-default native `<details>` disclosure.
-- Use its `<summary>` as the persistent compact header.
-- Keep `Developer Workbench`, the current mode label, and an Expand/Minimize affordance visible in the summary.
-- Render all existing scenario files, status, replay-target, reset/restart, and error content unchanged inside the disclosure body.
-- Do not reset workbench input or session state when the disclosure is toggled.
-
-### Collapsible Active Drafts
-
-Update `src/components/DraftHistoryList.tsx`.
-
-- Convert only the Active Drafts group into an expanded-by-default native `<details>` disclosure.
-- Keep the group label and active-draft count visible in its summary.
-- Keep the existing cards, loaded indicator, empty-active state, deletion behavior, and horizontal scrolling unchanged inside the disclosure body.
-- Leave the existing Completed Drafts disclosure behavior unchanged.
-
-Native disclosure state is intentionally local and transient. No storage, shared UI state, or new abstraction is needed.
+No shared scroll utility or new abstraction is warranted for these two distinct responsibilities.
 
 ## Testing Strategy
 
-The repository does not include a DOM interaction environment capable of exercising browser scroll geometry or native disclosure clicks. Do not add jsdom, React Testing Library, Playwright, or another dependency for this slice.
+The repository has no DOM interaction environment for browser scroll geometry or React layout-effect timing. Do not add jsdom, React Testing Library, Playwright, or another dependency for this correction.
 
-- Update existing static component tests to cover the expanded disclosure markup, compact summaries, counts/mode labels, and retained panel/card content.
-- Retain Draft Room tests as regression coverage for recommendation output and workbench integration.
-- Use focused manual QA for scroll position and disclosure interaction.
-- Run the full automated suite because drafting and workbench changes share the main Draft Room workflow.
+- Retain existing component markup tests.
+- Run focused Draft Room, Recommendations, and Draft History tests for render-boundary regression coverage.
+- Use focused manual QA as the behavior regression for first-recommendation removal and scroll stability.
+- Run the full automated suite because the shared draft handler serves persisted and transient workflows.
 
 ## Implementation Steps
 
-1. Add the local full-list scroll anchor and post-mutation restoration in `AvailablePlayersTable`.
-2. Convert Developer Workbench to an expanded-by-default native disclosure while preserving all controls and status content.
-3. Convert Active Drafts to an expanded-by-default native disclosure while preserving cards, counts, empty state, and deletion behavior.
-4. Update Developer Workbench and Draft History markup regression tests for the disclosure summaries and retained content.
-5. Run focused component and Draft Room tests.
-6. Run the full test suite, lint, and TypeScript validation.
-7. Complete the focused manual QA below.
-8. Stop after reporting results. Do not begin Phase 4 Task 12.
+1. Add pending page-position capture and post-commit layout restoration to `DraftRoom`'s shared player-draft path.
+2. Clear pending restoration on persisted no-result and failure paths.
+3. Reduce `AvailablePlayersTable` restoration to its internal `scrollTop` only.
+4. Run focused Draft Room, recommendation, history, and workbench tests.
+5. Run the full test suite, lint, and TypeScript validation.
+6. Complete the focused manual QA below.
+7. Stop after reporting results. Do not begin Phase 4 Task 12.
 
 ## Expected Files
 
+- `src/components/DraftRoom.tsx`
 - `src/components/AvailablePlayersTable.tsx`
-- `src/components/DeveloperWorkbenchPanel.tsx`
-- `src/components/DeveloperWorkbenchPanel.test.tsx`
-- `src/components/DraftHistoryList.tsx`
-- `src/components/DraftHistoryList.test.tsx`
 
-No Draft Room, recommendation engine, action, persistence, scenario, dependency, or task-tracking changes are expected.
+No tests, task tracking, recommendation engine, action, persistence, scenario, disclosure, dependency, or lockfile changes are expected.
+
+`docs/tasks.md` already records Phase 4 Task 11 as complete and should remain checked.
 
 ## Automated Validation
 
 Run from the repository root:
 
 ```text
-npm test -- src/components/DeveloperWorkbenchPanel.test.tsx src/components/DraftHistoryList.test.tsx src/components/DraftRoom.test.tsx
+npm test -- src/components/DraftRoom.test.tsx src/components/RecommendationsPanel.test.tsx src/components/DraftHistoryList.test.tsx src/components/DeveloperWorkbenchPanel.test.tsx
 npm test
 npm run lint
 npx tsc --noEmit
@@ -119,7 +110,7 @@ npx tsc --noEmit
 
 Expected result:
 
-- Focused workbench, history, and Draft Room tests pass.
+- Focused Draft Room, recommendation, history, and workbench tests pass.
 - Full Vitest suite passes.
 - ESLint exits with no errors or warnings.
 - TypeScript no-emit validation passes.
@@ -127,49 +118,46 @@ Expected result:
 
 ## Focused Manual QA
 
-1. Scroll the page and the Available Players table away from their starting positions, then draft a player who appears in Recommendations; confirm the same table area remains visible without a page jump.
-2. Repeat with a player who is not in Recommendations; confirm the table's page position and internal scroll position remain stable.
-3. Repeat one full-list draft in a transient scenario or transient manual session; confirm the same scroll behavior and correct local draft update.
-4. Draft directly from Recommendations; confirm existing behavior remains correct and no forced scroll is introduced.
-5. Minimize and expand Developer Workbench with pointer and keyboard; confirm the compact summary shows the current mode and all controls/state remain intact when reopened.
-6. Leave Developer Workbench minimized, make a draft pick, and confirm it remains usable and its current status is correct when reopened.
-7. Minimize and expand Active Drafts with pointer and keyboard; confirm its count remains visible and cards/deletion controls are unchanged when reopened.
-8. Confirm Completed Drafts retains its existing disclosure behavior.
-9. Confirm persisted picks, transient picks, undo, reset/restart, scenario import/export, replay target, draft history navigation, and deletion still behave as before.
+1. Scroll the page away from its starting position and draft the first recommendation directly from Recommendations; confirm the page remains at the same scroll position while the next recommendation replaces it.
+2. From the full Available Players list, draft the player currently ranked first in Recommendations; confirm both page position and the table's internal scroll position remain stable.
+3. Repeat with a lower recommendation and a non-recommended player; confirm the same stable behavior.
+4. Repeat first-recommendation and full-list picks in a transient scenario or transient manual session.
+5. Confirm Recommendations and Available Players still remove the drafted player and refresh from the new draft state.
+6. Confirm a failed or no-result persisted draft action does not trigger delayed scrolling during a later action.
+7. Confirm undo, reset/restart, replay target, scenario import/export, history navigation, deletion, and disclosure toggles retain their existing scroll and behavior.
 
 ## Acceptance Criteria
 
-- Drafting a recommended player from the full Available Players list does not visibly jump the page away from the table context.
-- The Available Players table retains its prior internal scroll position after the drafted row is removed, subject only to the browser's valid maximum scroll boundary.
-- Recommendation content and ordering still refresh from the new draft state.
-- Persisted and transient full-list drafting both receive the scroll correction.
-- Drafting from Recommendations does not gain an unrelated forced-scroll behavior.
-- Developer Workbench can be minimized and expanded, starts expanded, and retains all existing controls, status, inputs, and errors.
-- Active Drafts can be minimized and expanded, starts expanded, and retains its count, cards, loaded state, empty state, and deletion behavior.
-- Both disclosures are keyboard operable and expose native expanded/collapsed semantics.
-- Completed Drafts behavior is unchanged.
-- No draft, recommendation, persistence, scenario, or deletion semantics change.
+- Drafting the first recommendation directly does not move the browser page from its pre-click position.
+- Drafting the first recommended player from Available Players does not move the browser page and retains the table's valid internal scroll position.
+- Lower-recommendation and non-recommended picks have the same stable behavior.
+- Persisted and transient player drafting both restore after the committed draft render.
+- The drafted player is still removed and recommendations still recompute correctly.
+- Only successful player-draft state changes trigger page restoration.
+- Failed or no-result persisted actions leave no stale restoration for later renders.
+- Undo, reset/restart, replay, import/export, navigation, deletion, and disclosure behavior are unchanged.
+- Phase 4 Task 11 remains checked complete.
 - Focused tests, full suite, lint, TypeScript, and focused manual QA pass.
 - No dependency or lockfile changes are introduced.
 - Phase 4 Task 12 is not started.
 
 ## Failure Handling
 
-- If exact scroll restoration is limited at the top or bottom document boundary, preserve the closest valid browser position; do not add artificial spacer content.
-- If the table is no longer mounted after a successful action, skip restoration rather than querying or scrolling another surface.
-- If native disclosure state is reset by ordinary Draft Room rerenders, stop and replace only that disclosure with small local boolean state; do not add global or persisted UI state.
-- If manual QA shows the jump originates outside recommendation-height changes or full-list anchoring, stop and report the observed cause before adding global scroll handling.
+- If the browser clamps the captured coordinates at a document boundary, accept the closest valid position; do not add spacer content.
+- If `displayedDraft` does not change, do not scroll and clear the pending position on the known no-result/failure path.
+- If a successful persisted update can return the same `displayedDraft` reference, stop and report that discrepancy rather than adding timers or global listeners.
+- If the page still moves after layout-effect restoration, inspect the actual focus/scroll sequence before introducing focus reassignment or CSS anchoring changes.
 - If automated validation exposes an unrelated failure, report it without expanding scope.
 
 ## Follow-Up Slice
 
-After this usability correction passes automated and manual validation, plan Phase 4 Task 12: Complete Phase 4 Regression and Exit Validation. Do not begin it automatically.
+After this correction passes automated and manual validation, plan Phase 4 Task 12: Complete Phase 4 Regression and Exit Validation. Do not begin it automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. The three changes improve one continuous drafting workflow: maintaining place and reducing obstructive utility content.
-- Executable by a lower-reasoning pass: yes. Component ownership, capture/restore sequence, disclosure behavior, tests, and validation are explicit.
-- Avoids unnecessary architecture changes: yes. Scroll handling stays with the table, and native disclosures require no shared state.
-- Blast radius reasonable: yes. Three production components and two existing tests are expected to change.
-- Review/revert comfort: yes. The interaction corrections are isolated from domain, persistence, and scenario logic.
-- Observable/testable acceptance criteria: yes. Scroll position, table position, expanded state, visible summaries, keyboard behavior, and retained workflows are directly observable.
+- Smallest meaningful increment: yes. It corrects the single remaining player-draft scroll regression.
+- Executable by a lower-reasoning pass: yes. The owner, capture point, commit boundary, cleanup paths, and table responsibility are explicit.
+- Avoids unnecessary architecture changes: yes. One ref and one layout effect remain inside the existing Draft Room owner.
+- Blast radius reasonable: yes. Two production components are expected to change.
+- Review/revert comfort: yes. The correction is isolated from domain and persistence semantics.
+- Observable/testable acceptance criteria: yes. Page coordinates, nested table position, refreshed recommendations, success/failure behavior, and unaffected actions are directly observable.
