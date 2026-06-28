@@ -1,179 +1,330 @@
-# Current Slice: Close Ranking Set Validator Edge Cases
+# Current Slice: Define Ranking Import Contracts and Format Profiles
 
 ## Completion Status
 
-Complete. Indexed validation now rejects sparse entry holes, and tier-capability validation rejects unknown own enumerable keys after known-position checks in lexical order. Validation passed 24 focused tests, the full 28-file/329-test suite, TypeScript no-emit checking, focused lint, and repository-wide lint. Phase 5 Task 1 remains complete; Task 2 has not begun.
+Planned. This slice promotes Phase 5 Task 2. It defines import-stage boundaries, diagnostics, transport preflight, and the two approved format profiles without implementing either parser.
 
 ## Source Context
 
-The higher-reasoning review found two runtime gaps in the new canonical ranking-set validator:
+Phase 5 Task 1 established canonical `RankingSet` values and runtime invariant validation. Imported data must now cross explicit typed stages before it can become domain data.
 
-1. `validateEntries` uses `Array.prototype.forEach`, which skips holes in sparse arrays. A sparse array can therefore have a positive `length` while avoiding all per-entry validation.
-2. Tier-capability validation iterates only the six supported positions. It rejects supported positions that are absent from the set, but it does not inspect unknown object keys such as `DL`.
+The approved import sequence is:
 
-Both behaviors conflict with the approved Task 1 invariants:
+```text
+transport preflight
+        |
+format parser
+        |
+normalization
+        |
+candidate validation
+        |
+domain conversion
+        |
+repository commit
+```
 
-- entries must be a genuinely populated canonical collection;
-- tier capabilities must cover exactly the supported positions represented by entries;
-- unsupported runtime metadata must fail rather than being ignored.
+This slice defines those handoffs and freezes the two Phase 5 formats. It does not implement parsing, normalization, validation, conversion, or persistence.
 
-The existing domain types, error vocabulary, valid behavior, and architecture remain correct. This slice should close only these two validation gaps.
+The existing FantasyPros source at `src/data/FantasyPros_2026_Draft_ALL_Rankings.csv` contains 487 records and this exact header row after CSV decoding:
+
+```text
+RK | TIERS | PLAYER NAME | TEAM | POS | BYE | UPSIDE  | BUST  | SOS | ECR VS ADP
+```
+
+The trailing space on each of `UPSIDE ` and `BUST ` is present in the raw header value. Header matching should trim outer whitespace before comparing names, so these become ignored `UPSIDE` and `BUST` fields.
+
+Observed source facts:
+
+- `RK`, `TIERS`, `PLAYER NAME`, `TEAM`, `POS`, `BYE`, `UPSIDE `, `BUST `, `SOS`, and `ECR VS ADP` are populated in the current file.
+- `POS` combines a supported position and source position rank, such as `WR1`, `RB12`, `DST3`, or `K1`.
+- `TIERS` contains positive integers.
+- `ECR VS ADP` contains signed integer deltas, `0`, or `-`.
+- `-` is the null marker for unavailable ADP comparison; it is distinct from a negative integer.
+- The current seed conversion derives ADP rank as overall/source order plus the signed `ECR VS ADP` delta and uses `null` for `-`.
+- Bye, upside, bust, and SOS values are not part of the Phase 5 canonical ranking domain.
 
 ## Goal
 
-Make canonical ranking-set validation reject sparse entry arrays and unknown tier-capability keys, with deterministic exact regression coverage and no change to valid ranking-set behavior.
+Create one source-agnostic import contract and one pure transport-preflight boundary that identify supported formats, reject unsafe or undecodable input, preserve stage separation, and make the FantasyPros CSV and Canonical Ranking Set JSON V1 profiles executable specifications for later parser slices.
 
 ## Scope
 
 ### Goals
 
-- Visit every numeric index from zero through `entries.length - 1`, including sparse holes.
-- Treat a sparse hole as an invalid entry at its actual array index using the existing field-level validation errors.
-- Preserve current deterministic array and field error ordering.
-- Inspect every own enumerable key in `capabilities.tiers`.
-- Reject tier-capability keys outside `QB`, `RB`, `WR`, `TE`, `DST`, and `K`.
-- Report each unknown key as `invalid-capability` at `capabilities.tiers.<key>`.
-- Preserve the existing canonical position order for known tier-capability errors.
-- Report unknown tier keys after known-position checks in lexicographic key order.
-- Add exact focused regression tests for both findings.
-- Re-run all validation required by the completed Task 1 slice.
+- Define stable format identifiers and version references for FantasyPros CSV V1 and Canonical Ranking Set JSON V1.
+- Define source-neutral import stages, severity, diagnostics, locations, and generic stage results.
+- Define distinct preflight, parsed-source, normalized-candidate, validated-candidate, and domain-conversion handoff types.
+- Keep parsed source records structurally distinct from `RankingEntry` and `RankingSet`.
+- Define the valid Canonical Ranking Set JSON V1 envelope without treating parsed JSON as trusted domain data.
+- Freeze the FantasyPros CSV header, alias, field-semantic, null-marker, and ignored-field contract.
+- Define fixed Phase 5 input limits of 1 MiB and 1,000 ranking records.
+- Add pure UTF-8 transport preflight over bytes.
+- Reject unsupported format IDs, unsupported versions, empty input, oversized input, and invalid UTF-8 with structured diagnostics.
+- Strip one leading UTF-8 BOM after successful decoding.
+- Add exact contract and preflight tests.
+- Check Phase 5 Task 2 complete only after all validation passes.
 
 ### Non-Goals
 
-- Changing `RankingSet`, `RankingSetCapabilities`, `RankingEntry`, or any other domain type.
-- Adding a new validation error code.
-- Changing valid source, team, ADP, identity, rank, tier, date, or capability behavior.
-- Normalizing or repairing sparse arrays or unknown capability keys.
-- Parsing imported files or adding import-stage contracts.
-- Changing snapshots, scenarios, repositories, persistence, recommendations, or UI.
-- Updating architecture, design, decisions, project scope, dependencies, or generated code.
-- Beginning Phase 5 Task 2.
+- Parsing CSV rows, quoting, headers, or JSON document structure.
+- Normalizing player names, teams, positions, ranks, tiers, ADP, or IDs.
+- Applying unknown-team, nullable-ADP, neutral-tier, or generated-ID fallbacks.
+- Validating source-record semantics or canonical ranking-set invariants.
+- Converting candidates into `RankingSet` values.
+- Import application workflows, repositories, persistence, server actions, or UI.
+- Generic column mapping, runtime plugins, automatic format detection, or additional ranking formats.
+- Modifying the existing FantasyPros CSV, seed rankings, engines, snapshots, scenarios, or domain validator.
+- Adding package dependencies.
 
 ## Implementation Design
 
-### Sparse Entry Validation
+### Import Type Module
 
-Update `src/lib/rankingSetValidation.ts` so `validateEntries` uses explicit indexed iteration rather than `forEach`:
+Add `src/types/rankingImport.ts`. It may import existing ranking domain types only for the trusted portable-document output contract; parsed-source types must not extend or alias `RankingEntry` or `RankingSet`.
 
-```ts
-for (let index = 0; index < entries.length; index += 1) {
-  const value = entries[index];
-  // existing validation body unchanged
-}
+Define:
+
+- `RankingImportFormatId`: `"fantasypros-csv" | "canonical-ranking-json"`.
+- `RankingImportFormatRef`: `{ id: RankingImportFormatId; version: 1 }`.
+- `RankingImportStage`: `"preflight" | "parse" | "normalize" | "validate" | "convert" | "persist"`.
+- `RankingImportDiagnosticSeverity`: `"error" | "warning"`.
+- `RankingImportDiagnosticLocation`: optional `path`, one-based `row`, one-based `column`, and source `field`.
+- Generic `RankingImportDiagnostic<TCode extends string>` with stable code, stage, severity, message, and optional location.
+- Generic `RankingImportStageResult<TValue, TCode extends string>` with:
+  - success: `{ ok: true; value: TValue; warnings: readonly Diagnostic[] }`;
+  - failure: `{ ok: false; errors: readonly Diagnostic[]; warnings: readonly Diagnostic[] }`.
+
+Define these distinct handoffs:
+
+- `PreflightRankingDocument`: supported format reference, decoded text, and original byte length.
+- `ParsedRankingField`: untrusted value plus source location.
+- `ParsedRankingSourceRecord`: stable zero-based source index and field map of parsed values.
+- `ParsedRankingSourceDocument`: supported format reference, untrusted metadata, and parsed source records.
+- `NormalizedRankingCandidateEntry`: source index/location plus source-neutral nullable primitives for player ID, name, team, position, source order, source position rank, tier, and ADP rank.
+- `NormalizedRankingCandidate`: requested display name, source description, computed field-capability metadata, and normalized entries.
+- `ValidatedRankingCandidate`: a distinct wrapper containing a normalized candidate and a literal validated marker. It must not be assignable directly from a parsed document.
+- `ConvertedRankingSet`: a distinct wrapper around the canonical `RankingSet` returned by future domain conversion.
+
+These are boundary contracts, not implementations. Do not add parser functions, validation functions, classes, dependency injection, or mutable pipeline state.
+
+### Canonical Ranking Set JSON V1 Contract
+
+Define the trusted portable-document output shape separately from untrusted parsed JSON:
+
+```text
+schemaVersion: 1
+metadata:
+  name: string
+  exportedAt: ISO timestamp string
+  sourceRankingSetId?: string       # non-authoritative provenance
+  source?:
+    kind
+    formatId?
+    formatVersion?
+    label?
+    importedAt?: ISO timestamp string
+capabilities: RankingSetCapabilities
+entries: readonly RankingEntry[]
 ```
 
-JavaScript returns `undefined` when a sparse hole is read by index. The existing record and field validation should then produce deterministic errors for that index.
+The portable document must not contain drafts, league settings, picks, recommendations, repository records, or React state. Its local source-set ID is provenance only and cannot become imported local identity automatically.
 
-Do not compact the array, filter holes, synthesize an entry, or introduce an `invalid-entry` code. Preserve the current field-level behavior. For a one-slot sparse array with otherwise matching empty capabilities, the exact error code/path order should be:
+The type represents a valid serializer output. Task 4 will still parse JSON from `unknown` and validate every field before constructing it.
 
-1. `invalid-player-id` at `entries[0].player.id`
-2. `invalid-player-name` at `entries[0].player.name`
-3. `invalid-team` at `entries[0].player.team`
-4. `invalid-position` at `entries[0].player.position`
-5. `invalid-overall-rank` at `entries[0].overallRank`
-6. `invalid-adp-rank` at `entries[0].adpRank`
-7. `invalid-tier` at `entries[0].tier`
+### Format Profiles and Limits
 
-No position-rank error is expected because a valid position is required before an expected position rank can be derived.
+Add profile constants and preflight behavior in `src/lib/rankingImportPreflight.ts`.
 
-### Unknown Tier-Capability Keys
+Export:
 
-After completing the existing `QB`, `RB`, `WR`, `TE`, `DST`, and `K` checks, inspect `Object.keys(tiers)`.
+```ts
+export const RANKING_IMPORT_LIMITS = {
+  maxBytes: 1_048_576,
+  maxEntries: 1_000,
+} as const;
+```
 
-- Filter out the six supported position keys.
-- Sort remaining keys lexicographically.
-- Add one `invalid-capability` error per unknown key.
-- Use path `capabilities.tiers.<key>`.
-- Use a message stating that the tier-capability position is unsupported.
+Export immutable supported-format references:
 
-Keep unknown-key checks after the known-position loop so existing error ordering and tests remain stable.
+- `{ id: "fantasypros-csv", version: 1 }`
+- `{ id: "canonical-ranking-json", version: 1 }`
 
-Only own enumerable keys should be considered. Do not broaden this slice into prototype hardening or generic unknown-field rejection for other domain objects.
+Export a FantasyPros CSV V1 profile describing:
 
-### Focused Regression Tests
+#### Header Matching
 
-Update `src/lib/rankingSetValidation.test.ts` with:
+- Decode CSV header cells before semantic matching in Task 3.
+- Trim outer whitespace and compare case-insensitively using uppercase normalized names.
+- Reject two physical columns that normalize to the same recognized semantic header in Task 3.
 
-1. A one-slot sparse array created with `new Array<RankingEntry>(1)`, paired with `team: "none"`, `adp: "none"`, and an empty tier-capability map. Assert the exact seven errors and ordering listed above.
-2. A valid complete ranking set whose tier capability object also contains `DL: "source"` through a runtime test cast. Assert one `invalid-capability` error at `capabilities.tiers.DL`.
-3. An unknown-key ordering case with at least two unsupported keys supplied out of order, proving errors are returned in lexicographic key order after all supported-position checks.
+#### Recognized Semantic Headers
 
-Existing valid complete, degraded, partial, and capability tests must remain unchanged and pass.
+| Semantic | Accepted normalized headers | Presence | Later behavior |
+| --- | --- | --- | --- |
+| Overall order | `RK`, `RANK` | Optional | Use explicit rank when the column exists; otherwise Task 5 uses row order |
+| Tier | `TIERS`, `TIER` | Optional | Missing/partial values become neutral per-position tiers in Task 5 |
+| Player name | `PLAYER NAME`, `PLAYER` | Required | Missing required header is a Task 3 parser error |
+| Team | `TEAM` | Optional | Missing/blank values become `UNK` in Task 5 |
+| Position | `POS`, `POSITION` | Required | Accept position token with optional positive numeric suffix |
+| ADP delta | `ECR VS ADP` | Optional | Signed integer or `0`; `-` means unavailable |
+
+Recognize `BYE`, `UPSIDE`, `BUST`, and `SOS` as ignored fields. Unknown headers are preserved or warned about by Task 3 but never added automatically to the ranking domain.
+
+#### Source Value Semantics
+
+- Position values use `QB`, `RB`, `WR`, `TE`, `DST`, or `K` plus an optional positive integer source position rank.
+- `RK`, when present, is a positive integer source order.
+- `TIERS`, when non-empty, is a positive integer.
+- If the `RK` column is absent, Task 5 uses row order. If `RK` is present, every non-header row must eventually supply a positive integer; partial blank ranks are malformed rather than a mixed fallback.
+- `TEAM`, tier, and ADP-delta cells may be blank where the shared fallback matrix permits absence.
+- `ECR VS ADP` accepts `+N`, `-N`, `0`, or the exact null marker `-`.
+- Future normalization derives ADP rank from canonical/source order plus the delta and rejects a non-positive result.
+- This CSV profile has no player-ID column; Task 5 must generate source-local identities.
+
+Profile constants document these semantics; this slice does not enforce row values.
+
+Export a Canonical JSON V1 profile containing its format reference, schema version `1`, 1 MiB byte limit, 1,000-entry limit, and required root fields `schemaVersion`, `metadata`, `capabilities`, and `entries`.
+
+### Transport Preflight
+
+Define:
+
+```ts
+preflightRankingImport(input: {
+  formatId: string;
+  formatVersion: number;
+  bytes: Uint8Array;
+}): RankingImportStageResult<PreflightRankingDocument, RankingImportPreflightErrorCode>
+```
+
+Define `RankingImportPreflightErrorCode` as:
+
+- `unsupported-format`
+- `unsupported-version`
+- `empty-input`
+- `input-too-large`
+- `invalid-encoding`
+
+Preflight order is deterministic and fail-fast:
+
+1. Validate format ID.
+2. Validate version for that supported format.
+3. Reject zero bytes or more than 1 MiB.
+4. Decode bytes as UTF-8 using a fatal decoder.
+5. Strip one leading UTF-8 BOM if present.
+6. Reject decoded content that is empty or whitespace-only.
+7. Return the typed supported format reference, decoded text, byte length, and no warnings.
+
+Preflight does not inspect extensions, filenames, CSV syntax, JSON syntax, headers, rows, fields, or record counts.
+
+Every preflight failure returns exactly one diagnostic with:
+
+- stage `preflight`;
+- severity `error`;
+- the stable code above;
+- no source location.
+
+### Focused Tests
+
+Add `src/lib/rankingImportPreflight.test.ts` covering:
+
+- exact format IDs, versions, limits, recognized headers, aliases, ignored headers, null marker, and source-position pattern;
+- the exact current FantasyPros header after trim/uppercase normalization;
+- a minimum CSV header containing only required semantics;
+- a permitted missing-optional-column header;
+- canonical JSON V1 required root fields and schema version;
+- successful UTF-8 preflight for both formats;
+- UTF-8 BOM stripping;
+- exact acceptance at 1 MiB and rejection at 1 MiB plus one byte;
+- zero-byte and whitespace-only rejection;
+- invalid UTF-8 rejection using an explicit invalid byte sequence;
+- unsupported format and unsupported version priority over content failures;
+- success preserving byte length and decoded text;
+- success returning no warnings;
+- exact diagnostic code, stage, severity, message, and lack of location for every failure.
+
+Do not add parser tests in this slice.
 
 ## Implementation Steps
 
-1. Replace sparse-skipping entry iteration with explicit indexed iteration in `rankingSetValidation.ts` without changing the validation body.
-2. Add deterministic unknown tier-key rejection after the supported-position capability loop.
-3. Add exact sparse-array and unknown-key regression tests.
-4. Run the focused ranking-set validation tests.
-5. Run TypeScript no-emit validation and focused lint.
-6. Run the full test suite and repository-wide lint.
-7. If every acceptance criterion passes, update this slice status to complete and retain Phase 5 Task 1 as complete.
-8. Report results and stop. Do not begin Task 2.
+1. Add `src/types/rankingImport.ts` with generic diagnostics, stage results, stage handoffs, and the canonical JSON V1 output contract.
+2. Add `src/lib/rankingImportPreflight.ts` with limits, supported profile constants, header semantics, and pure UTF-8 preflight.
+3. Add exact profile-contract and preflight tests.
+4. Run focused tests, TypeScript, and focused lint.
+5. Run the full test suite and repository-wide lint.
+6. After all acceptance criteria pass, mark only Phase 5 Task 2 complete in `docs/tasks.md` and update this slice status.
+7. Report results and stop. Do not implement either parser or begin Task 3.
 
 ## Expected Files
 
-- `src/lib/rankingSetValidation.ts`
-- `src/lib/rankingSetValidation.test.ts`
-- `docs/current-slice.md` for completion status after implementation
+- `src/types/rankingImport.ts`
+- `src/lib/rankingImportPreflight.ts`
+- `src/lib/rankingImportPreflight.test.ts`
+- `docs/tasks.md`
+- `docs/current-slice.md` for completion status
 
-No type, task, architecture, design, decision, project, snapshot, scenario, persistence, dependency, generated, or UI file should change.
+No existing CSV, seed, domain, validator, engine, snapshot, scenario, persistence, architecture, design, decision, project, dependency, generated, or UI file should change.
 
 ## Automated Validation
 
 Run from the repository root:
 
 ```text
-npm test -- src/lib/rankingSetValidation.test.ts
+npm test -- src/lib/rankingImportPreflight.test.ts
 npx tsc --noEmit
-npm run lint -- src/lib/rankingSetValidation.ts src/lib/rankingSetValidation.test.ts
+npm run lint -- src/types/rankingImport.ts src/lib/rankingImportPreflight.ts src/lib/rankingImportPreflight.test.ts
 npm test
 npm run lint
 ```
 
 Expected result:
 
-- Focused ranking-set validation tests pass with exact error assertions.
+- Focused profile and preflight tests pass with exact assertions.
 - TypeScript no-emit validation passes.
 - Focused lint passes without warnings.
 - The full Vitest suite passes.
 - Repository-wide lint passes.
-- No dependency, database, environment, network, build, or generated-client requirement is introduced.
+- No database, network, browser, environment-variable, build, or generated-client dependency is introduced.
 
-No Prisma validation, production build, or manual browser QA is required because this slice changes only pure validation logic and unit tests.
+No Prisma validation, production build, or manual browser QA is required because this slice adds only isolated contracts, pure byte preflight, and unit tests.
 
 ## Acceptance Criteria
 
-- Sparse holes are visited and rejected at their real array indexes.
-- A one-slot sparse array returns the exact seven existing field-level errors in the specified order.
-- Dense valid arrays continue producing no new errors.
-- Every own enumerable tier-capability key outside the six supported positions is rejected.
-- Unknown tier-key errors use `invalid-capability` and the exact unknown-key path.
-- Multiple unknown tier keys are reported after known-position errors in lexicographic order.
-- Existing error codes, valid ranking behavior, capability derivation, and success-reference semantics are unchanged.
-- Existing complete, degraded, partial, rank, tier, and capability tests continue passing.
+- Supported format identifiers and versions are explicit and closed to the two approved V1 profiles.
+- The fixed limits are exactly 1 MiB and 1,000 entries.
+- Import stages, diagnostic severity/location, and generic success/failure contracts are source-agnostic.
+- Parsed records and normalized candidates are structurally distinct from canonical `RankingEntry` and `RankingSet` values.
+- Canonical Ranking Set JSON V1 has an explicit trusted output envelope and remains distinct from Scenario V1.
+- The FantasyPros profile exactly documents current headers, aliases, ignored fields, position encoding, tier semantics, ADP-delta values, and the `-` null marker.
+- Required versus optional FantasyPros semantics match the approved fallback matrix.
+- Preflight accepts only supported ID/version pairs, valid non-empty UTF-8, and at most 1 MiB.
+- Preflight strips one leading UTF-8 BOM and preserves original byte length.
+- Preflight errors are fail-fast, structured, deterministic, and location-free.
+- No CSV or JSON parsing is implemented.
+- Existing Task 1 domain and validator behavior remains unchanged.
 - Focused tests, TypeScript, focused lint, full tests, and repository-wide lint pass.
-- No file outside the three expected files changes.
-- Phase 5 Task 2 remains unstarted.
+- Only Phase 5 Task 2 is checked complete after validation.
+- No dependency, migration, generated code, or unrelated documentation change is introduced.
 
 ## Failure Handling
 
-- If indexed iteration changes errors for dense arrays, stop and preserve the existing dense-array behavior before proceeding.
-- If rejecting unknown keys requires changing `RankingSetCapabilities`, do not change the type; use runtime key inspection and report any blocker.
-- If error ordering differs from the documented sequence, fix the iteration/check order rather than weakening exact assertions.
-- If an unknown inherited property is encountered, leave it out of scope; only own enumerable keys are part of this correction.
-- If unrelated tests fail, report them separately and do not broaden the slice.
-- If either finding cannot be fixed without changing parser, snapshot, scenario, or engine behavior, stop and report the boundary conflict.
+- If the raw FantasyPros source differs from the documented header or value semantics, stop and report the concrete discrepancy rather than broadening the format profile.
+- If UTF-8 fatal decoding is unavailable in the supported runtime, stop and report the runtime constraint rather than adding a dependency.
+- If a proposed handoff type exposes `RankingEntry` or `RankingSet` before domain conversion, revise the boundary rather than accepting the coupling.
+- If canonical JSON V1 requires a field not approved by the design, stop and report the design gap rather than inventing it.
+- If a test requires parser behavior, defer it to Task 3 or Task 4.
+- If unrelated existing tests fail, report them separately and do not broaden the slice.
 
 ## Follow-Up Slice
 
-After this correction passes, promote Phase 5 Task 2: define import-stage contracts, diagnostics, transport preflight boundaries, and the frozen FantasyPros CSV and Canonical Ranking Set JSON V1 profiles.
+Promote Phase 5 Task 3: parse the frozen FantasyPros CSV V1 syntax into located source records without normalization, domain validation, or persistence.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It closes exactly the two reviewed invariant gaps.
-- Executable by a lower-reasoning pass: yes. Iteration behavior, key validation, error codes, paths, ordering, tests, and commands are explicit.
-- Avoids unnecessary architecture changes: yes. Domain types and all downstream boundaries remain unchanged.
-- Blast radius reasonable: yes. Two code/test files plus slice status are expected.
-- Review/revert comfort: yes. The changes are local, additive validation hardening with regression tests.
-- Observable/testable acceptance criteria: yes. Both previously accepted invalid shapes receive exact deterministic failures.
+- Smallest meaningful increment: yes. It establishes the safe typed boundary and frozen profiles required before either parser can exist.
+- Executable by a lower-reasoning pass: yes. Types, formats, limits, headers, semantics, diagnostics, preflight order, tests, and commands are explicit.
+- Avoids unnecessary architecture changes: yes. It uses two explicit profiles and generic stage results without plugins, registries, or framework coupling.
+- Blast radius reasonable: yes. Three new source/test files plus Task 2 and slice-status documentation are expected.
+- Review/revert comfort: yes. The slice is additive and has no persistence, UI, or engine integration.
+- Observable/testable acceptance criteria: yes. Constants, byte boundaries, decoding, diagnostics, and type separation are directly testable.
