@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AvailablePlayersTable } from "@/components/AvailablePlayersTable";
 import {
@@ -53,6 +53,10 @@ type TransientSource =
 
 export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   const router = useRouter();
+  const pendingDraftScrollPositionRef = useRef<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [activeDraft, setActiveDraft] = useState<Draft>(draft);
   const [isMutationPending, setIsMutationPending] = useState(false);
   const [isDraftSetupOpen, setIsDraftSetupOpen] = useState(false);
@@ -72,6 +76,21 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   const activeRankings = transientSession?.rankings ?? rankings;
   const activeLeagueSettings = transientSession?.leagueSettings ?? leagueSettings;
   const isAnyPending = isMutationPending || isWorkbenchPending;
+
+  useLayoutEffect(() => {
+    const pendingScrollPosition = pendingDraftScrollPositionRef.current;
+
+    if (!pendingScrollPosition) {
+      return;
+    }
+
+    pendingDraftScrollPositionRef.current = null;
+    window.scrollTo({
+      left: pendingScrollPosition.x,
+      top: pendingScrollPosition.y,
+      behavior: "auto",
+    });
+  }, [displayedDraft]);
 
   const draftedPlayerIds = useMemo(() => {
     return new Set(
@@ -135,10 +154,23 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
       return;
     }
 
+    pendingDraftScrollPositionRef.current = {
+      x: window.scrollX,
+      y: window.scrollY,
+    };
+
     if (transientSession) {
-      setTransientSession(
-        draftPlayerInTransientSession(transientSession, playerId),
+      const nextSession = draftPlayerInTransientSession(
+        transientSession,
+        playerId,
       );
+
+      if (nextSession.draft === transientSession.draft) {
+        pendingDraftScrollPositionRef.current = null;
+        return;
+      }
+
+      setTransientSession(nextSession);
       return;
     }
 
@@ -149,8 +181,11 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
 
       if (workspace) {
         setActiveDraft(workspace.draft);
+      } else {
+        pendingDraftScrollPositionRef.current = null;
       }
     } catch (error) {
+      pendingDraftScrollPositionRef.current = null;
       console.error("Failed to draft player.", error);
     } finally {
       setIsMutationPending(false);

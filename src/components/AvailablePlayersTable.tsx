@@ -51,7 +51,6 @@ export function AvailablePlayersTable({
     }
 
     const previousScrollTop = tableViewport.scrollTop;
-    const previousViewportTop = tableViewport.getBoundingClientRect().top;
 
     await onDraftPlayer(playerId);
 
@@ -63,17 +62,6 @@ export function AvailablePlayersTable({
       }
 
       updatedTableViewport.scrollTop = previousScrollTop;
-
-      const viewportDelta =
-        updatedTableViewport.getBoundingClientRect().top - previousViewportTop;
-
-      if (viewportDelta !== 0) {
-        window.scrollBy({
-          top: viewportDelta,
-          left: 0,
-          behavior: "auto",
-        });
-      }
     });
   }
 
