@@ -143,7 +143,7 @@ Define the typed handoffs between import stages and freeze the supported source 
 
 ## Task 3 - Parse FantasyPros CSV Source Records
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

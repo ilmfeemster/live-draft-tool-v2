@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. This slice promotes Phase 5 Task 3. It parses the frozen FantasyPros CSV V1 syntax into located source records without normalizing values or constructing domain data.
+Complete. The frozen FantasyPros CSV V1 syntax now parses into deterministic, located source records without normalizing values or constructing domain data. Validation passed with 21 focused parser tests, 365 full-suite tests, TypeScript checking, and focused and repository-wide linting.
 
 ## Source Context
 
