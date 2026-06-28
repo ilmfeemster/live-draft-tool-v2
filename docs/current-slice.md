@@ -1,121 +1,83 @@
-# Current Slice: Reload the Draft Workspace After Active Deletion
+# Current Slice: Fix Layout Shift When Recommendations Panel Updates
 
 ## Source Context
 
-This is a focused correction to Phase 4 Task 11.
+This is a UX improvement to Phase 4 Task 11 (Developer Workbench Integration).
 
-The previous deletion fix removes a successfully deleted draft from the local `DraftHistoryList` state. When the deleted draft is also the loaded draft, however, the Draft Room can continue showing that deleted workspace's available players, roster, recommendations, and status.
+When a user makes a draft pick, the RecommendationsPanel updates with new recommendations. The panel's height changes based on the number of recommendations rendered, causing the entire left-column layout to reflow and shift upward. This creates a janky, disorienting UX.
 
-`DraftHistoryList` and `DraftRoom` are siblings rendered by the server page. The history list can update its own cards, but it does not own the loaded workspace used by `DraftRoom`. The current active-deletion path calls `router.replace()` and then immediately calls `router.refresh()`. Those operations do not expose a completion boundary, so refresh can reconcile the old route while the replacement navigation is still pending.
+## Root Cause
 
-The active workspace must be replaced through one authoritative navigation that reloads all server-derived workspace props together.
+The `RecommendationsPanel` is rendered in a flex column (the left panel of the Draft Room) without a fixed or reserved height. When recommendations update, the panel's content height changes, causing the entire flex container to reflow and push other elements up the page.
 
 ## Goal
 
-After deleting the loaded draft, automatically load a deterministic remaining draft or the existing fallback workspace, and ensure the entire page reflects that workspace without requiring another click or manual refresh.
+Eliminate the layout shift by constraining the RecommendationsPanel height so that updates do not cause visible reflow of the page or adjacent elements.
 
 ## Scope
 
 ### Goals
 
-- Preserve immediate local card and count removal after successful deletion.
-- Preserve the existing deterministic replacement choice:
-  1. First remaining non-complete draft in display order.
-  2. Otherwise the first remaining completed draft.
-  3. Otherwise the root fallback/default-workspace path.
-- Use a single authoritative hard replacement navigation for active-draft deletion.
-- Ensure Draft Room state, available players, user roster, recommendations, status, and page-level league summary are reconstructed from the replacement server workspace.
-- Keep inactive-draft deletion on the existing optimistic removal plus `router.refresh()` reconciliation path.
-- Preserve confirmation, pending, cancellation, and failure behavior.
-- Keep the deleted draft URL out of browser history.
-- Mark Phase 4 Task 11 complete only after this correction and the remaining Task 11 validation pass.
+- Prevent upward layout shift when recommendations update during pick selection.
+- Preserve the existing recommendations display and user-pick highlight styling.
+- Ensure the panel remains functional and scrollable if recommendations overflow.
+- Maintain the existing manual QA and draft workflow behavior.
 
 ### Non-Goals
 
-- Moving workspace state into `DraftHistoryList`.
-- Converting the server page into a client-owned workspace store.
-- Passing draft, rankings, roster, or recommendation state between sibling components.
-- Synchronizing `DraftRoom` props with effects as a substitute for loading the correct server workspace.
-- Changing draft deletion persistence semantics.
-- Changing scenario import, export, replay-target, reset, or restart behavior.
-- Redesigning Draft History or Draft Room.
-- Adding a package dependency or browser-test framework.
-- Beginning Phase 4 Task 12.
+- Changing recommendations content, scoring, or filtering.
+- Adding new recommendation features or controls.
+- Redesigning the RecommendationsPanel layout or styling beyond height constraints.
+- Changing Draft Room layout structure or other panels.
+- Modifying draft state, persistence, or deletion behavior.
+- Altering available-players or user-roster behavior.
+- Adding package dependencies.
 
 ## Implementation Design
 
-Update `src/components/DraftHistoryList.tsx`.
+Update `src/components/RecommendationsPanel.tsx` to add height constraints.
 
-### Inactive Draft Deletion
+### Approach
 
-After `deleteDraftAction(summary.id)` succeeds for a draft other than `activeDraftId`:
+1. Wrap the recommendations list in a container with a fixed max-height.
+2. Add `overflow-y: auto` for scrolling if recommendations exceed the space.
+3. Calculate or choose a sensible max-height that accommodates typical recommendation sets (3-5 players visible without scrolling on most screens).
+4. Preserve the heading, description, and "No recommendations" state outside the scrollable container.
 
-1. Remove the deleted summary from `visibleSummaries`.
-2. Leave the loaded Draft Room unchanged.
-3. Call `router.refresh()` to reconcile authoritative server summaries.
+### Expected Styling Changes
 
-### Active Draft Deletion
-
-After `deleteDraftAction(summary.id)` succeeds for `activeDraftId`:
-
-1. Remove the deleted summary from `visibleSummaries`.
-2. Select the replacement summary using the existing deterministic order.
-3. Build the destination:
-
-```ts
-const destination = nextSummary
-  ? `/?draftId=${encodeURIComponent(nextSummary.id)}`
-  : "/";
-```
-
-4. Call:
-
-```ts
-window.location.replace(destination);
-```
-
-5. Return without calling `router.refresh()`.
-
-The hard replacement is intentional. Active deletion invalidates the server workspace supplying several sibling and page-level surfaces, and the existing client navigation plus immediate refresh has already demonstrated stale mixed UI. A full replacement is a small, reliable boundary that reloads the page, loader, Draft Room key, rankings, league settings, recommendations, available-player derivation, and roster derivation together. `replace` is preferred over `assign` so Back cannot revisit the deleted draft URL.
-
-### Cancellation and Failure
-
-- If native confirmation is declined, do not call the delete action, update local summaries, or navigate.
-- If deletion returns `false` or throws, leave cards, counts, loaded workspace, and URL unchanged.
-- Preserve existing error logging and pending-state cleanup.
+- Add a fixed max-height to the recommendations list container (e.g., `max-h-72` or similar Tailwind class).
+- Add `overflow-y-auto` for scrolling overflow.
+- Preserve all existing text, padding, border, and background styling.
 
 ## Testing Strategy
 
-The repository has no DOM interaction test dependency, and static rendering cannot invoke the asynchronous delete handler or replace `window.location`. Do not add React Testing Library or jsdom for this correction.
-
-- Keep `src/components/DraftHistoryList.test.tsx` as markup regression coverage for grouping, counts, cards, and empty state.
-- Retain action and repository tests as authority for deletion success/failure semantics.
-- Use focused manual QA as the behavior regression for active deletion and full workspace replacement.
-- Run the complete automated suite because the replacement workspace must preserve draft, roster, recommendation, scenario, and persistence behavior.
+- Keep `src/components/RecommendationsPanel.test.tsx` markup coverage as-is (no new tests required; styling is not covered by markup tests).
+- Visual inspection during manual QA to verify no layout shift on pick selection.
+- Verify scrolling works if recommendations exceed the allocated space.
+- Run the complete automated suite to ensure no regression in draft state, recommendations calculation, or other features.
 
 ## Implementation Steps
 
-1. Update the successful deletion branch in `DraftHistoryList` to separate inactive reconciliation from active workspace replacement.
-2. For active deletion, replace the browser location with the deterministic destination and skip the racing `router.refresh()` call.
-3. Confirm inactive deletion still removes its card immediately and refreshes server summaries without changing the loaded Draft Room.
-4. Run focused Draft History, Draft Room, action, repository, and workspace-loader tests.
+1. Update `src/components/RecommendationsPanel.tsx` to wrap the recommendations list in a constrained container.
+2. Choose and apply an appropriate max-height constraint (e.g., `max-h-72` in Tailwind, or equivalent CSS).
+3. Add overflow scrolling for cases where recommendations exceed the space.
+4. Run focused tests for RecommendationsPanel and DraftRoom.
 5. Run the full test suite, lint, and TypeScript validation.
-6. Complete the focused manual QA below.
-7. If all remaining Task 11 criteria pass, mark Task 11 complete in `docs/tasks.md`. Do not begin Task 12.
+6. Complete focused manual QA to verify the layout shift is eliminated.
 
 ## Expected Files
 
-- `src/components/DraftHistoryList.tsx`
-- `docs/tasks.md` only to mark Task 11 complete after validation
+- `src/components/RecommendationsPanel.tsx`
 
-No Draft Room, page, domain, persistence, scenario, or dependency changes are expected.
+No Draft Room, page, domain, persistence, scenario, state, or dependency changes expected.
 
 ## Automated Validation
 
 Run from the repository root:
 
 ```text
-npm test -- src/components/DraftHistoryList.test.tsx src/components/DraftRoom.test.tsx src/app/actions/draftActions.test.ts src/lib/draftRepository.test.ts src/lib/draftWorkspaceLoader.test.ts
+npm test -- src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx
 npm test
 npm run lint
 npx tsc --noEmit
@@ -123,7 +85,7 @@ npx tsc --noEmit
 
 Expected result:
 
-- Focused history, workspace, action, repository, and Draft Room tests pass.
+- RecommendationsPanel and DraftRoom tests pass.
 - Full Vitest suite passes.
 - ESLint exits with no errors or warnings.
 - TypeScript no-emit validation passes.
@@ -131,23 +93,24 @@ Expected result:
 
 ## Focused Manual QA
 
-1. Delete an inactive draft; confirm its card/count disappear immediately while available players, roster, recommendations, and loaded-draft status remain unchanged.
-2. Cancel inactive deletion; confirm no visible state or navigation changes.
-3. Delete the loaded draft while another active draft remains; confirm that draft loads automatically and its available players, roster, recommendations, status, and league summary all replace the deleted workspace.
-4. Delete the loaded draft when only completed drafts remain; confirm the first completed draft loads with its complete workspace state.
-5. Delete the only remaining draft; confirm the root loader establishes its normal fallback/default workspace and all Draft Room surfaces match it.
-6. Use Back after active deletion; confirm the browser does not return to the deleted draft URL.
-7. Force or observe a failed deletion if practical; confirm the card, counts, URL, and loaded Draft Room remain unchanged.
-8. Confirm the Scenario Files and replay-target controls retain their existing behavior after replacement navigation.
+1. Load a draft in progress with available picks.
+2. Make a draft pick and observe the RecommendationsPanel update.
+3. Verify that no visible upward layout shift occurs; the page should remain stable.
+4. Make additional picks and verify stability with each update.
+5. If recommendations exceed the allocated space, verify that scrolling is available and works smoothly.
+6. Verify that the recommendations still display correctly with proper styling, numbering, player info, and reason tags.
+7. Verify that the user can still click recommendations to draft players.
+8. Confirm the existing manual draft, undo, reset, scenario, and developer workbench workflows continue to work.
 
 ## Acceptance Criteria
 
-- Successful inactive deletion immediately updates history without changing the loaded workspace.
-- Successful active deletion automatically loads the deterministic replacement or fallback workspace.
-- Available players are derived from the replacement draft and rankings, not the deleted draft.
-- User roster, recommendations, draft status, and page-level league summary all reflect the same replacement workspace.
-- No additional click or manual refresh is required.
-- The active-deletion path performs one replacement navigation and does not race it with `router.refresh()`.
+- Picking a player does not cause visible upward layout shift of the page or adjacent elements.
+- The RecommendationsPanel updates correctly with new recommendations.
+- The panel remains visually stable even as recommendations change.
+- Recommendations remain interactive and can be drafted.
+- Scrolling works smoothly if recommendations overflow the allocated space.
+- No regression in draft state, recommendations calculation, or other features.
+- All existing manual and automated tests pass.
 - Browser Back does not revisit the deleted draft URL.
 - Cancelled or failed deletion leaves history, URL, and Draft Room state unchanged.
 - Existing deletion confirmation and server-side deletion behavior are preserved.

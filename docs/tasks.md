@@ -489,7 +489,7 @@ Allow safe local exploration of replayed scenarios with distinct reset and resta
 
 ## Task 11 - Integrate the Developer Workbench Controls
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
