@@ -1,194 +1,123 @@
-# Current Slice: Define the Ranking Set Domain and Canonical Invariants
+# Current Slice: Close Ranking Set Validator Edge Cases
 
 ## Completion Status
 
-Planned. This slice promotes Phase 5 Task 1 and must not begin later import, persistence, application, snapshot-integration, or UI tasks.
+Planned. This corrective follow-up belongs to Phase 5 Task 1. Task 1 must not be treated as fully closed, and Task 2 must not begin, until both review findings and their regression tests pass.
 
 ## Source Context
 
-Phase 5 requires ranking data to become a first-class domain concept before untrusted external data can be parsed or persisted.
+The higher-reasoning review found two runtime gaps in the new canonical ranking-set validator:
 
-The existing Draft State Engine, Recommendation Engine, persisted ranking snapshots, and Scenario V1 all consume the current `RankingEntry[]` shape. This slice must preserve that seam while adding the domain vocabulary needed for mutable ranking sets and explicit field-capability metadata.
+1. `validateEntries` uses `Array.prototype.forEach`, which skips holes in sparse arrays. A sparse array can therefore have a positive `length` while avoiding all per-entry validation.
+2. Tier-capability validation iterates only the six supported positions. It rejects supported positions that are absent from the set, but it does not inspect unknown object keys such as `DL`.
 
-The approved design requires:
+Both behaviors conflict with the approved Task 1 invariants:
 
-- local ranking-set identity rather than global player identity;
-- canonical contiguous overall and position ranks;
-- position-local tiers;
-- explicit capability states for source-provided, derived, absent, or neutral-fallback data;
-- a canonical unknown-team value;
-- neutral per-position tiers that disable tier-cliff signal without making `tier` nullable;
-- pure deterministic validation independent of Prisma, React, files, and transport formats.
+- entries must be a genuinely populated canonical collection;
+- tier capabilities must cover exactly the supported positions represented by entries;
+- unsupported runtime metadata must fail rather than being ignored.
+
+The existing domain types, error vocabulary, valid behavior, and architecture remain correct. This slice should close only these two validation gaps.
 
 ## Goal
 
-Define the Phase 5 ranking-set domain model and one pure validator that proves an already-canonical ranking set is internally valid without changing existing engine, snapshot, scenario, or persistence behavior.
+Make canonical ranking-set validation reject sparse entry arrays and unknown tier-capability keys, with deterministic exact regression coverage and no change to valid ranking-set behavior.
 
 ## Scope
 
 ### Goals
 
-- Add ranking-set domain types in a dedicated rankings type module.
-- Keep `Player` and `RankingEntry` unchanged in `src/types/draft.ts`.
-- Define mutable ranking-set metadata, source provenance, lightweight summary data, field capabilities, and the future snapshot value shape.
-- Define `UNKNOWN_TEAM` as `"UNK"` and the neutral fallback tier as `1`.
-- Add a pure `validateRankingSet` boundary returning either the unchanged valid domain value or deterministic structured errors.
-- Validate set metadata, canonical entries, ordering, tier progression, and capability/value consistency.
-- Return all safe independent errors in deterministic order.
-- Add exact unit coverage for valid, invalid, complete-source, and safely degraded ranking sets.
-- Check Phase 5 Task 1 complete only after this slice and its validation pass.
+- Visit every numeric index from zero through `entries.length - 1`, including sparse holes.
+- Treat a sparse hole as an invalid entry at its actual array index using the existing field-level validation errors.
+- Preserve current deterministic array and field error ordering.
+- Inspect every own enumerable key in `capabilities.tiers`.
+- Reject tier-capability keys outside `QB`, `RB`, `WR`, `TE`, `DST`, and `K`.
+- Report each unknown key as `invalid-capability` at `capabilities.tiers.<key>`.
+- Preserve the existing canonical position order for known tier-capability errors.
+- Report unknown tier keys after known-position checks in lexicographic key order.
+- Add exact focused regression tests for both findings.
+- Re-run all validation required by the completed Task 1 slice.
 
 ### Non-Goals
 
-- Parsing CSV, JSON, browser files, or any untrusted transport document.
-- Defining import-stage parsed, normalized, or validated candidate types.
-- Normalizing aliases, generating player IDs, deriving fallbacks from source files, or converting candidates into ranking sets.
-- Persisting ranking sets or adding Prisma models, migrations, repositories, or database tests.
-- Changing `RankingEntry`, `Player`, `RecommendationInput`, recommendation scoring, or Draft State behavior.
-- Changing ranking snapshot serialization or Scenario V1.
-- Adding ranking editing operations, application workflows, server actions, or UI.
-- Validating ranking-set display-name uniqueness across stored sets; that belongs to the repository boundary.
-- Introducing global players or cross-source identity reconciliation.
+- Changing `RankingSet`, `RankingSetCapabilities`, `RankingEntry`, or any other domain type.
+- Adding a new validation error code.
+- Changing valid source, team, ADP, identity, rank, tier, date, or capability behavior.
+- Normalizing or repairing sparse arrays or unknown capability keys.
+- Parsing imported files or adding import-stage contracts.
+- Changing snapshots, scenarios, repositories, persistence, recommendations, or UI.
+- Updating architecture, design, decisions, project scope, dependencies, or generated code.
+- Beginning Phase 5 Task 2.
 
 ## Implementation Design
 
-### Domain Types
+### Sparse Entry Validation
 
-Add `src/types/rankings.ts`. It should import and reuse `Position` and `RankingEntry` from `src/types/draft.ts`.
-
-Define the following domain vocabulary:
-
-- `RankingSetSourceKind`: `"seed" | "external" | "canonical" | "manual"`.
-- `RankingSetSource`: source kind plus optional non-authoritative `formatId: string`, positive-integer `formatVersion: number`, `label: string`, and `importedAt: Date`.
-- `RankingDataAvailability`: `"complete" | "partial" | "none"`.
-- Player-identity capability: `"provided" | "generated" | "mixed"`.
-- Overall-order capability: `"explicit" | "row-derived"`.
-- Position-rank capability: exactly `"derived"`.
-- Per-position tier capability: `"source" | "defaulted-neutral"`.
-- `RankingSetCapabilities` containing `team`, `playerIdentity`, `overallOrder`, `positionRank`, `adp`, and `tiers: Partial<Record<Position, TierCapability>>`.
-- `RankingSet` containing local ID, name, source, capabilities, ordered canonical `entries`, `createdAt: Date`, and `updatedAt: Date`.
-- `RankingSetSummary` containing local ID, name, source kind, entry count, capabilities, `createdAt: Date`, and `updatedAt: Date` without entries.
-- `RankingSnapshot` containing readonly canonical `rankings`, optional copied capabilities, and optional `sourceRankingSetId`, `sourceRankingSetName`, and `capturedAt: Date` provenance for future Task 15 work.
-
-Use readonly properties and readonly collections where they prevent accidental mutation without changing the existing mutable `RankingEntry` declaration.
-
-Export these constants from the ranking domain module:
+Update `src/lib/rankingSetValidation.ts` so `validateEntries` uses explicit indexed iteration rather than `forEach`:
 
 ```ts
-export const UNKNOWN_TEAM = "UNK" as const;
-export const NEUTRAL_TIER = 1 as const;
+for (let index = 0; index < entries.length; index += 1) {
+  const value = entries[index];
+  // existing validation body unchanged
+}
 ```
 
-Do not add portable JSON, parser, persistence, or UI fields to these domain types.
+JavaScript returns `undefined` when a sparse hole is read by index. The existing record and field validation should then produce deterministic errors for that index.
 
-### Validation Result
+Do not compact the array, filter holes, synthesize an entry, or introduce an `invalid-entry` code. Preserve the current field-level behavior. For a one-slot sparse array with otherwise matching empty capabilities, the exact error code/path order should be:
 
-Add `src/lib/rankingSetValidation.ts` with:
+1. `invalid-player-id` at `entries[0].player.id`
+2. `invalid-player-name` at `entries[0].player.name`
+3. `invalid-team` at `entries[0].player.team`
+4. `invalid-position` at `entries[0].player.position`
+5. `invalid-overall-rank` at `entries[0].overallRank`
+6. `invalid-adp-rank` at `entries[0].adpRank`
+7. `invalid-tier` at `entries[0].tier`
 
-- a stable `RankingSetValidationErrorCode` union containing `invalid-id`, `invalid-name`, `invalid-source`, `invalid-date`, `empty-entries`, `invalid-player-id`, `duplicate-player-id`, `invalid-player-name`, `invalid-team`, `invalid-position`, `invalid-overall-rank`, `invalid-position-rank`, `invalid-adp-rank`, `invalid-tier`, and `invalid-capability`;
-- `RankingSetValidationError` containing `code`, `path`, and `message`;
-- a discriminated `RankingSetValidationResult`;
-- `validateRankingSet(rankingSet)` as the public pure validator.
+No position-rank error is expected because a valid position is required before an expected position rank can be derived.
 
-On success, return the same ranking-set reference without cloning, sorting, normalizing, or mutating it. On failure, return all safely detectable errors in deterministic order and do not return a ranking set.
+### Unknown Tier-Capability Keys
 
-Order errors by aggregate ID, name, source, lifecycle dates, entry collection, each entry in array/field order, then capabilities in `team`, `playerIdentity`, `overallOrder`, `positionRank`, `adp`, and `QB`, `RB`, `WR`, `TE`, `DST`, `K` tier order. Do not rely on object-key iteration for error ordering.
+After completing the existing `QB`, `RB`, `WR`, `TE`, `DST`, and `K` checks, inspect `Object.keys(tiers)`.
 
-Validation paths should identify the aggregate field or entry index, for example:
+- Filter out the six supported position keys.
+- Sort remaining keys lexicographically.
+- Add one `invalid-capability` error per unknown key.
+- Use path `capabilities.tiers.<key>`.
+- Use a message stating that the tier-capability position is unsupported.
 
-```text
-name
-entries
-entries[2].player.id
-entries[2].overallRank
-capabilities.tiers.WR
-```
+Keep unknown-key checks after the known-position loop so existing error ordering and tests remain stable.
 
-### Set Metadata Rules
+Only own enumerable keys should be considered. Do not broaden this slice into prototype hardening or generic unknown-field rejection for other domain objects.
 
-Validate:
+### Focused Regression Tests
 
-- ranking-set ID and name are non-empty after trimming;
-- source kind is supported at runtime;
-- optional source strings are non-empty when present;
-- optional import timestamp and required lifecycle timestamps are valid `Date` values;
-- `updatedAt` is not earlier than `createdAt`;
-- entries is a non-empty array;
-- capability enum values are supported at runtime.
+Update `src/lib/rankingSetValidation.test.ts` with:
 
-Do not enforce repository-wide name uniqueness.
+1. A one-slot sparse array created with `new Array<RankingEntry>(1)`, paired with `team: "none"`, `adp: "none"`, and an empty tier-capability map. Assert the exact seven errors and ordering listed above.
+2. A valid complete ranking set whose tier capability object also contains `DL: "source"` through a runtime test cast. Assert one `invalid-capability` error at `capabilities.tiers.DL`.
+3. An unknown-key ordering case with at least two unsupported keys supplied out of order, proving errors are returned in lexicographic key order after all supported-position checks.
 
-### Canonical Entry Rules
-
-Validate entries in stored array order:
-
-- player ID and name are non-empty after trimming;
-- player IDs are unique within the set;
-- team is non-empty; `UNKNOWN_TEAM` is valid;
-- position is one of `QB`, `RB`, `WR`, `TE`, `DST`, or `K` at runtime;
-- `overallRank` is exactly the one-based array index;
-- `positionRank` is exactly the one-based count for that position encountered in overall order;
-- `adpRank` is `null` or a positive finite number;
-- tier is a positive integer;
-- tier never decreases within a position when entries are traversed in overall order.
-
-The validator checks canonical values only. It must not sort entries, repair ranks, create identities, or generate fallback values.
-
-### Capability Consistency Rules
-
-After validating enough entry data to evaluate capabilities, enforce:
-
-- Team capability is `complete` when no entry uses `UNKNOWN_TEAM`, `none` when every entry uses it, and `partial` when usage is mixed.
-- ADP capability is `complete` when no entry has `null`, `none` when every entry has `null`, and `partial` when values are mixed.
-- Position-rank capability is exactly `derived`.
-- Every valid position represented by an entry has exactly one tier-capability entry.
-- Tier capabilities do not contain positions absent from the ranking set.
-- A `defaulted-neutral` position has every entry at exactly `NEUTRAL_TIER`.
-- A `source` tier position follows the normal positive, non-decreasing tier rules and may preserve gaps.
-- Player-identity and overall-order capability values are validated as supported metadata but are not inferred from canonical entries in this slice.
-
-Capability inconsistency is a validation failure. Do not silently rewrite capability metadata.
-
-### Focused Tests
-
-Add `src/lib/rankingSetValidation.test.ts` with small explicit fixtures. Cover:
-
-- a complete-source valid set spanning multiple positions;
-- a safely degraded valid set using unknown teams, nullable ADP, generated identity capability, row-derived order, and defaulted-neutral tiers;
-- empty and whitespace-only set ID, name, player ID, player name, and team;
-- unsupported runtime source kind, position, and capability values supplied through test casts;
-- invalid dates and `updatedAt` before `createdAt`;
-- empty entries and duplicate player IDs;
-- non-contiguous or duplicate overall ranks;
-- incorrect position rank after interleaved positions;
-- invalid ADP values including zero, negative, `NaN`, and infinity;
-- zero, negative, non-integer, and decreasing tiers;
-- team and ADP capability mismatches;
-- missing, extra, and invalid per-position tier capabilities;
-- a defaulted-neutral position containing any tier other than `NEUTRAL_TIER`;
-- multiple independent failures returned in stable order;
-- success returns the same input reference and validation never mutates entries or metadata.
-
-Tests should assert exact error codes and paths when behavior is deterministic, not merely that validation failed.
+Existing valid complete, degraded, partial, and capability tests must remain unchanged and pass.
 
 ## Implementation Steps
 
-1. Add `src/types/rankings.ts` with the approved domain types, capability vocabulary, `UNKNOWN_TEAM`, and `NEUTRAL_TIER`.
-2. Add `src/lib/rankingSetValidation.ts` with structured result types and pure deterministic validation.
-3. Add exact focused tests for valid complete, valid degraded, and invalid ranking sets.
-4. Run focused tests and TypeScript validation; fix only failures caused by this slice.
-5. Run the full automated suite and lint to prove the new isolated domain layer does not regress existing behavior.
-6. After all acceptance criteria pass, mark only Phase 5 Task 1 complete in `docs/tasks.md`.
-7. Report acceptance status and stop. Do not begin Task 2.
+1. Replace sparse-skipping entry iteration with explicit indexed iteration in `rankingSetValidation.ts` without changing the validation body.
+2. Add deterministic unknown tier-key rejection after the supported-position capability loop.
+3. Add exact sparse-array and unknown-key regression tests.
+4. Run the focused ranking-set validation tests.
+5. Run TypeScript no-emit validation and focused lint.
+6. Run the full test suite and repository-wide lint.
+7. If every acceptance criterion passes, update this slice status to complete and retain Phase 5 Task 1 as complete.
+8. Report results and stop. Do not begin Task 2.
 
 ## Expected Files
 
-- `src/types/rankings.ts`
 - `src/lib/rankingSetValidation.ts`
 - `src/lib/rankingSetValidation.test.ts`
-- `docs/tasks.md`
+- `docs/current-slice.md` for completion status after implementation
 
-No existing production source file, snapshot serializer, scenario contract, Prisma schema, generated client, dependency, package file, architecture document, decision document, or UI file should change.
+No type, task, architecture, design, decision, project, snapshot, scenario, persistence, dependency, generated, or UI file should change.
 
 ## Automated Validation
 
@@ -197,54 +126,54 @@ Run from the repository root:
 ```text
 npm test -- src/lib/rankingSetValidation.test.ts
 npx tsc --noEmit
+npm run lint -- src/lib/rankingSetValidation.ts src/lib/rankingSetValidation.test.ts
 npm test
 npm run lint
 ```
 
 Expected result:
 
-- Focused ranking-set validation tests pass with exact deterministic assertions.
+- Focused ranking-set validation tests pass with exact error assertions.
 - TypeScript no-emit validation passes.
-- All existing Vitest files and tests continue to pass.
-- ESLint exits with no new errors or warnings.
-- No database, network, environment variable, build, or generated-client dependency is introduced.
+- Focused lint passes without warnings.
+- The full Vitest suite passes.
+- Repository-wide lint passes.
+- No dependency, database, environment, network, build, or generated-client requirement is introduced.
 
-No Prisma validation, production build, or manual browser QA is required because this slice changes only isolated domain types, pure validation, unit tests, and a task checkbox.
+No Prisma validation, production build, or manual browser QA is required because this slice changes only pure validation logic and unit tests.
 
 ## Acceptance Criteria
 
-- Ranking-set, summary, source, capability, and future snapshot types exist in a domain-only module.
-- Existing `Player`, `RankingEntry`, `RecommendationInput`, snapshot serialization, and Scenario V1 shapes are unchanged.
-- `UNKNOWN_TEAM` is exactly `"UNK"` and `NEUTRAL_TIER` is exactly `1`.
-- `validateRankingSet` is pure, returns structured deterministic errors, and returns the same reference on success.
-- Canonical entries require unique player IDs, one-based contiguous overall ranks, derived one-based position ranks, valid ADP, and positive position-local non-decreasing tiers.
-- Complete, partial, and absent team and ADP capabilities match canonical entry values.
-- Tier capability covers exactly the represented valid positions.
-- Every `defaulted-neutral` position contains only `NEUTRAL_TIER` values and therefore cannot encode a tier cliff.
-- Unsupported or inconsistent runtime metadata fails rather than being normalized or repaired.
-- Existing engine, draft, persistence, snapshot, scenario, and UI behavior is unchanged.
-- Focused tests, TypeScript, the full test suite, and lint pass.
-- Only Phase 5 Task 1 is checked complete after validation.
-- No dependency, migration, generated code, or unrelated documentation change is introduced.
+- Sparse holes are visited and rejected at their real array indexes.
+- A one-slot sparse array returns the exact seven existing field-level errors in the specified order.
+- Dense valid arrays continue producing no new errors.
+- Every own enumerable tier-capability key outside the six supported positions is rejected.
+- Unknown tier-key errors use `invalid-capability` and the exact unknown-key path.
+- Multiple unknown tier keys are reported after known-position errors in lexicographic order.
+- Existing error codes, valid ranking behavior, capability derivation, and success-reference semantics are unchanged.
+- Existing complete, degraded, partial, rank, tier, and capability tests continue passing.
+- Focused tests, TypeScript, focused lint, full tests, and repository-wide lint pass.
+- No file outside the three expected files changes.
+- Phase 5 Task 2 remains unstarted.
 
 ## Failure Handling
 
-- If the existing seed rankings do not satisfy the new canonical rules, do not edit seed data in this slice; report the discrepancy for Task 12.
-- If existing snapshot or Scenario V1 types would need to change to compile, stop and report the boundary conflict rather than expanding this slice.
-- If capability consistency cannot be derived from canonical entry values under the explicit rules above, return a structured error rather than adding parser or normalization behavior.
-- If a proposed validation rule depends on comparing other stored ranking sets, defer it to the repository task.
-- If focused tests expose current Recommendation Engine behavior that conflicts with neutral-tier assumptions, stop and report the design conflict rather than changing scoring.
-- If unrelated existing tests fail, report them separately and do not broaden the slice.
+- If indexed iteration changes errors for dense arrays, stop and preserve the existing dense-array behavior before proceeding.
+- If rejecting unknown keys requires changing `RankingSetCapabilities`, do not change the type; use runtime key inspection and report any blocker.
+- If error ordering differs from the documented sequence, fix the iteration/check order rather than weakening exact assertions.
+- If an unknown inherited property is encountered, leave it out of scope; only own enumerable keys are part of this correction.
+- If unrelated tests fail, report them separately and do not broaden the slice.
+- If either finding cannot be fixed without changing parser, snapshot, scenario, or engine behavior, stop and report the boundary conflict.
 
 ## Follow-Up Slice
 
-Promote Phase 5 Task 2: define import-stage contracts, structured diagnostics, transport preflight boundaries, and the frozen FantasyPros CSV and Canonical Ranking Set JSON V1 format profiles. Do not begin parser implementation in the same slice.
+After this correction passes, promote Phase 5 Task 2: define import-stage contracts, diagnostics, transport preflight boundaries, and the frozen FantasyPros CSV and Canonical Ranking Set JSON V1 profiles.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It establishes the canonical domain and validator required by every later Phase 5 boundary.
-- Executable by a lower-reasoning pass: yes. Files, types, constants, validation order, error shape, tests, and commands are explicit.
-- Avoids unnecessary architecture changes: yes. Existing engine-facing `RankingEntry[]`, snapshots, scenarios, persistence, and UI remain unchanged.
-- Blast radius reasonable: yes. Three focused source/test files plus one task checkbox are expected.
-- Review/revert comfort: yes. The slice is additive and has no persistence or runtime workflow integration.
-- Observable/testable acceptance criteria: yes. Exact validator results, reference preservation, capability consistency, and regression commands are specified.
+- Smallest meaningful increment: yes. It closes exactly the two reviewed invariant gaps.
+- Executable by a lower-reasoning pass: yes. Iteration behavior, key validation, error codes, paths, ordering, tests, and commands are explicit.
+- Avoids unnecessary architecture changes: yes. Domain types and all downstream boundaries remain unchanged.
+- Blast radius reasonable: yes. Two code/test files plus slice status are expected.
+- Review/revert comfort: yes. The changes are local, additive validation hardening with regression tests.
+- Observable/testable acceptance criteria: yes. Both previously accepted invalid shapes receive exact deterministic failures.

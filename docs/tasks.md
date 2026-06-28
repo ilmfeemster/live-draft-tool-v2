@@ -49,7 +49,7 @@ Do not promote multiple unrelated tasks into `docs/current-slice.md` at once. Pa
 
 ## Task 1 - Define the Ranking Set Domain and Canonical Invariants
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
