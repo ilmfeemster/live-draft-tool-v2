@@ -1,302 +1,328 @@
-# Current Slice: Parse FantasyPros CSV Source Records
+# Current Slice: Parse Canonical Ranking Set JSON V1
 
 ## Completion Status
 
-Complete. The frozen FantasyPros CSV V1 syntax now parses into deterministic, located source records without normalizing values or constructing domain data. Validation passed with 21 focused parser tests, 365 full-suite tests, TypeScript checking, and focused and repository-wide linting.
+Planned. This slice promotes Phase 5 Task 4. It parses the frozen Canonical Ranking Set JSON V1 envelope into located source records without trusting imported values as valid domain data.
 
 ## Source Context
 
 Phase 5 Task 2 established:
 
 - fatal UTF-8 byte preflight;
-- fixed 1 MiB and 1,000-entry limits;
+- fixed 1 MiB and 1,000-entry import limits;
 - generic import diagnostics and stage results;
 - source-shaped parsed record contracts;
-- the FantasyPros CSV V1 format reference and profile;
-- required `PLAYER NAME`/`PLAYER` and `POS`/`POSITION` semantics;
-- optional rank, tier, team, and ADP-delta semantics;
-- known ignored `BYE`, `UPSIDE`, `BUST`, and `SOS` fields.
+- the `canonical-ranking-json` version `1` format reference;
+- the required V1 root fields `schemaVersion`, `metadata`, `capabilities`, and `entries`;
+- a portable document contract distinct from Scenario V1.
 
-This slice begins only after a document has passed preflight. The parser owns CSV syntax, header recognition, source locations, and record shape. It must not interpret ranking meaning.
+Phase 5 Task 3 proved the parser boundary with FantasyPros CSV. This slice adds the second explicit parser adapter. It owns canonical JSON syntax, envelope recognition, source shape, and JSON-path locations. It must not normalize values, validate ranking semantics, or construct domain data.
 
-The current source file contains 487 data records. Its observed physical headers normalize to:
-
-```text
-RK | TIERS | PLAYER NAME | TEAM | POS | BYE | UPSIDE | BUST | SOS | ECR VS ADP
-```
+Canonical JSON is application-owned, but imported documents remain untrusted. Their field names are known; their values are not assumed to satisfy TypeScript types.
 
 ## Goal
 
-Parse a preflight-approved FantasyPros CSV V1 document into deterministic located source records, rejecting malformed or incompatible CSV while preserving raw field values for the later normalization stage.
+Parse a preflight-approved Canonical Ranking Set JSON V1 document into deterministic located source records while preserving portable metadata, capabilities, player identities, and ranking values for later normalization and validation.
 
 ## Scope
 
 ### Goals
 
-- Add one explicit FantasyPros CSV V1 parser.
-- Accept only a preflight document whose format is `fantasypros-csv` version `1`.
-- Parse commas, quoted fields, escaped double quotes, LF, CRLF, and quoted embedded line breaks.
-- Preserve raw decoded cell values, including casing, whitespace, signs, and null markers.
-- Skip physically blank lines without changing source line locations.
-- Normalize header names only for semantic matching by trimming and uppercasing.
-- Map recognized aliases to source-neutral semantic field keys.
-- Require exactly one player-name semantic and one position semantic.
-- Reject duplicate recognized semantics even when different aliases are used.
-- Omit known ignored columns from parsed record fields without warnings.
-- Warn once per unknown header and omit unknown columns from parsed record fields.
-- Return zero-based source record indexes and one-based source row/column locations.
-- Reject row-width mismatches, empty data sets, and more than 1,000 data records.
-- Add exact unit coverage plus a regression that parses the real 487-row source file.
-- Check Phase 5 Task 3 complete only after all validation passes.
+- Add one explicit Canonical Ranking Set JSON V1 parser.
+- Accept only a preflight document whose format is `canonical-ranking-json` version `1`.
+- Parse JSON with the platform JSON parser and reject malformed syntax.
+- Require a non-null, non-array object root.
+- Reject recognizable Scenario V1 documents as the wrong document type.
+- Require an explicit numeric schema version and accept only version `1`.
+- Require the V1 envelope fields in their frozen profile order.
+- Require `metadata` and `capabilities` to be object-shaped and `entries` to be an array.
+- Preserve metadata and capability objects as untrusted parsed values.
+- Map documented entry properties into located source fields without coercion.
+- Preserve explicit portable player IDs exactly as parsed.
+- Use deterministic JSON paths for document, envelope, record, and field locations.
+- Require each entry array element to be an object so it can form a source record.
+- Enforce the frozen maximum of 1,000 parsed entry records.
+- Add exact unit coverage for valid, malformed, mismatched, and boundary documents.
+- Check Phase 5 Task 4 complete only after all validation passes.
 
 ### Non-Goals
 
 - Reading files or decoding bytes inside the parser.
-- Automatic format detection or accepting canonical JSON.
-- Trimming or normalizing data-row values.
-- Splitting `POS` into position and source position rank.
-- Parsing numbers, tiers, ranks, or ADP deltas.
-- Generating player IDs or applying team, tier, or ADP fallbacks.
-- Validating ranking semantics, duplicates, order, or capabilities.
+- Automatic format detection.
+- Accepting FantasyPros CSV or Scenario V1.
+- Implementing a custom JSON tokenizer or source-offset scanner.
+- Reporting JSON character, line, or column offsets.
+- Trimming strings, parsing dates, coercing numbers, or normalizing nulls.
+- Validating metadata contents, capability enum values, player values, ranks, tiers, dates, or cross-record invariants.
+- Recomputing or trusting imported capability metadata.
+- Rejecting an empty `entries` array; the complete-candidate validator owns the non-empty domain invariant.
+- Assigning or reusing a local ranking-set identity.
 - Constructing `NormalizedRankingCandidate`, `RankingEntry`, or `RankingSet` values.
-- Persistence, application workflows, server actions, or UI.
-- Adding a generic CSV package, parser framework, or dependency.
+- Persistence, application workflows, server actions, export, or UI.
+- Adding a schema-validation package, parser framework, or dependency.
 
 ## Implementation Design
 
 ### Parser Module
 
-Add `src/lib/fantasyProsCsvParser.ts`.
+Add `src/lib/canonicalRankingJsonParser.ts`.
 
 Export:
 
 ```ts
-parseFantasyProsCsv(
+parseCanonicalRankingJson(
   document: PreflightRankingDocument,
 ): RankingImportStageResult<
   ParsedRankingSourceDocument,
-  FantasyProsCsvParserDiagnosticCode
+  CanonicalRankingJsonParserDiagnosticCode
 >
 ```
 
-Define `FantasyProsCsvParserDiagnosticCode` as:
+Define `CanonicalRankingJsonParserDiagnosticCode` as:
 
 - `wrong-format`
-- `malformed-csv`
-- `missing-header`
-- `missing-required-header`
-- `duplicate-header`
-- `row-length-mismatch`
-- `empty-records`
+- `malformed-json`
+- `invalid-root`
+- `wrong-document-type`
+- `missing-schema-version`
+- `unsupported-schema-version`
+- `missing-envelope-field`
+- `invalid-envelope-field`
+- `invalid-entry-shape`
 - `too-many-records`
-- `unknown-header`
 
-`unknown-header` is a warning. Every other code is an error.
+Every diagnostic in this slice is a parser-stage error. The parser emits no warnings.
 
-### CSV Grammar
+### Untrusted JSON Handling
 
-Implement only the grammar required by this supported profile:
+Call `JSON.parse` once inside a `try`/`catch` and keep its result typed as `unknown`. Do not cast the result to `CanonicalRankingSetDocumentV1`.
 
-- comma delimiter;
-- double-quote field quoting;
-- doubled double quotes inside quoted fields represent one literal quote;
-- commas and LF/CRLF line breaks may appear inside quoted fields;
-- LF and CRLF terminate unquoted records;
-- a bare CR outside a quoted field is malformed;
-- quotes may begin only at the start of a field;
-- after a closing quote, only a comma, LF, CRLF, or end-of-document is valid;
-- trailing empty fields are preserved;
-- the final record does not require a terminal newline;
-- an unclosed quoted field is malformed.
+Use a small private object-shape guard that accepts only non-null, non-array objects. Use own-property checks when inspecting recognized fields so inherited values never satisfy the contract.
 
-Do not use `split(",")` or line-based parsing. Keep the CSV scanner private to the FantasyPros parser module rather than introducing a general CSV abstraction.
+On malformed syntax, return one `malformed-json` diagnostic at path `$`. Use a stable project-owned message rather than exposing the runtime-specific `JSON.parse` exception text.
 
-The scanner should produce decoded records with:
+Do not add a second JSON tokenizer solely to obtain line and character positions. Once syntax succeeds, JSON-path locations provide the stable locations required by the import pipeline.
 
-- field values;
-- each field's one-based physical starting line and one-based physical starting column;
-- each record's one-based starting line.
+### Root and Document-Type Recognition
 
-For multiline quoted values, later fields use their actual physical line locations.
+After syntax parsing:
 
-### Blank Lines
+1. Reject null, arrays, strings, numbers, and booleans with `invalid-root` at path `$`.
+2. Before canonical envelope validation, recognize Scenario V1 when the root contains `rankingContext` plus at least one Scenario-specific section such as `leagueSettings`, `draftConfiguration`, `userTeamContext`, `pickHistory`, or `replayTarget`.
+3. Reject a recognizable scenario with `wrong-document-type` at path `$`.
 
-Skip a record only when it consists of one unquoted empty field produced by a physically blank line. Do not treat `""`, `,`, or `,,` as blank records; those are explicit CSV records and remain subject to width and required-value handling in later stages.
+Do not import scenario ranking context or reinterpret it as a ranking set.
 
-Blank lines before the header are skipped. The first nonblank record is the header. Blank lines after the header do not increment `sourceIndex`, but their physical lines still affect later diagnostic locations.
+### Schema Version
 
-### Header Mapping
+- If `schemaVersion` is not an own property, return `missing-schema-version` at path `schemaVersion`.
+- If its raw value is anything other than the number `1`, return `unsupported-schema-version` at path `schemaVersion`.
+- Do not coerce the string `"1"` or another representation into a supported version.
 
-Normalize decoded header values with `trim().toUpperCase()` for lookup only. Preserve the decoded physical headers in parser metadata.
+The selected preflight format version and the document schema version are separate checks. Both must be V1.
 
-Map aliases to these semantic field keys:
+### Envelope Validation
 
-| Semantic key | Accepted normalized headers |
-| --- | --- |
-| `overallOrder` | `RK`, `RANK` |
-| `tier` | `TIERS`, `TIER` |
-| `playerName` | `PLAYER NAME`, `PLAYER` |
-| `team` | `TEAM` |
-| `position` | `POS`, `POSITION` |
-| `adpDelta` | `ECR VS ADP` |
+After the schema version is accepted, inspect the remaining required root fields in this order:
 
-Treat `BYE`, `UPSIDE`, `BUST`, and `SOS` as recognized ignored headers.
+1. `metadata`
+2. `capabilities`
+3. `entries`
 
-Header rules:
+For each absent own property, emit `missing-envelope-field` at that property path. For each present property with an invalid structural type, emit `invalid-envelope-field`:
 
-- Missing `playerName` or `position` produces one `missing-required-header` error per missing semantic in that order.
-- Two physical columns mapping to the same semantic produce `duplicate-header` at the later column, even if they use different aliases such as `PLAYER NAME` and `PLAYER`.
-- Duplicate ignored headers remain ignored because they do not enter parsed records.
-- Each other unknown header produces one `unknown-header` warning at header row and column.
-- Empty header cells are unknown headers and warn using the physical column location.
+- `metadata` must be a non-null, non-array object;
+- `capabilities` must be a non-null, non-array object;
+- `entries` must be an array.
 
-If header errors exist, return failure before mapping data rows. Preserve any unknown-header warnings alongside the errors.
+Accumulate independent missing and invalid envelope errors in the order above. If envelope errors exist, return failure before creating source records.
 
-### Parsed Records
+Do not validate metadata child fields, capability keys or values, or entry semantics here.
 
-On success, return `ParsedRankingSourceDocument` with:
+### Parsed Metadata
 
-- the exact FantasyPros CSV V1 format reference from the preflight document;
-- metadata containing decoded physical headers, normalized headers, and semantic-to-one-based-column mapping;
-- one parsed record per nonblank data row;
-- zero-based `sourceIndex` in returned record order;
-- only recognized non-ignored semantic fields;
-- `ParsedRankingField.value` as the raw decoded string without trimming or coercion;
-- field location containing that field's physical starting row, one-based CSV column ordinal, and semantic field name.
+Define and export a parser-specific metadata type:
 
-For this parser, diagnostic/field `column` means one-based CSV column ordinal, not character offset. Scanner syntax errors may use the physical character column because no semantic column exists yet.
+```ts
+type CanonicalRankingJsonParsedMetadata = Readonly<{
+  schemaVersion: ParsedRankingField;
+  documentMetadata: ParsedRankingField;
+  capabilities: ParsedRankingField;
+}>;
+```
 
-Do not include ignored or unknown columns in record field maps.
+Populate it with the exact parsed values and these locations:
 
-### Shape Validation
+- `schemaVersion` at `schemaVersion`;
+- `documentMetadata` at `metadata`;
+- `capabilities` at `capabilities`.
 
-After syntax and header validation:
+The complete metadata and capability objects remain available to normalization, including `name`, `exportedAt`, optional source provenance, optional `sourceRankingSetId`, and capability declarations. Their presence in parsed metadata does not make any value valid or authoritative.
 
-- Every nonblank data row must have exactly the same physical field count as the header.
-- Report `row-length-mismatch` at the row start for each mismatched row that can be safely identified.
-- Exclude mismatched rows from the success value; any mismatch makes the parse fail.
-- Reject more than `RANKING_IMPORT_LIMITS.maxEntries` nonblank data rows with `too-many-records`.
-- Reject zero nonblank data rows with `empty-records`.
-- Preserve unknown-header warnings on shape failure.
+In particular, `sourceRankingSetId` is portable provenance only. The parser must not expose it as local ranking-set identity.
 
-Do not validate empty required cell values, source-position patterns, numeric syntax, tier progression, or ADP-delta syntax here. Those are normalization/validation responsibilities.
+### Parsed Entry Records
+
+Require each `entries[index]` value to be a non-null, non-array object. Emit `invalid-entry-shape` at `entries[index]` for each invalid element, ordered by ascending index. If any entry-shape errors exist, return failure without a partial parsed value.
+
+For every valid entry object, return one `ParsedRankingSourceRecord`:
+
+- `sourceIndex` is the zero-based array index;
+- record order is the original array order;
+- only own documented V1 properties are mapped;
+- missing documented properties remain absent for normalization to diagnose;
+- every present value remains `unknown` and is copied without coercion.
+
+Map supported entry properties to parser semantic keys:
+
+| Canonical JSON property | Parsed field key | Location path |
+| --- | --- | --- |
+| `player.id` | `playerId` | `entries[index].player.id` |
+| `player.name` | `playerName` | `entries[index].player.name` |
+| `player.team` | `team` | `entries[index].player.team` |
+| `player.position` | `position` | `entries[index].player.position` |
+| `overallRank` | `overallOrder` | `entries[index].overallRank` |
+| `positionRank` | `sourcePositionRank` | `entries[index].positionRank` |
+| `tier` | `tier` | `entries[index].tier` |
+| `adpRank` | `adpRank` | `entries[index].adpRank` |
+
+If `player` is a non-null, non-array object, map each documented child property that is present. If `player` is absent or has another raw type, add a `player` parsed field containing that raw value when present, located at `entries[index].player`. Do not reject or reinterpret it in this parser; Task 5 normalization will report the unusable player shape through the preserved field.
+
+For every mapped field, set `location.path` and `location.field` to the path and semantic key respectively. Do not invent row or column values for JSON.
+
+Ignore undocumented entry properties. They are not domain-relevant V1 values and do not extend the format contract implicitly.
+
+### Entry Count
+
+- Accept an empty `entries` array as syntactically and structurally valid. Task 6 owns the non-empty domain invariant.
+- Accept exactly `RANKING_IMPORT_LIMITS.maxEntries` entries.
+- Reject more than that limit with one `too-many-records` diagnostic at path `entries`.
+- Check the count before mapping entry records.
 
 ### Diagnostic Ordering
 
 Return diagnostics deterministically:
 
 1. `wrong-format` before reading text.
-2. Fatal scanner `malformed-csv` at the first syntax failure.
-3. Header errors by required-semantic order or later physical column, as applicable.
-4. Row-width errors by physical row.
-5. `too-many-records` or `empty-records` after row shape checks.
+2. `malformed-json` at the first syntax failure.
+3. `invalid-root`.
+4. `wrong-document-type`.
+5. `missing-schema-version` or `unsupported-schema-version`.
+6. Missing or invalid envelope fields in `metadata`, `capabilities`, `entries` order.
+7. `too-many-records`.
+8. `invalid-entry-shape` by ascending entry index.
 
-Warnings are ordered by physical header column. All parser diagnostics use stage `parse`. Errors use severity `error`; unknown headers use `warning`.
+All diagnostics use stage `parse` and severity `error`.
 
 ### Focused Tests
 
-Add `src/lib/fantasyProsCsvParser.test.ts` covering:
+Add `src/lib/canonicalRankingJsonParser.test.ts` covering:
 
-- the actual 487-row source file after passing it through byte preflight;
-- exact first and last parsed record raw values;
-- required-only and missing-optional headers;
-- accepted header aliases and case/outer-whitespace normalization;
-- known ignored headers omitted without warnings;
-- one and multiple unknown-header warnings in column order;
-- duplicate semantics through identical headers and different aliases;
-- both missing required semantics with deterministic order;
-- quoted commas, doubled quote escapes, CRLF, LF, no final newline, and quoted multiline values;
-- preservation of data value whitespace, casing, `+`/`-` signs, and `-` null markers;
-- blank lines before the header and among data rows;
-- explicit empty quoted records and comma-only records not treated as blank lines;
-- too few and too many row fields;
-- zero data rows;
-- exactly 1,000 and 1,001 data rows;
-- quote inside an unquoted field, text after a closing quote, unclosed quote, and bare CR;
+- a valid minimum V1 envelope;
+- a representative V1 document containing metadata, provenance, capabilities, and all entry values;
+- exact parsed metadata and record JSON paths;
+- portable player IDs, source provenance, null ADP, strings, numbers, and malformed semantic values preserved unchanged;
+- missing entry properties preserved as absence rather than parser defaults;
+- a missing or non-object `player` preserved for normalization rather than treated as a valid player;
+- malformed JSON;
+- null, array, primitive, and string roots;
+- a complete Scenario V1 fixture rejected as `wrong-document-type`;
+- missing `schemaVersion`;
+- numeric future/older versions and string `"1"` rejected without coercion;
+- each missing required envelope field and deterministic multiple-error ordering;
+- null, array, and primitive values for object-shaped envelope fields;
+- non-array `entries`;
+- non-object entry elements with exact indexed paths and deterministic ordering;
+- an empty entries array accepted at the parser boundary;
+- exactly 1,000 and 1,001 entries;
 - wrong preflight format;
-- exact error/warning codes, stages, severities, paths/locations, and ordering.
+- exact error codes, stages, severities, messages, paths, and ordering;
+- proof that output remains `ParsedRankingSourceDocument`, not `RankingSet` or `RankingEntry[]`.
 
-Use small inline CSV strings for focused cases. The real-file regression may read only the known source file in the test; production parser code must not access the filesystem.
+Use small inline JSON values serialized with `JSON.stringify` except for malformed-syntax cases. Production parser code must not access the filesystem.
 
 ## Implementation Steps
 
-1. Add the private CSV scanner and public FantasyPros parser in `fantasyProsCsvParser.ts`.
-2. Map frozen profile headers into semantic parsed fields and metadata.
-3. Add deterministic header, warning, row-shape, limit, and empty-record handling.
-4. Add focused syntax, mapping, location, failure, and real-source regression tests.
-5. Run focused tests, TypeScript, and focused lint.
-6. Run the full test suite and repository-wide lint.
-7. After all acceptance criteria pass, mark only Phase 5 Task 3 complete in `docs/tasks.md` and update this slice status.
-8. Report results and stop. Do not normalize parsed records or begin Task 4.
+1. Add the public parser, diagnostic union, parsed-metadata type, and private untrusted-object helpers in `canonicalRankingJsonParser.ts`.
+2. Implement format, syntax, root, Scenario V1, schema-version, and envelope checks in the specified order.
+3. Preserve raw metadata/capabilities and map documented entry properties to located source fields.
+4. Add deterministic entry-shape and 1,000-record limit handling.
+5. Add focused success, preservation, boundary, location, and failure tests.
+6. Run focused tests, TypeScript, and focused lint.
+7. Run the full test suite and repository-wide lint.
+8. After all acceptance criteria pass, mark only Phase 5 Task 4 complete in `docs/tasks.md` and update this slice status.
+9. Report results and stop. Do not begin Task 5 normalization.
 
 ## Expected Files
 
-- `src/lib/fantasyProsCsvParser.ts`
-- `src/lib/fantasyProsCsvParser.test.ts`
+- `src/lib/canonicalRankingJsonParser.ts`
+- `src/lib/canonicalRankingJsonParser.test.ts`
 - `docs/tasks.md`
 - `docs/current-slice.md` for completion status
 
-No import type, preflight, profile, CSV data, seed, domain, validator, engine, snapshot, scenario, persistence, dependency, generated, or UI file should change.
+No import type, preflight, format-profile, FantasyPros parser, domain, validator, engine, snapshot, scenario, persistence, dependency, generated, or UI file should change.
 
 ## Automated Validation
 
 Run from the repository root:
 
 ```text
-npm test -- src/lib/fantasyProsCsvParser.test.ts
+npm test -- src/lib/canonicalRankingJsonParser.test.ts
 npx tsc --noEmit
-npm run lint -- src/lib/fantasyProsCsvParser.ts src/lib/fantasyProsCsvParser.test.ts
+npm run lint -- src/lib/canonicalRankingJsonParser.ts src/lib/canonicalRankingJsonParser.test.ts
 npm test
 npm run lint
 ```
 
 Expected result:
 
-- Focused parser tests pass with exact source and diagnostic assertions.
+- Focused parser tests pass with exact raw values, paths, and diagnostic assertions.
 - TypeScript no-emit validation passes.
 - Focused lint passes without warnings.
 - The full Vitest suite passes.
 - Repository-wide lint passes.
 - No dependency, database, network, browser, environment-variable, build, or generated-client requirement is introduced.
 
-No Prisma validation, production build, or manual browser QA is required because this slice adds only pure parsing and unit/integration fixtures.
+No Prisma validation, production build, or manual browser QA is required because this slice adds only pure parsing and unit fixtures.
 
 ## Acceptance Criteria
 
-- Only preflight-approved FantasyPros CSV V1 documents are accepted.
-- Supported CSV quoting, escaping, delimiters, line endings, multiline fields, and final-record behavior parse deterministically.
-- Malformed CSV returns one first-failure syntax diagnostic with a physical location.
-- Header aliases map to exactly the six source-neutral semantic keys.
-- Required headers, duplicate semantics, ignored headers, and unknown warnings follow the frozen profile.
-- Raw data values are not trimmed, coerced, normalized, or converted into domain values.
-- Every returned field has deterministic row, column ordinal, and semantic field location.
-- Blank-line handling preserves physical locations and source-index order.
-- Row widths, zero records, and the 1,000-record limit are enforced.
-- The current FantasyPros source produces exactly 487 parsed records.
-- Parsed output contains no `RankingEntry`, `RankingSet`, recommendation, draft, persistence, or UI state.
-- Existing Task 1 and Task 2 behavior remains unchanged.
+- Only preflight-approved Canonical Ranking Set JSON V1 documents are accepted.
+- Malformed JSON and non-object roots fail deterministically.
+- Recognizable Scenario V1 documents fail as the wrong document type rather than as ranking imports.
+- Missing, nonnumeric, and unsupported schema versions fail without coercion.
+- Required envelope fields and structural types follow the frozen V1 profile.
+- Portable metadata and capability declarations remain available as untrusted located values.
+- Every valid entry object produces one ordered record with a stable zero-based source index.
+- Every documented present entry value is preserved without trimming, coercion, defaulting, or domain conversion.
+- Explicit player IDs survive parsing unchanged.
+- Missing and malformed semantic values reach normalization rather than being silently corrected.
+- JSON diagnostics and fields use deterministic paths without invented row/column positions.
+- Empty entries remain a later domain-validation concern, while the 1,000-record import limit is enforced.
+- Parsed output contains no local ranking-set identity, domain ranking set, recommendation, draft, persistence, or UI state.
+- Existing Tasks 1 through 3 behavior remains unchanged.
 - Focused tests, TypeScript, focused lint, full tests, and repository-wide lint pass.
-- Only Phase 5 Task 3 is checked complete after validation.
+- Only Phase 5 Task 4 is checked complete after validation.
 - No dependency, migration, generated code, or unrelated documentation change is introduced.
 
 ## Failure Handling
 
-- If the real CSV violates the frozen profile, stop and report the exact row/header discrepancy instead of adding a permissive special case.
-- If a syntax choice requires a broader CSV standard than documented, reject it as malformed rather than generalizing the parser.
-- If parser output needs normalized player, position, rank, tier, or ADP values, defer that need to Task 5.
-- If a header could map to more than one semantic, treat the profile as ambiguous and report the blocker rather than guessing.
-- If exact locations cannot be preserved through a scanner branch, fix location tracking before accepting the syntax.
+- If the frozen canonical type and format profile disagree about a required envelope field, stop and report the mismatch rather than choosing one silently.
+- If Scenario V1 cannot be distinguished with its documented root sections, stop and report the ambiguous fixture rather than accepting it.
+- If a JSON value needs semantic interpretation to decide validity, preserve it and defer that decision to Task 5 or Task 6.
+- If exact path locations cannot be retained through entry mapping, fix the mapping before accepting the parser output.
+- If implementation appears to require a custom JSON tokenizer, report the requirement rather than broadening this slice.
 - If unrelated tests fail, report them separately and do not broaden the slice.
 
 ## Follow-Up Slice
 
-Promote Phase 5 Task 4: parse Canonical Ranking Set JSON V1 into located source records without trusting it as domain data.
+Promote Phase 5 Task 5: normalize both supported parsed source formats into one source-neutral ranking candidate, including documented fallbacks and capability derivation.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It completes one format parser without crossing into normalization or domain logic.
-- Executable by a lower-reasoning pass: yes. Grammar, headers, semantics, locations, diagnostics, tests, and commands are explicit.
-- Avoids unnecessary architecture changes: yes. The scanner is private and no generic parser framework or dependency is introduced.
-- Blast radius reasonable: yes. Two parser/test files plus Task 3 and slice-status documentation are expected.
-- Review/revert comfort: yes. The parser is additive and isolated from engines, persistence, and UI.
-- Observable/testable acceptance criteria: yes. Exact records, warnings, errors, locations, limits, and the real 487-row fixture are directly testable.
+- Smallest meaningful increment: yes. It adds only the second approved format parser and stops before normalization.
+- Executable by a lower-reasoning pass: yes. Envelope rules, semantic mapping, paths, diagnostics, ordering, limits, and tests are explicit.
+- Avoids unnecessary architecture changes: yes. It uses the existing generic import contracts and native JSON parser without a schema library or tokenizer.
+- Blast radius reasonable: yes. Two parser/test files plus Task 4 and slice-status documentation are expected.
+- Review/revert comfort: yes. The adapter is additive and isolated from engines, persistence, scenarios, and UI.
+- Observable/testable acceptance criteria: yes. Exact raw values, paths, source indexes, limits, and failures are directly testable.
