@@ -1,163 +1,226 @@
-# Current Slice: Restore Page Position After Draft State Commits
+# Current Slice: Complete Phase 4 Regression and Exit Validation
 
 ## Source Context
 
-Phase 4 Task 11 and the prior focused QA are complete. Developer Workbench and Active Drafts can now be minimized, and the Available Players table attempts to preserve its nested and page position after a full-list pick.
+Phase 4 Tasks 1 through 11 are complete. The focused scroll-restoration and disclosure QA is also complete. The next ordered work is Phase 4 Task 12: prove the finished developer workbench meets the Phase 4 success criteria without regressing manual drafting, recommendations, persistence, or domain invariants.
 
-One scroll regression remains: drafting the first recommendation can still jump the page. The current full-list correction awaits `onDraftPlayer` and schedules one animation-frame restoration from `AvailablePlayersTable`. React can commit the refreshed draft and recommendation markup after that callback boundary, so the correction can run before the layout change it is intended to compensate for. It also does not cover Draft buttons inside Recommendations.
-
-The reliable completion boundary is the Draft Room render that applies the new `displayedDraft`. Page restoration should occur in a layout effect after that committed draft update and before the browser paints the changed recommendation list.
+This is a validation and evidence slice, not a feature slice. Existing automated coverage is broad, but Phase 4 still needs one recorded end-to-end manual pass across configured persistence and the transient scenario workflow. `docs/tasks.md` also contains a stale Testing Status statement saying Phase 4 implementation has not started; that status should be corrected only when exit validation succeeds.
 
 ## Goal
 
-Keep the browser page at the same scroll position after any successful player draft, including removal of the first recommendation, while preserving the Available Players table's independent nested scroll position.
+Produce repeatable automated and manual evidence that Phase 4 is complete, then mark Task 12 complete without changing production behavior or promoting another roadmap phase.
 
 ## Scope
 
 ### Goals
 
-- Capture the browser page position when a valid player-draft action begins.
-- Restore that exact page position after the resulting persisted or transient draft state commits.
-- Cover Draft buttons in both Recommendations and Available Players through the shared `DraftRoom` mutation handler.
-- Preserve the Available Players table's internal `scrollTop` correction.
-- Remove the table-owned window-scroll adjustment so only one component owns page restoration.
-- Clear a pending restoration when a persisted draft action fails or returns no workspace.
-- Preserve all completed minimization, draft, recommendation, persistence, and scenario behavior.
+- Audit Phase 4 Tasks 1 through 11 against their acceptance criteria and existing automated/manual evidence.
+- Run the complete deterministic unit, integration, scenario, component, action, repository, loader, and regression suite.
+- Validate lint, TypeScript, Prisma schema, and production build gates.
+- Record a focused Phase 4 manual QA pass in a dedicated checklist.
+- Exercise every supported league-setup field together in one non-default persisted configuration.
+- Confirm invalid setup does not create a persisted draft or ranking snapshot.
+- Confirm persisted creation, refresh, resume, pick, recommendation, undo, reset, history, and deletion behavior.
+- Confirm scenario import/export, replay target, invalid-import isolation, local picks, undo, reset, restart, dirty confirmation, and recommendation diagnostics.
+- Confirm scenario sessions remain transient and persisted drafts remain unchanged.
+- Confirm representative replay reaches its target within seconds and remains deterministic.
+- Reconfirm core manual-draft completion and draft invariants.
+- Mark Phase 4 Task 12 complete and update the task Testing Status only after every required gate passes.
 
 ### Non-Goals
 
-- Changing recommendation content, order, scoring, or card height.
-- Keeping the clicked recommendation card mounted after it is drafted.
-- Scrolling to a selected player, recommendation, table row, or page landmark.
-- Applying automatic page restoration to undo, reset, restart, replay-target, import, deletion, or navigation actions.
-- Persisting scroll positions across reloads or routes.
-- Adding global scroll management, sticky layout, fixed recommendation heights, virtualization, or a dependency.
-- Reopening Phase 4 Task 11 or beginning Phase 4 Task 12.
+- Adding a Phase 4 feature or changing existing expected behavior during exit validation.
+- Weakening, deleting, or broadly rewriting tests to obtain a passing result.
+- Changing Recommendation Engine scores, order, components, penalties, reasons, or caps.
+- Changing the scenario contract, safety limits, replay semantics, persistence model, or draft rules.
+- Expanding UI polish beyond reporting a direct validation blocker.
+- Adding test dependencies, coverage tooling, services, workers, queues, or deployment infrastructure.
+- Promoting Phase 5, changing `docs/project.md`, or beginning ranking-management work.
+- Beginning Phase 7 provider integration work.
 
-## Implementation Design
+## Validation Design
 
-### Draft-Commit Page Restoration
+### 1. Acceptance-Criteria Audit
 
-Update `src/components/DraftRoom.tsx`.
+Before manual QA, review Tasks 1 through 11 and map each acceptance criterion to one of:
 
-- Import `useLayoutEffect` and `useRef` from React.
-- Add a ref for one pending draft-action page position containing `window.scrollX` and `window.scrollY`.
-- In the shared `draftPlayer(playerId)` handler, after the existing pending guard and before either persisted or transient mutation, capture the current page position in that ref.
-- Keep all draft transitions on their existing paths:
-  - transient sessions continue through `draftPlayerInTransientSession`;
-  - persisted drafts continue through `draftPlayerAction` and `setActiveDraft`.
-- Add a layout effect keyed to `displayedDraft`. When a successful draft update changes the displayed draft and a pending page position exists:
-  1. Clear the pending ref.
-  2. Call `window.scrollTo` with the captured coordinates and `behavior: "auto"`.
-- A layout effect is intentional: it runs after React commits the changed recommendation and player markup but before paint, preventing the user from seeing an intermediate browser-anchored position.
-- If `draftPlayerAction` returns no workspace or throws, clear the pending ref without scrolling.
-- Do not populate the ref from undo, reset, restart, import, replay, deletion, or navigation handlers.
+- an existing passing automated test;
+- an explicit step in the Phase 4 manual QA checklist;
+- prior focused QA accepted by the user, including active-draft deletion, disclosures, and scroll restoration.
 
-### Table Scroll Ownership
+Do not add a new traceability document. Keep the mapping in implementation notes while executing the slice. If a criterion has no credible evidence or the product visibly does not implement it, stop and report the gap rather than modifying production code inside this validation slice.
 
-Update `src/components/AvailablePlayersTable.tsx`.
+### 2. Automated and Project Gates
 
-- Keep capturing and restoring the table container's internal `scrollTop` around full-list Draft actions.
-- Remove capture of the table's viewport top.
-- Remove the table's `window.scrollBy` adjustment.
-- Continue awaiting `onDraftPlayer` and restoring the internal table position on the next animation frame.
+Run the existing repository gates without changing expected output:
 
-After this change, ownership is explicit:
+```text
+npm test
+npm run lint
+npx tsc --noEmit
+npm run prisma:validate
+npm run build
+```
 
-- `DraftRoom` preserves browser page position for every player-draft entry point.
-- `AvailablePlayersTable` preserves only its nested table position for full-list drafting.
+Record exact test-file/test counts and each command result in the handoff. A failure caused by this repository should be reported with its narrow cause. An environmental failure, such as unavailable database or build-time service access, should be reported separately and must not be hidden by changing application behavior.
 
-No shared scroll utility or new abstraction is warranted for these two distinct responsibilities.
+### 3. Phase 4 Manual QA Record
 
-## Testing Strategy
+Create `docs/manual-phase-4-qa.md` as the durable exit-validation record. It should contain:
 
-The repository has no DOM interaction environment for browser scroll geometry or React layout-effect timing. Do not add jsdom, React Testing Library, Playwright, or another dependency for this correction.
+- date;
+- commit or branch;
+- browser and local app URL;
+- tester;
+- automated gate results;
+- per-section checkboxes;
+- observed timing for representative scenario reconstruction;
+- pass/fail summary, blockers, and notes.
 
-- Retain existing component markup tests.
-- Run focused Draft Room, Recommendations, and Draft History tests for render-boundary regression coverage.
-- Use focused manual QA as the behavior regression for first-recommendation removal and scroll stability.
-- Run the full automated suite because the shared draft handler serves persisted and transient workflows.
+The checklist should be executable in the following order so temporary state is understandable and cleanup is limited to drafts created during QA.
+
+#### A. Default and Invalid Setup
+
+- Open the current persisted workspace and confirm normal manual drafting remains available without entering scenario mode.
+- Open Start New Draft and confirm default values, derived rounds, visible `SNAKE`, and visible `PPR`.
+- Exercise invalid team count, draft position, roster count/total, bench-only construction, and insufficient ranking capacity where the UI permits.
+- Confirm clear validation feedback and no new Draft History entry after invalid submission.
+- Cancel setup and confirm the loaded workspace remains unchanged.
+
+#### B. Supported Non-Default Configuration
+
+- Create one small non-default draft that uses non-default team count and draft position and includes nonzero QB, RB, WR, TE, FLEX, DST, K, and BENCH counts within ranking capacity.
+- Confirm rounds derive from the total slots and the selected draft position maps to the correct user team.
+- Make picks through the persisted path and confirm available players, active pick, roster, and recommendations update consistently.
+- Refresh and reopen the draft from history; confirm settings, user-team identity, picks, roster, and recommendations hydrate identically.
+- Exercise undo and reset, confirming valid state and recommendation recomputation.
+
+#### C. Portable Scenario and Atomic Failure
+
+- Add representative picks to the persisted non-default draft and export it.
+- Record the source draft ID, settings, pick count, top recommendations, and history count.
+- Import the exported file and confirm a transient scenario reproduces the configuration, target pick count, available players, user roster, and recommendation inputs without adding or modifying a persisted history entry.
+- Apply zero, intermediate, and maximum valid replay targets and confirm the displayed draft state matches each target.
+- Attempt an out-of-range replay target and confirm useful feedback without replacing the current transient state.
+- Import malformed or unsupported-version JSON and confirm a useful error while the active state and persistence remain unchanged.
+- Re-import the same valid scenario and record the elapsed time from file selection to visible target state; the target should appear within 10 seconds on the local development machine without manual pick entry.
+- Confirm repeated import produces the same draft state and recommendation ordering/totals.
+
+#### D. Transient Exploration and Diagnostics
+
+- Make a local scenario pick and undo it; confirm no persisted write or history change.
+- Inspect at least one uncapped and one capped recommendation when available; confirm displayed totals reconcile from engine-owned components and adjustments and reasons match the recommendation.
+- Create dirty transient state and verify destructive reset, restart, and replacement require confirmation.
+- Cancel each confirmation once and confirm state remains unchanged.
+- Accept reset and confirm the declared replay target is reconstructed.
+- Make another local change, accept restart, and confirm a zero-pick transient manual draft with the same settings and rankings.
+- Export the transient state and confirm the file remains importable through the same public path.
+
+#### E. Persistence Isolation and History
+
+- Return to the original persisted draft and confirm transient exploration did not change its settings or picks.
+- Confirm persisted pick, undo, reset, refresh, and resume still use the repository path.
+- Confirm inactive deletion leaves the loaded workspace unchanged.
+- Confirm active deletion loads the deterministic replacement/fallback workspace and Back does not revisit the deleted URL.
+- Confirm Developer Workbench and Active Drafts disclosures and player-draft scroll restoration retain their accepted behavior.
+
+#### F. Manual Draft and Invariants
+
+- Re-run the existing default full-draft workflow in `docs/manual-full-draft-qa.md`, recording new Phase 4 evidence in `docs/manual-phase-4-qa.md` rather than overwriting the historical checklist.
+- Confirm a player exists in exactly one location, drafted players are unavailable, available players are not rostered, drafted count matches pick progression, each drafted player belongs to one team, undo restores valid state, and recommendations contain only available players.
+- Confirm the final pick completes the draft and blocks extra picks without a crash or stale recommendation/roster state.
+
+### 4. Completion Documentation
+
+Only after the acceptance audit, automated gates, and every required manual checklist item pass:
+
+- change Phase 4 Task 12 in `docs/tasks.md` from `[ ]` to `[x]`;
+- replace the stale Testing Status claim with a concise statement that Phase 4 Tasks 1 through 12, automated validation, and manual exit QA are complete;
+- retain the note that Phase 3's prior manual evidence was covered by the Phase 4 exit regression;
+- do not change the active phase in `docs/project.md` or plan Phase 5 in the same slice.
+
+If any required criterion fails, leave Task 12 unchecked, record the failure in `docs/manual-phase-4-qa.md`, and report the smallest recommended correction slice.
 
 ## Implementation Steps
 
-1. Add pending page-position capture and post-commit layout restoration to `DraftRoom`'s shared player-draft path.
-2. Clear pending restoration on persisted no-result and failure paths.
-3. Reduce `AvailablePlayersTable` restoration to its internal `scrollTop` only.
-4. Run focused Draft Room, recommendation, history, and workbench tests.
-5. Run the full test suite, lint, and TypeScript validation.
-6. Complete the focused manual QA below.
-7. Stop after reporting results. Do not begin Phase 4 Task 12.
+1. Audit Tasks 1 through 11 against existing automated coverage, accepted focused QA, and the planned Phase 4 manual checklist.
+2. Create `docs/manual-phase-4-qa.md` with the evidence fields and ordered checklist above.
+3. Run the full automated suite, lint, TypeScript, Prisma schema validation, and production build.
+4. Complete and record the Phase 4 manual QA checklist, including the default full-draft regression.
+5. Review the resulting diff and dependency/lockfile status to confirm validation introduced no production or dependency changes.
+6. If all evidence passes, check Task 12 and update only the Testing Status section in `docs/tasks.md`.
+7. Report final acceptance status, evidence, files changed, blockers, and the recommended phase-planning prompt. Do not begin another phase.
 
 ## Expected Files
 
-- `src/components/DraftRoom.tsx`
-- `src/components/AvailablePlayersTable.tsx`
+- `docs/manual-phase-4-qa.md`
+- `docs/tasks.md` only after all validation passes
 
-No tests, task tracking, recommendation engine, action, persistence, scenario, disclosure, dependency, or lockfile changes are expected.
-
-`docs/tasks.md` already records Phase 4 Task 11 as complete and should remain checked.
+No production source, tests, package manifest, lockfile, architecture, decisions, project-scope, or roadmap changes are expected.
 
 ## Automated Validation
 
 Run from the repository root:
 
 ```text
-npm test -- src/components/DraftRoom.test.tsx src/components/RecommendationsPanel.test.tsx src/components/DraftHistoryList.test.tsx src/components/DeveloperWorkbenchPanel.test.tsx
 npm test
 npm run lint
 npx tsc --noEmit
+npm run prisma:validate
+npm run build
 ```
 
 Expected result:
 
-- Focused Draft Room, recommendation, history, and workbench tests pass.
-- Full Vitest suite passes.
+- All Vitest files and tests pass with exact counts reported.
 - ESLint exits with no errors or warnings.
 - TypeScript no-emit validation passes.
+- Prisma schema validation passes without schema or generated-client changes.
+- The production Next.js build succeeds.
 - No dependency or lockfile changes are introduced.
-
-## Focused Manual QA
-
-1. Scroll the page away from its starting position and draft the first recommendation directly from Recommendations; confirm the page remains at the same scroll position while the next recommendation replaces it.
-2. From the full Available Players list, draft the player currently ranked first in Recommendations; confirm both page position and the table's internal scroll position remain stable.
-3. Repeat with a lower recommendation and a non-recommended player; confirm the same stable behavior.
-4. Repeat first-recommendation and full-list picks in a transient scenario or transient manual session.
-5. Confirm Recommendations and Available Players still remove the drafted player and refresh from the new draft state.
-6. Confirm a failed or no-result persisted draft action does not trigger delayed scrolling during a later action.
-7. Confirm undo, reset/restart, replay target, scenario import/export, history navigation, deletion, and disclosure toggles retain their existing scroll and behavior.
 
 ## Acceptance Criteria
 
-- Drafting the first recommendation directly does not move the browser page from its pre-click position.
-- Drafting the first recommended player from Available Players does not move the browser page and retains the table's valid internal scroll position.
-- Lower-recommendation and non-recommended picks have the same stable behavior.
-- Persisted and transient player drafting both restore after the committed draft render.
-- The drafted player is still removed and recommendations still recompute correctly.
-- Only successful player-draft state changes trigger page restoration.
-- Failed or no-result persisted actions leave no stale restoration for later renders.
-- Undo, reset/restart, replay, import/export, navigation, deletion, and disclosure behavior are unchanged.
-- Phase 4 Task 11 remains checked complete.
-- Focused tests, full suite, lint, TypeScript, and focused manual QA pass.
-- No dependency or lockfile changes are introduced.
-- Phase 4 Task 12 is not started.
+- Every Phase 4 Task 1 through 11 acceptance criterion has credible automated, recorded manual, or accepted focused-QA evidence.
+- All automated and project gates pass without weakened assertions or changed expected recommendation behavior.
+- The Phase 4 manual QA record is complete, dated, and reports an overall pass.
+- Every supported league-setup field participates in a valid non-default persisted draft.
+- Invalid setup produces clear feedback and no persisted draft/history entry.
+- Non-default settings and user-team identity survive persistence, refresh, resume, picks, undo, and reset.
+- Export/import reproduces domain-relevant state and recommendation inputs without mutating the source persisted draft.
+- Zero, intermediate, and maximum replay targets reconstruct valid states.
+- Invalid import and replay-target failures do not partially replace active state or mutate persistence.
+- Local exploration, undo, reset, restart, dirty confirmation, and diagnostics behave correctly.
+- Representative scenario reconstruction reaches visible target state within 10 seconds without manual history entry.
+- Repeated scenario reconstruction produces identical draft state and recommendation ordering/totals.
+- Core manual and persisted draft workflows, deletion behavior, disclosures, and scroll restoration remain functional.
+- Draft invariants hold after replay, local exploration, reset, restart, refresh, resume, and full completion.
+- No Phase 4 non-goal, future-phase architecture, production change, dependency, or lockfile change is introduced.
+- Phase 4 Task 12 is checked complete only after all evidence passes.
+- Phase 5 and Phase 7 work are not started.
 
 ## Failure Handling
 
-- If the browser clamps the captured coordinates at a document boundary, accept the closest valid position; do not add spacer content.
-- If `displayedDraft` does not change, do not scroll and clear the pending position on the known no-result/failure path.
-- If a successful persisted update can return the same `displayedDraft` reference, stop and report that discrepancy rather than adding timers or global listeners.
-- If the page still moves after layout-effect restoration, inspect the actual focus/scroll sequence before introducing focus reassignment or CSS anchoring changes.
-- If automated validation exposes an unrelated failure, report it without expanding scope.
+- If an acceptance criterion lacks evidence, stop and report the gap; do not infer completion from adjacent tests.
+- If manual QA exposes a product defect, record exact reproduction, expected behavior, observed behavior, and affected state, then leave Task 12 unchecked.
+- If an existing test expectation appears incorrect, stop and report the discrepancy rather than changing it during exit validation.
+- If only an environment-dependent gate fails, distinguish it from a product failure and leave Task 12 unchecked until the gate can be completed or explicitly waived by the user.
+- If production or test code would need to change, stop and recommend a separate focused correction slice.
+- Do not promote the next phase merely because Phase 4 validation passes; phase promotion requires a separate explicit request.
 
-## Follow-Up Slice
+## Follow-Up
 
-After this correction passes automated and manual validation, plan Phase 4 Task 12: Complete Phase 4 Regression and Exit Validation. Do not begin it automatically.
+After Task 12 is complete, the recommended next prompt is:
+
+```text
+Plan the next project phase using AGENTS.md. Review the roadmap and required project-planning documents, then recommend whether to promote Phase 5 into active scope. Do not implement it yet.
+```
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It corrects the single remaining player-draft scroll regression.
-- Executable by a lower-reasoning pass: yes. The owner, capture point, commit boundary, cleanup paths, and table responsibility are explicit.
-- Avoids unnecessary architecture changes: yes. One ref and one layout effect remain inside the existing Draft Room owner.
-- Blast radius reasonable: yes. Two production components are expected to change.
-- Review/revert comfort: yes. The correction is isolated from domain and persistence semantics.
-- Observable/testable acceptance criteria: yes. Page coordinates, nested table position, refreshed recommendations, success/failure behavior, and unaffected actions are directly observable.
+- Smallest meaningful increment: yes. Task 12 is one coherent exit-validation gate with no feature work.
+- Executable by a lower-reasoning pass: yes. Commands, evidence fields, manual sequence, completion edits, and stop conditions are explicit.
+- Avoids unnecessary architecture changes: yes. No production or architecture changes are planned.
+- Blast radius reasonable: yes. One new QA record and one conditional task-status edit are expected.
+- Review/revert comfort: yes. Validation evidence and status changes are isolated documentation.
+- Observable/testable acceptance criteria: yes. Command results, persisted/transient state, timings, invariants, history isolation, and checklist results are directly observable.
