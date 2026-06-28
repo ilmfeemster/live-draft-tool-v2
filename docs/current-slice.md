@@ -1,359 +1,354 @@
-# Current Slice: Validate Complete Normalized Ranking Candidates
+# Current Slice: Convert Validated Candidates into Canonical Ranking Sets
 
 ## Completion Status
 
-Complete. Normalized ranking candidates now pass through a pure, source-located complete-candidate validation gate before domain conversion. Validation covers metadata, bounded collections, field values, identity and order collisions, supplied position ranks, position-local tier progression, capability consistency, neutral fallbacks, stable diagnostic ordering, and purity. Validation passed with 28 focused candidate-validation tests, 434 full-suite tests, TypeScript checking, and focused and repository-wide linting.
+Planned and awaiting approval. No implementation has started.
 
 ## Source Context
 
-Phase 5 Tasks 1 through 5 are complete:
+Phase 5 Tasks 1 through 6 are complete:
 
-- canonical ranking-set values and reusable domain invariants exist;
-- import preflight and both V1 format profiles are frozen;
-- FantasyPros CSV and Canonical Ranking Set JSON V1 parse into located source records;
-- both parser outputs normalize into one `NormalizedRankingCandidate` shape;
-- normalized entries retain record and semantic field locations;
-- CSV absence fallbacks are materialized, while Canonical JSON capability declarations remain preserved but untrusted.
+- `RankingSet`, canonical entries, source provenance, capabilities, and lifecycle metadata are defined;
+- reusable canonical domain validation exists in `validateRankingSet`;
+- both supported V1 formats cross explicit preflight, parsing, and normalization boundaries;
+- normalized candidates retain source order, source-only diagnostics, materialized fallbacks, and capability states;
+- complete-candidate validation rejects malformed values, identity/order collisions, invalid tier progression, and inconsistent capabilities;
+- successful candidate validation returns the existing `ValidatedRankingCandidate` wrapper required by conversion.
 
-This slice promotes Phase 5 Task 6 only. It validates a complete normalized candidate and returns the existing `ValidatedRankingCandidate` wrapper required by Task 7. It must not create a `RankingSet`, assign local identity, assign canonical ranks, or call canonical ranking-set validation with a fabricated aggregate.
+This slice promotes Phase 5 Task 7 only. It is the boundary where validated source-neutral data becomes a canonical domain aggregate. It assigns local lifecycle values and canonical ranks, removes import-only fields, and rechecks the final aggregate without persisting it.
 
 ## Goal
 
-Validate complete source-neutral ranking candidates with deterministic, source-located diagnostics, allowing both complete and safely degraded data to proceed while preventing ambiguous order, collisions, malformed values, invalid tier progression, and inconsistent capabilities from reaching domain conversion.
+Convert a validated ranking candidate into a complete canonical `RankingSet` for either an explicit create or replacement workflow, assigning deterministic contiguous ranks and lifecycle values while preserving domain-relevant source data, fallbacks, capabilities, identity, and tier gaps.
 
 ## Scope
 
 ### Goals
 
-- Add one pure complete-candidate validator.
-- Return the existing explicit `ValidatedRankingCandidate` wrapper only on success.
-- Validate candidate name, source provenance, collection shape, and the frozen 1,000-entry bound.
-- Validate every entry's source index, player identity, name, team, position, source order, optional source-position rank, ADP, and tier.
-- Reject duplicate explicit or generated player identity candidates at the later duplicate's source location.
-- Reject duplicate source-order values without requiring source order to be contiguous.
-- Preserve valid explicit source-order gaps for Task 7 to canonicalize.
-- Require row-derived source order to equal `sourceIndex + 1` when the capability declares `row-derived`.
-- Derive expected position rank from unique source order and compare it only when a source-position rank was supplied.
-- Validate positive, position-local, non-decreasing tiers in unique source order while preserving gaps.
-- Validate team and ADP availability capabilities against materialized candidate values.
-- Validate identity, order, and position-rank capability states without attempting to infer identity provenance from ID text.
-- Require tier capabilities for exactly the represented valid positions.
-- Require every `defaulted-neutral` position to contain only `NEUTRAL_TIER` and no fabricated gap.
-- Preserve valid source tier gaps for positions declared `source`.
-- Accumulate independent candidate, entry, cross-record, and capability failures when safe.
-- Use normalized semantic field locations for row-level and cross-record diagnostics.
-- Add focused coverage for valid complete, safely degraded, malformed, ambiguous, and small candidates.
-- Check Phase 5 Task 6 complete only after all validation passes.
+- Add one conversion entry point that accepts only `ValidatedRankingCandidate`.
+- Support exactly two explicit conversion workflows: create and replace.
+- Require caller-issued local identity and lifecycle timestamps so conversion remains deterministic, repository-free, and clock-free.
+- Assign a newly allocated caller-supplied local ID for create workflows.
+- Preserve the caller-supplied existing local ID and original creation time only for replacement workflows.
+- Sort a copied view of candidate entries by validated source order.
+- Assign contiguous overall ranks from 1 through the entry count.
+- Derive contiguous position ranks from canonical overall order.
+- Preserve player identity, normalized name, team, position, ADP, tier values, and source tier gaps.
+- Preserve materialized `UNKNOWN_TEAM`, null ADP, and `NEUTRAL_TIER` fallbacks.
+- Copy source provenance and capability metadata into new domain-owned values.
+- Remove source index, source order, supplied source-position rank, record location, and field locations from canonical entries.
+- Recheck the completed aggregate with `validateRankingSet` before returning it.
+- Map any final canonical invariant failure into stable convert-stage diagnostics.
+- Guarantee that conversion does not mutate or alias mutable nested values from the validated candidate or conversion request.
+- Add exact tests for create, replace, rank assignment, source formats, fallbacks, lifecycle failures, invariant recheck, and immutability.
+- Check Phase 5 Task 7 complete only after all validation passes.
 
 ### Non-Goals
 
-- Parsing or normalizing any source document.
-- Reinterpreting missing data or applying a new fallback.
-- Sorting or mutating candidate entries.
-- Assigning canonical contiguous overall or position ranks.
-- Assigning local ranking-set identity, creation time, or update time.
-- Creating `RankingEntry`, `RankingSet`, snapshot, scenario, or persistence values.
-- Calling repositories, engines, server actions, or UI code.
-- Checking ranking-set name uniqueness in persistence.
-- Validating whether a candidate contains enough players for a particular league or draft.
-- Inferring `provided`, `generated`, or `mixed` identity capability from player ID prefixes.
-- Rejecting a valid candidate merely because it is small.
-- Refactoring the existing canonical ranking-set validator or weakening its tests.
-- Adding dependencies or a generic validation framework.
+- Parsing, normalizing, validating, repairing, or defaulting an unvalidated candidate.
+- Generating UUIDs or reading the clock inside conversion.
+- Proving that a create ID is unused or that a replacement ID exists in persistence.
+- Persisting, loading, listing, replacing, or deleting a ranking set.
+- Enforcing case-insensitive ranking-set name uniqueness.
+- Reusing portable `sourceRankingSetId` as local identity.
+- Preserving source rank gaps as canonical overall-rank magnitude.
+- Recomputing or changing capability states.
+- Changing tier values, compressing tier gaps, or inventing tier cliffs.
+- Creating a draft snapshot or validating league capacity.
+- Refactoring the canonical validator, import stages, engines, scenarios, persistence, or UI.
+- Adding dependencies, ID factories, repositories, or generic conversion infrastructure.
 
 ## Implementation Design
 
-### Public API
+### Public API and Workflow Requests
 
-Add `src/lib/rankingCandidateValidation.ts` with:
+Add `src/lib/rankingSetConversion.ts` with:
 
 ```ts
-validateNormalizedRankingCandidate(
-  candidate: NormalizedRankingCandidate,
+type RankingSetCreateConversionRequest = Readonly<{
+  workflow: "create";
+  rankingSetId: string;
+  timestamp: Date;
+}>;
+
+type RankingSetReplaceConversionRequest = Readonly<{
+  workflow: "replace";
+  rankingSetId: string;
+  createdAt: Date;
+  timestamp: Date;
+}>;
+
+type RankingSetConversionRequest =
+  | RankingSetCreateConversionRequest
+  | RankingSetReplaceConversionRequest;
+
+convertValidatedRankingCandidate(
+  validatedCandidate: ValidatedRankingCandidate,
+  request: RankingSetConversionRequest,
 ): RankingImportStageResult<
-  ValidatedRankingCandidate,
-  RankingCandidateValidationDiagnosticCode
+  ConvertedRankingSet,
+  RankingSetConversionDiagnosticCode
 >
 ```
 
-On success return:
+The application boundary will eventually allocate local IDs and timestamps. This converter only assigns the explicit values it receives. It must not import persistence, call `crypto.randomUUID`, call `Date.now`, or create a current timestamp implicitly.
+
+For create:
+
+- `rankingSetId` is the newly allocated local identity;
+- `createdAt` and `updatedAt` both copy `timestamp`.
+
+For replace:
+
+- `rankingSetId` is the existing local identity to preserve;
+- `createdAt` copies the existing aggregate's original creation time;
+- `updatedAt` copies `timestamp`;
+- `timestamp` must not be earlier than `createdAt`.
+
+Do not add these workflow request types to `src/types/rankingImport.ts`; they belong to the conversion operation and are exported beside it.
+
+### Conversion Diagnostics
+
+Define `RankingSetConversionDiagnosticCode` as:
+
+- `invalid-validated-candidate`
+- `invalid-workflow`
+- `invalid-ranking-set-id`
+- `invalid-lifecycle-date`
+- `invalid-lifecycle-order`
+- `canonical-invariant-failed`
+
+All diagnostics use stage `convert` and severity `error`. Conversion emits no warnings.
+
+Validate request fields in this order:
+
+1. validated wrapper;
+2. workflow discriminator;
+3. ranking-set ID;
+4. create timestamp, or replacement creation time followed by update timestamp;
+5. replacement lifecycle ordering.
+
+`rankingSetId` must be a non-empty string but must not be trimmed or rewritten. Each supplied date must be a valid `Date`. Reject an unknown runtime workflow rather than treating it as create or replace.
+
+If `validateRankingSet` reports failures after conversion, return one `canonical-invariant-failed` diagnostic per domain failure, preserving domain error order and message. Map the domain error path to `location.path`. Do not return the invalid aggregate.
+
+### Validated Input Boundary
+
+Require an object with `validated === true` and a candidate object. A malformed runtime wrapper returns `invalid-validated-candidate` before request or conversion work.
+
+The converter does not rerun normalization or complete-candidate validation. `ValidatedRankingCandidate` is the typed public gate. It may defensively reject a malformed wrapper, but it must not accept a raw `NormalizedRankingCandidate` or silently manufacture the wrapper.
+
+Do not expose an overload that accepts unvalidated candidates.
+
+### Canonical Ordering and Rank Assignment
+
+Create a new sorted array with:
+
+```ts
+[...validatedCandidate.candidate.entries].sort(
+  (left, right) => left.sourceOrder - right.sourceOrder,
+)
+```
+
+The source order is already positive and unique because Task 6 validated it. Do not add a file-order tie breaker or repair invalid order.
+
+Walk the sorted entries once:
+
+1. canonical `overallRank` is the sorted zero-based index plus one;
+2. keep a per-position counter initialized on first occurrence;
+3. canonical `positionRank` is the next one-based counter for that entry's position;
+4. create a new embedded `player` object;
+5. copy `adpRank` and `tier` unchanged.
+
+Source order gaps disappear only from canonical ordinal rank. For example, validated source orders `2`, `10`, and `40` become overall ranks `1`, `2`, and `3`. Tier values such as `1`, `1`, and `4` remain `1`, `1`, and `4`.
+
+The canonical output must not contain:
+
+- `sourceIndex`;
+- `location`;
+- `fieldLocations`;
+- `sourceOrder`;
+- `sourcePositionRank`;
+- parser metadata or format-specific values.
+
+### Domain Aggregate Construction
+
+Construct one new `RankingSet` with:
+
+- local `id` from the validated workflow request;
+- `name` from the candidate;
+- a newly allocated source provenance object with optional fields copied exactly;
+- a newly allocated capabilities object and tier-capability map;
+- newly allocated canonical entries and player objects;
+- cloned lifecycle `Date` values.
+
+If source provenance includes `importedAt`, clone that `Date`. Do not share candidate or request `Date` objects with the returned aggregate.
+
+Copy capabilities without recomputation:
+
+- team availability;
+- player identity provenance;
+- overall-order provenance;
+- derived position-rank state;
+- ADP availability;
+- per-position tier provenance.
+
+Task 6 already established that capability states match materialized candidate values. The final `validateRankingSet` call rechecks their consistency with canonical entries.
+
+### Create and Replacement Identity Rules
+
+Create and replace differ only in lifecycle authority:
+
+| Workflow | Output ID | `createdAt` | `updatedAt` |
+| --- | --- | --- | --- |
+| `create` | caller-issued new local ID | request `timestamp` | request `timestamp` |
+| `replace` | caller-supplied existing local ID | request `createdAt` | request `timestamp` |
+
+No portable metadata field may influence output ID. Canonical import normalization has already discarded portable `sourceRankingSetId`; conversion must not search for or reconstruct it.
+
+The repository will later prove create uniqueness and replacement existence atomically. This slice validates only that workflow identity and dates are structurally valid and unambiguous.
+
+### Purity and Ownership
+
+Conversion must not mutate:
+
+- the validated wrapper;
+- the candidate;
+- candidate entry order;
+- candidate entries or players;
+- source provenance;
+- capability or tier maps;
+- any candidate or request `Date`.
+
+The returned aggregate must own new objects for source, capabilities, tier capabilities, entries, players, and dates. Tests should mutate cloned test-side references where practical to prove no shared nested object or date reference crosses the boundary, without weakening readonly production types.
+
+Repeated conversion with deeply equal validated input and request values must produce deeply equal output. Object identity may differ between calls.
+
+### Canonical Invariant Recheck
+
+Call `validateRankingSet` exactly once after the complete aggregate is constructed.
+
+On success, return:
 
 ```ts
 {
   ok: true,
   value: {
-    validated: true,
-    candidate,
+    converted: true,
+    rankingSet,
   },
   warnings: [],
 }
 ```
 
-Preserve the exact candidate reference and do not mutate the candidate, its source `Date`, entries, locations, capabilities, or tier map.
+The returned `rankingSet` should be the same aggregate reference accepted by `validateRankingSet`.
 
-On failure return all safely independent validation errors, no candidate value, and an empty warnings array. Validation does not create warnings because safe degradation was already handled and warned during normalization.
-
-Do not change `src/types/rankingImport.ts`; `ValidatedRankingCandidate` and the `validate` import stage already exist.
-
-### Diagnostic Codes
-
-Define `RankingCandidateValidationDiagnosticCode` as:
-
-- `invalid-name`
-- `invalid-source`
-- `empty-entries`
-- `too-many-entries`
-- `invalid-entry`
-- `invalid-source-index`
-- `invalid-player-id`
-- `duplicate-player-id`
-- `invalid-player-name`
-- `invalid-team`
-- `invalid-position`
-- `invalid-source-order`
-- `duplicate-source-order`
-- `invalid-source-position-rank`
-- `invalid-adp-rank`
-- `invalid-tier`
-- `invalid-tier-progression`
-- `invalid-capability`
-
-Every diagnostic uses stage `validate` and severity `error`.
-
-Use the candidate's retained locations:
-
-- an entry field failure uses `entry.fieldLocations[field]`;
-- when a field location is unexpectedly absent at runtime, fall back to `entry.location`;
-- duplicate identity reports the later duplicate's `playerId` location;
-- duplicate source order reports the later duplicate's `sourceOrder` location;
-- source-position-rank disagreement reports `sourcePositionRank`;
-- tier decrease or invalid neutral fallback reports `tier` on the first affected entry;
-- row-derived order disagreement reports `sourceOrder` on the first mismatch;
-- team and ADP availability disagreement reports the first relevant `team` or `adpRank` field;
-- candidate-level metadata and unsupported capability values may omit location because normalization does not retain metadata/capability source paths.
-
-Do not invent a CSV row or JSON path that is absent from the normalized candidate.
-
-### Candidate Metadata and Collection
-
-Validate in this order:
-
-1. `name` is a non-empty string after trimming; do not rewrite it.
-2. `source` is an object whose:
-   - `kind` is `seed`, `external`, `canonical`, or `manual`;
-   - optional `formatId` and `label` are non-empty strings;
-   - optional `formatVersion` is a positive integer;
-   - optional `importedAt` is a valid `Date`.
-3. `entries` is an array with at least one entry and no more than `RANKING_IMPORT_LIMITS.maxEntries` entries.
-
-An empty candidate produces `empty-entries` but remains distinct from a normalization failure. More than 1,000 entries produces `too-many-entries`. If `entries` is not an array at runtime, return `invalid-entry` at the candidate level and do not attempt record validation.
-
-The validator accepts a valid one-entry candidate. League capacity belongs to draft creation, not ranking-set validity.
-
-### Entry Validation
-
-Visit entries in array order. A sparse, null, array, or primitive entry produces `invalid-entry` at the array index and does not stop validation of other object-shaped entries.
-
-For each object-shaped entry, validate fields in this exact order:
-
-1. `sourceIndex` is an integer equal to the entry's zero-based array index. This protects stable source locations and rejects gaps or duplicate indexes without introducing a separate ordering input.
-2. `playerId` is a non-empty string; record the first valid occurrence and report later duplicates.
-3. `playerName` is a non-empty string.
-4. `team` is a non-empty string. `UNKNOWN_TEAM` is valid materialized absence.
-5. `position` is one of `QB`, `RB`, `WR`, `TE`, `DST`, or `K`.
-6. `sourceOrder` is a positive integer; record the first valid occurrence and report later duplicates. Do not require contiguity and do not reorder the array.
-7. `sourcePositionRank` is either `null` or a positive integer.
-8. `adpRank` is `null` or a positive finite number.
-9. `tier` is a positive integer.
-
-Candidate validation must tolerate runtime-invalid values despite the TypeScript contract. It must not coerce, trim, default, or repair them.
-
-### Unique Order and Derived Checks
-
-Source order is unambiguous only when every object-shaped entry has a valid unique positive `sourceOrder` and every position needed by the check is valid.
-
-When order is unambiguous:
-
-1. Create a separate sorted view by ascending `sourceOrder`; never sort the candidate array in place.
-2. Count each supported position through that view.
-3. When `sourcePositionRank` is non-null, require it to equal that position's derived one-based count.
-4. Track the prior valid tier for each position and require later tiers not to decrease.
-5. Preserve equal tiers and increasing gaps of any size.
-
-When any source order is invalid or duplicated, emit the direct order diagnostic and skip derived position-rank comparison and tier-progression checks for the candidate. This avoids misleading secondary errors from an order that is not well-defined. Continue individual position-rank and tier shape validation.
-
-If an entry has an invalid position, skip its position-derived checks while validating other entries whose position and order remain usable.
-
-### Capability Validation
-
-Validate capability keys in this fixed order:
-
-1. `team`
-2. `playerIdentity`
-3. `overallOrder`
-4. `positionRank`
-5. `adp`
-6. `tiers` in supported position order, followed by unknown keys in lexical order
-
-Accepted states remain the existing domain unions:
-
-- team and ADP: `complete`, `partial`, or `none`;
-- player identity: `provided`, `generated`, or `mixed`;
-- overall order: `explicit` or `row-derived`;
-- position rank: `derived` only;
-- each tier position: `source` or `defaulted-neutral`.
-
-For valid entry fields:
-
-- derive team availability from `team !== UNKNOWN_TEAM` and require the declared state to match;
-- derive ADP availability from `adpRank !== null` and require the declared state to match;
-- if overall order is `row-derived`, require every valid source order to equal `sourceIndex + 1`;
-- do not infer identity capability from ID spelling; only validate that its state is supported;
-- require a tier capability for each represented valid position;
-- reject a tier capability for a position not represented in the candidate;
-- reject unknown tier-position keys;
-- for `defaulted-neutral`, require every valid tier at that position to equal `NEUTRAL_TIER`;
-- for `source`, accept any already-valid non-decreasing position-local tier sequence, including a single tier or meaningful gaps.
-
-If the entry values needed to derive one capability are themselves invalid, report their direct entry diagnostics and skip only that derived capability comparison. Still validate the capability value and unrelated capabilities.
-
-### Diagnostic Ordering
-
-Return errors deterministically:
-
-1. candidate name and source errors;
-2. collection-shape and bound errors;
-3. entry errors by array index and the field order defined above, with duplicate errors emitted at the later occurrence;
-4. derived source-position-rank errors in ascending source order;
-5. tier-progression errors in ascending source order;
-6. capability errors in the fixed order above.
-
-Multiple errors for independent records and capabilities should be returned together. Do not emit a derived error when its prerequisite is invalid, and do not emit both a generic and specific error for the same malformed value.
-
-### Relationship to Canonical Domain Validation
-
-Candidate validation and `validateRankingSet` share business rules but operate at different lifecycle boundaries:
-
-- candidate validation accepts source-order gaps and nullable source-position rank because Task 7 has not assigned canonical ranks;
-- canonical ranking-set validation requires contiguous overall and derived position ranks on final `RankingEntry` values;
-- both require non-empty identity/name/team, supported positions, valid ADP, positive non-decreasing position tiers, accurate availability capabilities, and neutral default tiers.
-
-Implement the candidate checks locally and explicitly. Do not fabricate a `RankingSet`, assign fake identity or dates, or refactor the canonical validator in this slice. Focused tests must demonstrate that the shared rules agree on complete and degraded examples where their lifecycle shapes overlap.
+The invariant recheck is defense in depth for conversion logic and lifecycle context. It does not authorize repair of a forged or invalid candidate. A hand-built forged validated wrapper may be used only to prove that a final domain failure becomes `canonical-invariant-failed` and no aggregate escapes.
 
 ### Focused Tests
 
-Add `src/lib/rankingCandidateValidation.test.ts` covering:
+Add `src/lib/rankingSetConversion.test.ts` covering:
 
-- a complete valid candidate accepted with the same candidate reference;
-- a normalized FantasyPros complete candidate accepted;
-- a normalized safely degraded candidate with `UNKNOWN_TEAM`, null ADP, and neutral per-position tiers accepted;
-- a valid one-entry candidate accepted without league-capacity checks;
-- candidate and nested inputs unchanged after success and failure;
-- empty and 1,001-entry candidates;
-- malformed runtime entries and stable continuation to later entries;
-- invalid and noncontiguous source indexes;
-- missing/empty player IDs, names, and teams;
-- every unsupported position;
-- duplicate explicit IDs and generated identity collisions at the later source location;
-- invalid, tied, gapped, and array-out-of-order source order;
-- `row-derived` order consistency versus valid explicit gaps;
-- null, valid, invalid, and inconsistent supplied source-position rank;
-- null and positive ADP accepted; zero, negative, `NaN`, infinity, and string ADP rejected;
-- positive tiers, equal tiers, and preserved gaps accepted;
-- zero, negative, fractional, and position-local decreasing tiers rejected;
-- derived rank and tier progression skipped when source order is ambiguous;
-- valid complete, partial, and none team/ADP capabilities;
-- mismatched availability capabilities located at relevant entry fields;
-- supported and unsupported identity/order/position-rank capability states;
-- exact represented-position tier capabilities, missing keys, extra known positions, and unknown positions;
-- neutral tiers accepted only when every entry at that position equals `NEUTRAL_TIER`;
-- `source` tiers allowed to contain one tier or meaningful gaps;
-- multiple independent failures returned in exact stable order;
-- a normalization failure remains stage `normalize` and never masquerades as candidate validation;
-- type-facing proof that successful output is `ValidatedRankingCandidate`, not `RankingSet` or `RankingEntry[]`.
+- exact create conversion from a validated complete FantasyPros candidate;
+- exact create conversion from a validated Canonical JSON candidate;
+- explicit source order gaps and out-of-array source order becoming contiguous overall ranks;
+- interleaved positions receiving independently contiguous position ranks;
+- supplied source-position ranks removed and recomputed rather than copied;
+- player IDs, names, teams, positions, ADP, and tiers preserved exactly;
+- source tier gaps preserved while source overall-rank gaps disappear;
+- degraded candidates preserving `UNKNOWN_TEAM`, null ADP, `NEUTRAL_TIER`, and defaulted capabilities;
+- source provenance and capability metadata copied exactly into new objects;
+- create using its caller-issued ID with equal cloned creation/update dates;
+- replace preserving its caller-supplied existing ID and original creation time while assigning a later update time;
+- create and replace date objects not shared with request values;
+- portable canonical source identity never becoming local output identity;
+- invalid validated wrapper, unknown workflow, empty ID, invalid dates, and replacement timestamp earlier than creation;
+- final aggregate accepted by `validateRankingSet`;
+- forged validated input producing mapped `canonical-invariant-failed` diagnostics and no result value;
+- validated candidate, entry order, nested values, capabilities, source, and dates unchanged;
+- repeated conversion producing deeply equal outputs without shared aggregate objects;
+- type-facing proof that successful output is `ConvertedRankingSet`, not `ValidatedRankingCandidate` or a persistence record.
 
-Use small candidate builders for direct invariant coverage and the existing public parser/normalizer path for representative complete and degraded integration-shaped fixtures. Do not read fixture files, access the database, or add UI/manual QA.
+Use the existing public parser, normalizer, and candidate validator for the two representative format-path tests. Use a small validated-candidate builder for precise rank, fallback, replacement, request-failure, and immutability coverage. No fixture files, database, network, browser, or manual QA are required.
 
 ## Implementation Steps
 
-1. Add the public validator, diagnostic union, success/failure helpers, and private runtime object/location guards in `rankingCandidateValidation.ts`.
-2. Implement candidate metadata, source provenance, collection bound, and per-entry field validation in the specified order.
-3. Add duplicate identity/order tracking and non-mutating source-order derivation for supplied position-rank and tier progression checks.
-4. Add capability-state, availability, row-derived order, exact tier-position, and neutral-fallback consistency checks.
-5. Add focused direct and parser/normalizer integration tests for complete, degraded, invalid, ambiguous, and small candidates.
+1. Add exported create/replace request types, diagnostic codes, runtime request checks, and result helpers in `rankingSetConversion.ts`.
+2. Implement non-mutating source-order sorting plus contiguous overall- and position-rank assignment into new canonical entry/player values.
+3. Construct new source, capability, tier-map, lifecycle, and aggregate values for create and replacement workflows.
+4. Recheck the completed aggregate with `validateRankingSet` and map ordered domain failures into convert-stage diagnostics.
+5. Add focused direct and full import-path tests for both formats, ranks, fallbacks, identity workflows, invariant mapping, determinism, and ownership.
 6. Run focused tests, TypeScript, and focused lint.
 7. Run the full test suite and repository-wide lint.
-8. After all acceptance criteria pass, mark only Phase 5 Task 6 complete in `docs/tasks.md` and update this slice status.
-9. Report results and stop. Do not begin Task 7 conversion.
+8. After all acceptance criteria pass, mark only Phase 5 Task 7 complete in `docs/tasks.md` and update this slice status.
+9. Report results and stop. Do not begin Task 8 export.
 
 ## Expected Files
 
-- `src/lib/rankingCandidateValidation.ts`
-- `src/lib/rankingCandidateValidation.test.ts`
+- `src/lib/rankingSetConversion.ts`
+- `src/lib/rankingSetConversion.test.ts`
 - `docs/tasks.md`
 - `docs/current-slice.md` for completion status
 
-No import type, parser, preflight, normalizer, canonical ranking validator, domain, engine, snapshot, scenario, persistence, dependency, generated, or UI file should change.
+No import type, parser, preflight, normalizer, candidate validator, canonical validator, domain type, engine, snapshot, scenario, persistence, dependency, generated, or UI file should change.
 
 ## Automated Validation
 
 Run from the repository root:
 
 ```text
-npm test -- src/lib/rankingCandidateValidation.test.ts
+npm test -- src/lib/rankingSetConversion.test.ts
 npx tsc --noEmit
-npm run lint -- src/lib/rankingCandidateValidation.ts src/lib/rankingCandidateValidation.test.ts
+npm run lint -- src/lib/rankingSetConversion.ts src/lib/rankingSetConversion.test.ts
 npm test
 npm run lint
 ```
 
 Expected result:
 
-- Focused candidate-validation tests pass with exact result wrappers, diagnostics, locations, and ordering.
+- Focused conversion tests pass with exact canonical aggregates, ranks, workflow identity, dates, ownership, and diagnostics.
 - TypeScript no-emit validation passes.
 - Focused lint passes without warnings.
 - The full Vitest suite passes.
 - Repository-wide lint passes.
-- Existing Tasks 1 through 5 behavior remains unchanged.
+- Existing Tasks 1 through 6 behavior remains unchanged.
 - No database, network, browser, environment-variable, build, migration, generated-client, or manual-QA requirement is introduced.
 
 ## Acceptance Criteria
 
-- A complete valid normalized candidate returns `ValidatedRankingCandidate` with the exact candidate reference.
-- An invalid candidate returns deterministic validate-stage errors and no validated value.
-- Multiple independent semantic problems are accumulated safely with source locations.
-- Duplicate or colliding player IDs and duplicate source order report the later relevant entry.
-- Explicit source-order gaps remain valid, while ties and invalid order fail.
-- Supplied source-position rank and tier progression are checked only against unambiguous source order.
-- Complete, partial, and absent optional data validate when capability states match materialized values.
-- Malformed optional values fail rather than being treated as absence.
-- `defaulted-neutral` positions contain exactly one neutral tier value across all their entries.
-- Source tier gaps remain meaningful and valid when non-decreasing.
-- Capability states and represented tier positions are consistent with candidate entries.
-- A valid one-entry candidate passes without league-specific compatibility checks.
-- Validation is pure, deterministic, and independent of repositories, engines, React, files, and transport parsing.
+- Only an explicit `ValidatedRankingCandidate` wrapper can enter the conversion API.
+- Create and replacement requests have distinct, deterministic identity and lifecycle behavior.
+- Validated source order becomes contiguous canonical overall order without mutating candidate order.
+- Canonical position rank is derived independently per position from canonical overall order.
+- Player values, ADP, tier values, tier gaps, fallbacks, provenance, and capabilities are preserved.
+- Import-only locations, indexes, source ranks, and supplied position ranks do not cross into canonical entries.
+- Portable ranking-set identity never becomes local ranking-set identity.
+- Returned nested values and dates are owned by the aggregate rather than shared with inputs.
+- The completed aggregate passes `validateRankingSet` before it is returned.
+- Any final invariant failure produces ordered convert-stage diagnostics and no aggregate.
+- Conversion is deterministic, repository-free, clock-free, and does not mutate its inputs.
 - Focused tests, TypeScript, focused lint, full tests, and repository-wide lint pass.
-- Only Phase 5 Task 6 is checked complete after validation.
+- Only Phase 5 Task 7 is checked complete after validation.
 - No dependency, migration, generated code, or unrelated documentation change is introduced.
 
 ## Failure Handling
 
-- If candidate validation would need parser-specific data that normalization did not retain, stop and report the missing boundary data rather than importing parser types.
-- If a capability mismatch cannot be diagnosed accurately because its prerequisite entry values are invalid, emit the direct entry errors and skip that derived comparison.
-- If source order is ambiguous, report the direct order failures and skip derived position-rank and tier-progression checks rather than guessing file order.
-- If candidate and canonical domain rules conflict for a shared canonical value, stop and report the discrepancy instead of choosing one silently.
-- If implementation appears to require assigning temporary canonical ranks or constructing a fake `RankingSet`, stop and keep that work in Task 7.
+- If conversion needs to infer a missing identity, timestamp, or lifecycle fact, return a conversion diagnostic rather than generating or guessing it.
+- If a validated candidate lacks a value needed for canonical construction, allow the canonical invariant recheck to fail and return mapped diagnostics; do not default or repair it.
+- If source order is tied or malformed despite the wrapper, do not add a tie breaker. Treat the wrapper as forged and return no successful aggregate.
+- If create uniqueness or replacement existence must be checked, leave it to the repository/application workflow and do not add persistence to this slice.
+- If canonical validation disagrees with an output that should follow the documented conversion, stop and report the rule mismatch rather than weakening either validator.
 - If unrelated tests fail, report them separately and do not broaden the slice.
 
 ## Follow-Up Slice
 
-Promote Phase 5 Task 7: convert a validated candidate into a canonical `RankingSet`, assigning local lifecycle values plus contiguous overall and derived position ranks while removing source-only locations.
+Promote Phase 5 Task 8: export canonical ranking sets deterministically as Canonical Ranking Set JSON V1, preserving every domain-relevant value and provenance needed for lossless re-import.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It adds only the complete-candidate validation gate between normalization and conversion.
-- Executable by a lower-reasoning pass: yes. Public API, rules, prerequisites, diagnostics, locations, ordering, and tests are explicit.
-- Avoids unnecessary architecture changes: yes. It uses the existing candidate and validated wrapper without refactoring the domain validator or adding a framework.
-- Blast radius reasonable: yes. Two source/test files plus Task 6 and slice-status documentation are expected.
-- Review/revert comfort: yes. The validator is additive, pure, and isolated from parsing, conversion, persistence, engines, and UI.
-- Observable/testable acceptance criteria: yes. Result shape, error codes, source locations, ordering, and purity are directly testable.
+- Smallest meaningful increment: yes. It adds only the validated-candidate-to-domain conversion boundary.
+- Executable by a lower-reasoning pass: yes. Workflow inputs, rank assignment, ownership, diagnostics, invariant mapping, and tests are explicit.
+- Avoids unnecessary architecture changes: yes. Caller-issued lifecycle context keeps conversion pure without adding repositories, clocks, factories, or framework abstractions.
+- Blast radius reasonable: yes. Two source/test files plus Task 7 and slice-status documentation are expected.
+- Review/revert comfort: yes. The converter is additive and isolated before persistence and application orchestration.
+- Observable/testable acceptance criteria: yes. Exact aggregate values, ranks, identity, dates, removed fields, domain validation, and immutability are directly testable.
