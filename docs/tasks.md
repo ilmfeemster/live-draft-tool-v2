@@ -535,7 +535,7 @@ Expose the completed scenario, replay, export, debugger, reset, and restart capa
 
 ## Task 12 - Complete Phase 4 Regression and Exit Validation
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -588,9 +588,9 @@ Prove the finished workbench meets Phase 4 success criteria and has not regresse
 
 Phase 1 manual simulator coverage and Phase 2 persistence validation are complete and archived.
 
-Phase 3 implementation and automated coverage are complete for deterministic recommendation scoring, bounded modifiers, ordering, explanations, representative scenarios, workflow integration, and persisted parity. The previous task plan did not record completion of its final manual validation gate; Phase 4 Task 12 therefore retains explicit manual and persisted-workflow regression checks.
+Phase 3 implementation and automated coverage are complete for deterministic recommendation scoring, bounded modifiers, ordering, explanations, representative scenarios, workflow integration, and persisted parity. Its previously unrecorded final manual gate was covered by the Phase 4 persisted-workflow and full-draft exit regression.
 
-Phase 4 implementation has not started. Tasks 1-12 are pending. Configurable league setup Tasks 1-3 are prerequisites for scenario contract work.
+Phase 4 Tasks 1-12 are complete. Exit validation passed 27 automated test files and 305 tests, ESLint, TypeScript no-emit validation, Prisma schema validation, the production build, and the recorded manual QA in `docs/qa/manual-phase-4-qa.md`.
 
 ---
 
