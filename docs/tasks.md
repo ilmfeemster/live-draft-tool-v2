@@ -268,7 +268,7 @@ Reject malformed, incompatible, unsafe, or internally inconsistent scenarios bef
 
 ## Task 6 - Add Deterministic Replay Infrastructure
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
