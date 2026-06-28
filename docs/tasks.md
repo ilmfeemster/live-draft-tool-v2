@@ -314,7 +314,7 @@ Reconstruct zero-pick, intermediate, and completed draft states by applying vali
 
 ## Task 7 - Add Portable Import and Export Round Trips
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
