@@ -443,7 +443,7 @@ Make Recommendation Engine scoring fully reconcilable and inspectable without mo
 
 ## Task 10 - Add Transient Scenario Sessions and Reset/Restart
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
