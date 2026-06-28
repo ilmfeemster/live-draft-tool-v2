@@ -1,223 +1,240 @@
-# Current Slice: Add Portable Import and Export Round Trips
+# Current Slice: Add the Curated Scenario Library
 
 ## Source Context
 
-Phase 4 Task 7: Add Portable Import and Export Round Trips.
+Phase 4 Task 8: Add the Curated Scenario Library.
 
-Tasks 1 through 6 are complete. The project now has a typed Scenario V1 contract, deterministic JSON serialization, untrusted-input validation, and atomic deterministic replay. This slice connects those pure boundaries to the existing typed `DraftWorkspace` so manual, hydrated persisted, and transient replay workspaces can be exported and imported without touching Prisma, React, or active application state.
+Tasks 1 through 7 are complete. The project now has a versioned Scenario V1 contract, deterministic serialization, untrusted JSON validation, atomic replay, and semantic import/export round trips. This slice adds a deliberately small set of checked-in raw scenario documents that exercise representative draft and recommendation behavior through exactly those public boundaries.
 
-This is a domain portability slice, not the final workbench UI. Export produces a typed scenario that the existing serializer can turn into JSON. Import composes the existing parser and replay coordinator and preserves whether failure happened during validation or replay.
+The library is regression-oriented developer data, not a scenario-management product. It receives no special draft construction, validation, replay, or recommendation path.
 
 ## Goal
 
-Add a pure workspace export mapper and a pure JSON import coordinator, then prove semantic export/import round trips reproduce dynamic configuration, ordered pick history, target draft state, and deterministic recommendation inputs and output.
+Add two version-controlled Scenario V1 JSON documents and a tiny catalog that imports each through the public parser/validator/replay path, covering an early non-default pressure case and a completed draft with exact deterministic assertions.
 
 ## Scope
 
 ### Goals
 
-- Map the existing typed `DraftWorkspace` boundary into `ScenarioV1`.
-- Export only canonical source inputs, not derived or persistence/UI data.
-- Filter assigned draft picks into ordered scenario history.
-- Add expected pick-number and team assertions from the typed draft order.
-- Default `appliedPickCount` to the active assigned-pick count.
-- Allow an explicit valid `appliedPickCount` override so a longer known history can open at an earlier target.
-- Generate safe deterministic metadata defaults with an optional scenario ID and lightweight name override.
-- Accept optional caller-supplied informational provenance without reading a clock or external state.
-- Compose `parseScenarioV1Json` and `replayScenarioV1` for portable JSON import.
-- Preserve validation failures separately from replay failures.
-- Return the normalized imported scenario together with successful replay output.
-- Prove semantic round trips for manual, hydrated persisted, and transient replay workspaces.
-- Keep both import and export local, explicit, synchronous, and side-effect free.
+- Add a small checked-in curated scenario catalog.
+- Store each scenario as raw portable Scenario V1 JSON.
+- Route every curated document through `importScenarioV1Json`.
+- Cover an early-draft baseline in a valid non-default league.
+- Make the early scenario exercise roster need, tier or scarcity pressure, and observed positional-run pressure together.
+- Cover a completed draft and empty post-completion recommendations.
+- Give each scenario stable metadata describing its regression purpose.
+- Assert exact reconstructed draft invariants and important recommendation output.
+- Prove repeated loads are deterministic and return fresh reconstructed values.
+- Keep ranking snapshots embedded and intentionally small.
 
 ### Non-Goals
 
-- File picker, download, upload, clipboard, drag-and-drop, or browser UI.
-- Persisting imported scenarios or exported files.
-- Querying or mutating the draft repository.
-- Accepting Prisma records, raw persistence JSON, or React state in the mapper.
-- Requiring byte-for-byte equality after re-export.
-- Autosave, saved scenario collections, or curated scenario files.
-- Scenario-session reset, restart, or dirty-state behavior.
-- Ranking-file import, ranking editing, or Phase 5 ranking management.
-- Changing the Scenario V1 contract, parser, serializer, replay coordinator, engines, or persistence shape.
+- A special hard-coded draft setup or direct `ScenarioV1` object path for curated data.
+- Generating curated scenarios at runtime with builders or workspace exporters.
+- Bypassing JSON parsing, validation, or replay because files are checked in.
+- Adding new recommendation behavior or tuning solely to make a scenario interesting.
+- Exhaustive positional, roster, or league combinations.
+- User-created scenario collections, search, filtering, cloud storage, or persistence.
+- Scenario selector, import/export controls, or other workbench UI.
+- Ranking management or importing external ranking formats.
+- Reset/restart or transient scenario-session state.
 - Adding package dependencies.
-- Beginning Phase 4 Task 8.
+- Beginning Phase 4 Task 9.
 
-## Public Portability Boundary
+## Curated Scenario Set
 
-Add `src/lib/scenarioPortability.ts` with the following public API:
+Use two scenario documents so every file has a clear regression purpose while the slice remains comfortably reviewable.
+
+### 1. Early Non-Default Pressure
+
+File: `src/data/scenarios/early-non-default-pressure.json`
+
+Purpose:
+
+- Establish an early-draft baseline after a short ordered history.
+- Prove a non-default team count, roster construction, round count, and user draft position.
+- Put the user roster in a clear need state.
+- Create a recent positional run.
+- Leave a thin tier or scarcity condition at the needed position.
+- Produce at least one recommendation whose existing structured components demonstrate the intended pressure case.
+
+Use a compact supported snake/PPR setup, preferably four teams and no more than four rounds. Include only the rankings required to satisfy draft capacity and make the recommendation behavior deterministic. The history should be long enough to create observed run evidence but still represent an early draft.
+
+The final authored fixture must demonstrate, through existing engine output rather than metadata claims:
+
+- A non-zero `roster_fit` component for an important recommendation.
+- A non-zero `positional_run` component for a relevant position.
+- At least one non-zero `tier_cliff` or `positional_scarcity` component.
+- A stable recommendation order and total for the primary expected player.
+
+One scenario may cover these related pressure behaviors together; do not add separate near-duplicate files merely to isolate each component.
+
+### 2. Completed Draft
+
+File: `src/data/scenarios/completed-draft.json`
+
+Purpose:
+
+- Replay a full valid history through the final configured pick.
+- Prove completed draft shape, assignments, current-pick behavior, and invariants.
+- Prove no rankings remain available and recommendations are empty.
+
+Use the smallest clear supported configuration, such as two teams with a two-slot roster, and an embedded ranking entry for every pick.
+
+## Raw JSON Requirements
+
+Each file must:
+
+- Be a standalone Scenario V1 document with `schemaVersion: 1`.
+- Use stable metadata ID, name, description, and regression-oriented tags.
+- Omit provenance unless it adds real informational value; curated identity already comes from metadata and catalog key.
+- Carry canonical generated `LeagueSettings`, teams, user-team ID, rankings, ordered pick history, optional assertions, and replay target.
+- Use canonical roster slot IDs, labels, eligibility, and order produced by `buildLeagueSetup`.
+- Include expected pick number and expected team ID on every history entry.
+- Contain no comments, trailing commas, derived draft state, recommendations, persistence IDs, or UI state.
+- Remain well below all fixed Scenario V1 safety limits.
+
+During implementation, use existing builders and serializer in a temporary local test/debug workflow if helpful to author correct JSON, but commit only the canonical JSON documents. Do not add a generator script or a second setup path to production.
+
+## Catalog Boundary
+
+Add `src/lib/curatedScenarios.ts`.
+
+Because `resolveJsonModule` is already enabled, import the two JSON documents as unknown raw data and serialize them back to JSON text for the public import boundary. Do not cast either document to `ScenarioV1`.
+
+Use a small public shape equivalent to:
 
 ```ts
-export const DEFAULT_EXPORTED_SCENARIO_ID = "exported-scenario" as const;
-export const DEFAULT_EXPORTED_SCENARIO_NAME = "Exported Draft Scenario" as const;
+export const CURATED_SCENARIO_IDS = [
+  "early-non-default-pressure",
+  "completed-draft",
+] as const;
 
-export type ExportWorkspaceScenarioOptions = {
-  scenarioId?: string;
-  name?: string;
-  appliedPickCount?: number;
-  provenance?: ScenarioProvenance;
+export type CuratedScenarioId =
+  (typeof CURATED_SCENARIO_IDS)[number];
+
+export type CuratedScenarioCatalogEntry = {
+  id: CuratedScenarioId;
+  json: string;
 };
 
-export type ImportScenarioV1Result =
-  | {
-      ok: true;
-      scenario: ScenarioV1;
-      draft: Draft;
-      recommendations: PlayerRecommendation[];
-    }
-  | {
-      ok: false;
-      stage: "validation";
-      errors: ScenarioValidationError[];
-    }
-  | {
-      ok: false;
-      stage: "replay";
-      error: ScenarioReplayError;
-    };
+export const curatedScenarioCatalog: CuratedScenarioCatalogEntry[];
 
-export function exportWorkspaceToScenarioV1(
-  workspace: DraftWorkspace,
-  options?: ExportWorkspaceScenarioOptions,
-): ScenarioV1;
-
-export function importScenarioV1Json(json: string): ImportScenarioV1Result;
+export function loadCuratedScenario(
+  id: CuratedScenarioId,
+): ImportScenarioV1Result;
 ```
 
-Keep this module domain-facing. It may import existing types and pure scenario functions, but it must not import the repository, actions, Prisma, React, browser APIs, or components.
+Catalog construction should:
 
-## Export Mapping
+- Keep the stable ID order shown above.
+- Pair each ID with `JSON.stringify(importedDocument)`.
+- Avoid exposing imported objects as trusted typed scenarios.
+- Avoid parsing metadata separately for display; Task 11 can use the normalized successful import when UI integration begins.
 
-### Metadata
+`loadCuratedScenario` should find the matching catalog entry and call `importScenarioV1Json(entry.json)`. The `CuratedScenarioId` union makes an unknown ID impossible for normal TypeScript callers, so no new missing-ID result variant is required.
 
-- Default `metadata.id` to `DEFAULT_EXPORTED_SCENARIO_ID`.
-- Default `metadata.name` to `DEFAULT_EXPORTED_SCENARIO_NAME`.
-- Use a non-empty `scenarioId` or `name` override when supplied.
-- If either override is empty, do not manufacture an invalid scenario: fall back to its safe default.
-- Omit description and tags; this slice does not add a metadata editor.
-- Include `options.provenance` only when supplied.
-- Copy provenance into a fresh object, including optional `sourceId` only when present.
-- Do not call `Date`, `Date.now`, random ID generation, crypto APIs, or persistence. The caller supplies `exportedAt` when provenance is desired.
+Do not cache imported/replayed results. Loading the same scenario twice should independently traverse validation and replay and return fresh equal values.
 
-Metadata and provenance remain informational and must not affect any other mapped section.
+## Public-Path Requirement
 
-### League, Draft, Ranking, and User Context
+The only supported flow is:
 
-Map:
-
-- `workspace.leagueSettings` -> `scenario.leagueSettings`.
-- `workspace.draft.teams` -> `scenario.draftConfiguration.teams`.
-- `workspace.rankings` -> `scenario.rankingContext.rankings`.
-- `workspace.draft.userTeamId` -> `scenario.userTeamContext.userTeamId`.
-
-Create fresh nested arrays and objects for settings, roster slots, eligible positions, teams, rankings, and players. The mapper must not mutate the workspace or retain mutable nested references from it.
-
-Do not include `workspace.draft.id`. A persisted draft ID may be represented only through optional informational provenance supplied by the caller.
-
-### Ordered Pick History
-
-1. Read `workspace.draft.picks` in ascending `pickNumber` order using a copied array.
-2. Keep only picks with an assigned `playerId`.
-3. Map each assigned pick to:
-
-```ts
-{
-  playerId: pick.playerId,
-  expectedPickNumber: pick.pickNumber,
-  expectedTeamId: pick.teamId,
-}
+```text
+checked-in JSON document
+        |
+        v
+JSON.stringify(raw imported module)
+        |
+        v
+importScenarioV1Json
+        |
+        +--> parseScenarioV1Json
+        |
+        +--> replayScenarioV1
+        |
+        v
+normalized scenario + draft + recommendations
 ```
 
-The existing valid workspace invariant is that assigned picks form the leading draft history. The mapper should not fill gaps, infer players, or repair a malformed typed workspace. A resulting invalid scenario will be rejected by the public parser during round-trip/import validation.
+Do not call `replayScenarioV1` directly on imported JSON, cast JSON to `ScenarioV1`, hydrate final state, or reproduce validation in the catalog.
 
-### Replay Target
+## Exact Regression Assertions
 
-- Default `appliedPickCount` to the number of assigned picks mapped into history.
-- Permit an explicit integer from `0` through the mapped history length, inclusive.
-- Throw a concise `RangeError` for an invalid trusted-code override. This is mapper option misuse, not untrusted JSON validation.
-- An override changes only `replayTarget.appliedPickCount`; it does not truncate or reorder history.
+Tests should use exact assertions where output is deterministic.
 
-This allows a caller with longer known history to export an intermediate investigation target while keeping the full ordered input.
+For every curated scenario, assert:
 
-## Import Composition
+- Import succeeds through `loadCuratedScenario`.
+- Normalized metadata ID equals the catalog ID.
+- Schema version, settings, user-team identity, applied-pick count, drafted count, current pick, and assigned player order are exact.
+- Draft invariants pass with the derived available rankings.
+- Repeated loads return deeply equal results but distinct scenario, draft, and recommendation array references.
 
-Implement `importScenarioV1Json` as a narrow composition:
+For `early-non-default-pressure`, additionally assert:
 
-1. Call `parseScenarioV1Json(json)`.
-2. On parse/validation failure, return `{ ok: false, stage: "validation", errors }` unchanged.
-3. On validation success, call `replayScenarioV1(parsed.scenario)`.
-4. On replay failure, return `{ ok: false, stage: "replay", error }` unchanged.
-5. On replay success, return the normalized scenario, target draft, and recommendations.
+- Exact dynamic team count and rounds.
+- Exact user-team pick identities at the target.
+- Exact available-player identities relevant to the regression.
+- Exact primary recommendation player ID, total score, and returned position.
+- Exact relevant component deltas for `roster_fit`, `positional_run`, and either `tier_cliff` or `positional_scarcity`.
+- Exact score-backed reason IDs/text only where the current engine emits them deterministically.
 
-Do not catch and relabel impossible programmer errors from the replay coordinator. Normal untrusted import failures are represented by the parser and replay result contracts.
+For `completed-draft`, additionally assert:
 
-Import must not install state, invoke callbacks, navigate, persist, or mutate the source JSON or parsed scenario.
+- Applied pick count equals configured capacity.
+- Every generated pick has a player ID.
+- Assigned player IDs remain unique and in expected order.
+- Available rankings and recommendations are empty.
 
-## Semantic Round-Trip Rules
-
-For an exported workspace serialized with `serializeScenarioV1` and imported with `importScenarioV1Json`, compare domain meaning rather than persistence/session identity:
-
-- League settings are equal.
-- Team configuration is equal.
-- Ranking snapshot and order are equal.
-- User-team identity is equal.
-- Ordered assigned pick history is equal.
-- The imported target draft matches the workspace's domain-relevant draft state at the selected target.
-- Draft ID is excluded from equality because replay intentionally uses `SCENARIO_REPLAY_DRAFT_ID`.
-- Recommendation input values and full deterministic recommendation output are equal.
-- Draft invariants remain valid.
-
-When an explicit target is earlier than exported history, build the expected state by applying only the leading target picks through the normal Draft State Engine transition. Do not compare it with the later source workspace state.
+If the proposed early fixture does not naturally produce the intended current-engine components, adjust only its settings, rankings, tiers, or history. Do not modify recommendation production code in this slice.
 
 ## Testing Strategy
 
-Add `src/lib/scenarioPortability.test.ts` with compact dynamic workspaces. Use existing builders, hydration, draft transitions, serializer, parser, replay coordinator, and recommendation engine rather than hand-building derived final state.
+Add `src/lib/curatedScenarios.test.ts`.
 
 ### Required Test Cases
 
-1. Export defaults produce schema version `1`, safe metadata, no provenance, and target equal to assigned-pick count.
-2. Non-empty scenario ID/name overrides and complete optional provenance are copied into metadata.
-3. Empty metadata overrides fall back to safe defaults.
-4. Export maps dynamic settings, canonical teams, embedded ranking order, user-team identity, and assigned picks with assertions.
-5. Export sorts copied picks by pick number and does not mutate source order.
-6. Exported scenarios omit draft ID, current pick, rosters, availability, recommendations, persistence records, and UI state.
-7. Export creates fresh nested objects/arrays and does not mutate the workspace.
-8. A valid explicit target override is preserved without truncating history.
-9. Negative, fractional, or history-exceeding target overrides throw `RangeError`.
-10. Import validation failures preserve `stage: validation` and structured errors.
-11. Import replay failures preserve `stage: replay` and the indexed replay error. The test may stub or compose a typed coordinator case only if it can remain proportional; do not weaken validation to manufacture a public invalid JSON path.
-12. Manual in-memory workspace export -> serialize -> import reproduces target state and recommendation output.
-13. Hydrated persisted-style workspace export -> serialize -> import reproduces the same domain state without mutating or querying persistence.
-14. A transient replay workspace, optionally followed by normal local picks, exports and reimports semantically.
-15. A non-default league configuration survives round trip.
-16. Informational provenance can change or be removed without changing imported draft or recommendations.
-17. Re-export need not be byte-identical, but parsed domain sections remain semantically equal.
-18. Round-tripped drafts satisfy existing invariants.
+1. Catalog IDs are stable, unique, and match normalized scenario metadata IDs.
+2. Every catalog entry passes the same import/validation/replay path as external JSON.
+3. Every curated scenario replays deterministically on repeated load.
+4. Repeated results are fresh values rather than cached shared state.
+5. Every reconstructed draft satisfies existing invariants.
+6. The early scenario has exact non-default settings, target draft state, availability, and recommendation order.
+7. The early scenario proves non-zero roster need, observed-run pressure, and tier/scarcity pressure through structured component output.
+8. The completed scenario has exact capacity, complete assignments, no availability, and no recommendations.
+9. Raw JSON documents contain no authoritative derived fields such as rosters, availability, current pick, completion, or recommendations.
+10. Every JSON document remains inside the fixed safety limits through normal validation.
 
-For the replay-stage import branch, prefer a small dependency injection seam only if necessary to test the union without exporting production-only hooks. Do not alter the replay coordinator or public validator solely for branch coverage; validation-stage and successful composition are required, while direct replay failure is already covered by Task 6.
+Prefer a parameterized base test over duplicated assertions. Keep scenario-specific expectations in small named blocks so engine regressions are easy to diagnose.
 
 ## Implementation Steps
 
-1. Add `src/lib/scenarioPortability.ts` with metadata defaults, fresh workspace mapping, ordered assigned-pick extraction, target handling, and staged import composition.
-2. Add `src/lib/scenarioPortability.test.ts` with mapper, option, failure-stage, manual, hydrated, transient, metadata-independence, non-default, invariant, and semantic round-trip coverage.
-3. Run focused portability, serialization, validation, replay, repository-mapping, workflow, and recommendation tests, then the full suite, lint, and TypeScript validation.
-4. If all acceptance criteria and validation pass, check only Phase 4 Task 7 complete in `docs/tasks.md`. Do not begin Task 8.
+1. Author `src/data/scenarios/early-non-default-pressure.json` as a canonical valid Scenario V1 document whose existing recommendation output demonstrates the combined early pressure case.
+2. Author `src/data/scenarios/completed-draft.json` as a canonical valid completed scenario.
+3. Add `src/lib/curatedScenarios.ts` with stable IDs, raw JSON strings, and public import-based loading.
+4. Add `src/lib/curatedScenarios.test.ts` with parameterized public-path checks, exact state/invariant assertions, exact early recommendation evidence, completion checks, and determinism/freshness coverage.
+5. Run focused curated, portability, validation, replay, workflow, scenario-recommendation, and recommendation tests, then the full suite, lint, and TypeScript validation.
+6. If all acceptance criteria and validation pass, check only Phase 4 Task 8 complete in `docs/tasks.md`. Do not begin Task 9.
 
 ## Expected Files
 
-- `src/lib/scenarioPortability.ts`
-- `src/lib/scenarioPortability.test.ts`
-- `docs/tasks.md` only to mark Phase 4 Task 7 complete after validation passes
+- `src/data/scenarios/early-non-default-pressure.json`
+- `src/data/scenarios/completed-draft.json`
+- `src/lib/curatedScenarios.ts`
+- `src/lib/curatedScenarios.test.ts`
+- `docs/tasks.md` only to mark Phase 4 Task 8 complete after validation passes
 
-Do not modify the Scenario V1 contract, serializer, validator, replay coordinator, domain types, repository, Prisma, actions, or UI unless an approved interface proves impossible to consume. If that occurs, stop and report the exact conflict rather than broadening the slice.
+This five-file blast radius is intentional: two representative documents cover all required scenario categories without a broad fixture collection.
+
+Do not modify the Scenario V1 contract, serializer, validator, portability layer, replay coordinator, Draft State Engine, Recommendation Engine, domain types, repository, Prisma, actions, or UI. If an existing public boundary cannot load a correctly authored curated document, stop and report the exact conflict rather than adding a privileged path.
 
 ## Automated Validation
 
 Run from the repository root in this order:
 
 ```text
-npm test -- src/lib/scenarioPortability.test.ts src/lib/scenarioSerialization.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioReplay.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/draftWorkflow.test.ts src/lib/recommendations.test.ts
+npm test -- src/lib/curatedScenarios.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioReplay.test.ts src/lib/draftWorkflow.test.ts src/lib/recommendations.scenario.test.ts src/lib/recommendations.test.ts
 npm test
 npm run lint
 npx tsc --noEmit
@@ -225,51 +242,50 @@ npx tsc --noEmit
 
 Expected result:
 
-- Focused portability and supporting boundary/regression tests pass.
+- Focused curated and supporting scenario/recommendation regression tests pass.
 - The full Vitest suite passes.
 - ESLint exits successfully with no errors or warnings.
 - TypeScript no-emit validation exits successfully.
 - No dependency or lockfile change is introduced.
 
-No browser or database manual QA is required because this slice is pure and does not integrate file controls or persistence. Automated semantic round trips are the acceptance evidence.
+No browser or database manual QA is required because this slice adds version-controlled data and a pure loader without UI or persistence integration. Automated public-path loading and exact regression assertions are the acceptance evidence.
 
 ## Acceptance Criteria
 
-- The exporter consumes `DraftWorkspace` and trusted mapping options only.
-- Exported scenarios contain canonical source inputs and no authoritative derived, persistence, or UI state.
-- Assigned picks become ordered player inputs with expected pick/team assertions.
-- The default replay target equals active assigned-pick count; a valid override preserves longer history.
-- Metadata defaults are safe and deterministic; optional provenance is caller supplied and informational.
-- Export returns fresh nested data and does not mutate or persist the workspace.
-- Import uses the shared parser/validator and replay coordinator with distinguishable failure stages.
-- Successful import returns the normalized scenario, target draft, and authoritative recommendations.
-- Manual, hydrated persisted-style, and transient workspaces round-trip semantically.
-- Round trips preserve dynamic league configuration, rankings, user-team identity, ordered history, target state, recommendation inputs/output, and draft invariants.
-- Provenance changes do not affect replay output.
-- No byte-for-byte re-export equality is required.
-- No repository, Prisma, React, browser API, or package dependency is introduced.
+- The catalog contains exactly the two approved representative Scenario V1 documents.
+- Together they cover early baseline, roster need, tier/scarcity pressure, observed run pressure, completed state, and dynamic non-default settings.
+- Every document passes the same parser, validator, and replay coordinator as imported JSON.
+- No curated scenario receives a direct typed, hydration, or hard-coded final-state path.
+- Metadata clearly states each scenario's regression purpose.
+- Embedded rankings are self-contained, small, and sufficient for configured capacity.
+- Repeated loads produce equal deterministic draft and recommendation output with fresh values.
+- Exact draft invariants and scenario-specific recommendation behavior are asserted.
+- The early scenario proves its intended pressure behavior through existing structured engine components.
+- The completed scenario has no available players or recommendations.
+- Raw scenario data contains source inputs only and stays within fixed safety limits.
+- No recommendation behavior, persistence, ranking management, package dependency, or UI is introduced.
 - Focused tests, the full suite, lint, and TypeScript validation pass.
-- Only Phase 4 Task 7 is checked complete after implementation validation.
-- Task 8 is not started.
+- Only Phase 4 Task 8 is checked complete after implementation validation.
+- Task 9 is not started.
 
 ## Failure Handling
 
-- If `DraftWorkspace` lacks a required Scenario V1 source input, stop and report the missing field rather than reading persistence or UI state.
-- If a valid typed workspace exports to JSON rejected by the shared parser, stop and report the exact mapping mismatch; do not bypass validation.
-- If semantic round-trip differs only by replay draft ID, exclude only that identity field as documented; do not weaken other state comparisons.
-- If an explicit target override is invalid, throw `RangeError` before creating the scenario rather than clamping it silently.
-- If a focused round-trip exposes an existing hydration or recommendation inconsistency, report it without changing unrelated behavior.
-- If automated validation exposes an unrelated failure, report it without expanding the slice.
+- If raw JSON import typing requires a local `unknown` annotation, keep it in the catalog; do not cast the document to `ScenarioV1`.
+- If a curated file fails validation, correct the file's settings, identities, rankings, assertions, history, or target; do not bypass or weaken validation.
+- If replay fails, correct the authored ordered inputs; do not hydrate picks directly.
+- If the early fixture does not produce the intended components, tune only fixture inputs and retain existing Recommendation Engine behavior.
+- If an exact recommendation assertion reveals an unrelated engine defect, report it without changing the engine in this slice.
+- If automated validation exposes an unrelated failure, report it without expanding scope.
 
 ## Follow-Up Slice
 
-After this slice is implemented and reviewed, plan Phase 4 Task 8: Add the Curated Scenario Library. Do not begin it automatically.
+After this slice is implemented and reviewed, plan Phase 4 Task 9: Add Recommendation Diagnostics and Debugger. Do not begin it automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It makes the completed scenario boundaries portable for every typed workspace without adding UI or persistence.
-- Concrete enough for implementation: yes. The APIs, defaults, mapping rules, target behavior, staged import, comparisons, tests, files, and commands are explicit.
-- Avoids unnecessary architecture changes: yes. One pure module composes existing workspace, serializer, validator, replay, and recommendation boundaries.
-- Blast radius reasonable: yes. Two code/test files are expected, plus the Task 7 checkbox after successful validation.
-- Review/revert comfort: yes. The work is additive, synchronous, and isolated from runtime state and storage.
-- Observable/testable acceptance criteria: yes. Exact mapper output, failure staging, and semantic round trips are directly asserted with typed fixtures.
+- Smallest meaningful increment: yes. Two complementary files cover all required representative cases without creating a fixture warehouse.
+- Concrete enough for implementation: yes. File purposes, public loading flow, catalog API, exact assertions, tests, and failure handling are explicit.
+- Avoids unnecessary architecture changes: yes. Static JSON flows through completed public portability boundaries with only a tiny catalog.
+- Blast radius reasonable: yes. Two data files, one loader, one test, and the completion checkbox total five files.
+- Review/revert comfort: yes. The slice is additive, local, deterministic, and has no runtime UI or persistence integration.
+- Observable/testable acceptance criteria: yes. Public-path success, exact state, structured recommendation evidence, completion, invariants, and repeatability are directly asserted.
