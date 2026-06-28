@@ -143,7 +143,7 @@ The setup workflow should support:
 - `SNAKE` as the only supported draft type.
 - `PPR` as the only supported scoring format.
 
-The current 12-team, 16-round, Team 2 configuration remains the default form state. Supporting a setting means a developer can select it through the setup workflow, create the draft, reload it from persistence, and use it throughout the existing draft and recommendation flows.
+The current 12-team, 16-round, Team 1 configuration is the default form state. Supporting a setting means a developer can select it through the setup workflow, create the draft, reload it from persistence, and use it throughout the existing draft and recommendation flows.
 
 Phase 4 does not add auction, linear, keeper, dynasty, half-PPR, standard-scoring, superflex-specific, or arbitrary custom-slot eligibility modes. Draft type and scoring format should be visible in setup as the active supported values, not presented as choices that the domain cannot honor.
 

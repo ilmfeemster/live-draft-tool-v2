@@ -20,7 +20,7 @@ describe("buildLeagueSetup", () => {
     expect(result).toEqual({
       ok: true,
       leagueSettings: defaultLeagueSettings,
-      userTeamId: "team-2",
+      userTeamId: "team-1",
     });
   });
 

@@ -11,7 +11,7 @@ describe("DraftSetupForm", () => {
     expect(markup).toContain('name="teamCount"');
     expect(markup).toContain('value="12"');
     expect(markup).toContain('name="userDraftPosition"');
-    expect(markup).toContain('value="2"');
+    expect(markup).toContain('value="1"');
 
     const expectedRosterValues = {
       QB: 1,

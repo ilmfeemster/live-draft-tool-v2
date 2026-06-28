@@ -61,7 +61,7 @@ describe("draft mutation server actions", () => {
       name: "Draft - Jun 26, 2026, 5:42 PM",
       leagueSettings: defaultLeagueSettings,
       rankings: seedRankings,
-      userTeamId: "team-2",
+      userTeamId: "team-1",
     });
     expect(result).toBe(workspace);
   });

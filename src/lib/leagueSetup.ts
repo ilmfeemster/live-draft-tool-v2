@@ -90,7 +90,7 @@ const ROSTER_SLOT_DEFINITIONS: Record<
 
 export const defaultLeagueSetupInput: LeagueSetupInput = {
   teamCount: 12,
-  userDraftPosition: 2,
+  userDraftPosition: 1,
   draftType: "SNAKE",
   scoringFormat: "PPR",
   rosterSlotCounts: {

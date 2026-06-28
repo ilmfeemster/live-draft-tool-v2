@@ -50,7 +50,7 @@ Create one pure, deterministic boundary that validates supported league-setup in
 ### Scope
 
 - Define a small setup input for team count, user draft position, QB, RB, WR, TE, FLEX, DST, K, and BENCH counts, draft type, and scoring format.
-- Keep the current 12-team, 16-round, Team 2 league as the default setup input.
+- Keep the current 12-team, 16-round, Team 1 league as the default setup input.
 - Support team counts from 2 through 20 and draft positions within the selected team count.
 - Support non-negative roster counts with at least one non-BENCH starter and 1 through 30 total slots.
 - Support only `SNAKE` and `PPR`.
@@ -72,7 +72,7 @@ Create one pure, deterministic boundary that validates supported league-setup in
 - Valid setup input produces the existing typed `LeagueSettings` and a valid user-team ID.
 - Identical input produces identical roster-slot order and IDs.
 - Rounds equal the generated roster-slot count and are not independently supplied.
-- Default input produces the current MVP league settings and Team 2 identity.
+- Default input produces the current MVP league settings and Team 1 identity.
 - Non-default team count, roster construction, and draft position produce valid dynamic settings.
 - Invalid bounds, unsupported values, empty starting lineups, and insufficient ranking capacity return clear errors.
 - No draft or persistence record is created by the builder.

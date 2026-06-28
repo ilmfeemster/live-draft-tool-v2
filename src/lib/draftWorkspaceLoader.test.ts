@@ -102,7 +102,7 @@ describe("draft workspace loader", () => {
       name: "Draft - Jun 26, 2026, 5:42 PM",
       leagueSettings: defaultLeagueSettings,
       rankings: seedRankings,
-      userTeamId: "team-2",
+      userTeamId: "team-1",
     });
     expect(result).toEqual({
       workspace,
@@ -129,7 +129,7 @@ describe("draft workspace loader", () => {
       name: "Draft - Jun 26, 2026, 5:42 PM",
       leagueSettings: defaultLeagueSettings,
       rankings: seedRankings,
-      userTeamId: "team-2",
+      userTeamId: "team-1",
     });
     expect(result.workspace).toBe(workspace);
     expect(result.selectedDraftId).toBe("created-draft");
@@ -182,7 +182,7 @@ describe("draft workspace loader", () => {
       name: "Draft - Jun 26, 2026, 5:42 PM",
       leagueSettings: defaultLeagueSettings,
       rankings: seedRankings,
-      userTeamId: "team-2",
+      userTeamId: "team-1",
     });
     expect(result).toEqual({
       workspace,
