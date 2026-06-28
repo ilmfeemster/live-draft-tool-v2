@@ -1,5 +1,11 @@
 # AGENTS
 
+## 0. Auto-Compacting Rule
+
+If you notice a loss of memory or context due to automatic conversation compaction, finish the current coherent unit of work, update any affected project documentation, produce a concise handoff summary with progress, decisions, remaining work, blockers, and the recommended next prompt, then stop.
+
+The hand-off prompt should include necessary context, including directions to plan the next slice or implement it based on the most recent file changes.
+
 ## 1. Purpose and Role
 
 Act as a senior software engineer responsible for planning and implementing the project.
@@ -49,7 +55,6 @@ When helping with a request:
 
 Do not broaden scope unless explicitly requested.
 
-If you notice a loss of memory or context due to automatic conversation compaction, finish the current coherent unit of work, update any affected project documentation, produce a concise handoff summary with progress, decisions, remaining work, blockers, and the recommended next prompt, then stop.
 
 ---
 
