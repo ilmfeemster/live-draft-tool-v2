@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteDraftAction } from "@/app/actions/draftActions";
 import type { DraftSummary } from "@/lib/draftRepository";
@@ -16,10 +16,19 @@ export function DraftHistoryList({
 }: DraftHistoryListProps) {
   const router = useRouter();
   const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
-  const activeSummaries = summaries.filter((summary) => {
+  const [visibleSummaries, setVisibleSummaries] =
+    useState<DraftSummary[]>(summaries);
+
+  useEffect(() => {
+    // Server refreshes provide the authoritative replacement for the optimistic list.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setVisibleSummaries(summaries);
+  }, [summaries]);
+
+  const activeSummaries = visibleSummaries.filter((summary) => {
     return summary.status !== "COMPLETE";
   });
-  const completedSummaries = summaries.filter((summary) => {
+  const completedSummaries = visibleSummaries.filter((summary) => {
     return summary.status === "COMPLETE";
   });
   const isActiveDraftComplete = completedSummaries.some((summary) => {
@@ -50,8 +59,22 @@ export function DraftHistoryList({
         return;
       }
 
+      const remainingSummaries = visibleSummaries.filter((candidate) => {
+        return candidate.id !== summary.id;
+      });
+      setVisibleSummaries(remainingSummaries);
+
       if (summary.id === activeDraftId) {
-        router.push("/");
+        const nextSummary =
+          remainingSummaries.find((candidate) => {
+            return candidate.status !== "COMPLETE";
+          }) ?? remainingSummaries[0];
+
+        router.replace(
+          nextSummary
+            ? `/?draftId=${encodeURIComponent(nextSummary.id)}`
+            : "/",
+        );
       }
 
       router.refresh();
@@ -71,14 +94,14 @@ export function DraftHistoryList({
             Reopen a persisted draft workspace.
           </p>
         </div>
-        {summaries.length > 0 ? (
+        {visibleSummaries.length > 0 ? (
           <div className="text-sm text-zinc-500">
             {activeSummaries.length} active / {completedSummaries.length} complete
           </div>
         ) : null}
       </div>
 
-      {summaries.length > 0 ? (
+      {visibleSummaries.length > 0 ? (
         <div className="flex flex-col gap-3">
           <div className="rounded-md border border-zinc-200 bg-white p-3">
             <div className="mb-3 flex items-center justify-between gap-3">

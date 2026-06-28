@@ -23,10 +23,15 @@ describe("DeveloperWorkbenchPanel", () => {
     expect(markup).toContain("Applied picks");
     expect(markup).toContain(">3<");
     expect(markup).toContain(">No<");
-    expect(markup).toContain("Early Non-Default Pressure");
-    expect(markup).toContain("Completed Draft");
+    expect(markup).toContain("Scenario Files");
+    expect(markup).toContain("Open saved scenario");
+    expect(markup).toContain("Local files are not stored by the app");
+    expect(markup).not.toContain("Curated scenario");
+    expect(markup).not.toContain("<select");
     expect(markup).toContain('accept=".json,application/json"');
     expect(markup).toContain("Export Scenario");
+    expect(markup).toMatch(/<input[^>]*type="number"[^>]*disabled=""/);
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Apply Target<\/button>/);
   });
 
   it("renders scenario source, target, dirty state, and errors", () => {
@@ -34,26 +39,35 @@ describe("DeveloperWorkbenchPanel", () => {
       {
         mode: "scenario",
         name: "Early Non-Default Pressure",
-        source: "Curated: early-non-default-pressure",
+        source: "Imported file: exported-draft-scenario.json",
         replayTarget: 8,
         appliedPickCount: 9,
         isDirty: true,
       },
       {
-        selectedCuratedScenarioId: "early-non-default-pressure",
         errors: ["schemaVersion: schemaVersion must be 1."],
         canResetScenario: true,
         canRestartTransient: true,
+        replayTargetInput: "6",
+        replayTargetMax: 12,
+        canApplyReplayTarget: true,
       },
     );
 
     expect(markup).toContain("Transient Scenario");
-    expect(markup).toContain("Curated: early-non-default-pressure");
+    expect(markup).toContain("Imported file: exported-draft-scenario.json");
     expect(markup).toContain(">8<");
     expect(markup).toContain(">9<");
     expect(markup).toContain(">Yes<");
     expect(markup).toContain("schemaVersion: schemaVersion must be 1.");
     expect(markup).toContain('aria-live="polite"');
+    expect(markup).toMatch(
+      /<input[^>]*type="number"[^>]*min="0"[^>]*max="12"[^>]*step="1"[^>]*value="6"/,
+    );
+    expect(markup).toContain("0 through 12 applied picks.");
+    expect(markup).not.toMatch(
+      /<button[^>]*disabled=""[^>]*>Apply Target<\/button>/,
+    );
   });
 
   it("renders transient-manual and pending disabled states", () => {
@@ -75,8 +89,8 @@ describe("DeveloperWorkbenchPanel", () => {
 
     expect(markup).toContain("Transient Manual");
     expect(markup).toContain("Restarted transient configuration");
-    expect(markup).toMatch(/<select[^>]*disabled=""/);
     expect(markup).toMatch(/<input[^>]*type="file"[^>]*disabled=""/);
+    expect(markup).toMatch(/<input[^>]*type="number"[^>]*disabled=""/);
     expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Reset Scenario<\/button>/);
     expect(markup).toMatch(
       /<button[^>]*disabled=""[^>]*>Restart Configuration<\/button>/,
@@ -91,12 +105,15 @@ function renderPanel(
   return renderToStaticMarkup(
     <DeveloperWorkbenchPanel
       status={status}
-      selectedCuratedScenarioId=""
       errors={[]}
       isPending={false}
       canResetScenario={false}
       canRestartTransient={false}
-      onSelectCuratedScenario={vi.fn()}
+      replayTargetInput=""
+      replayTargetMax={null}
+      canApplyReplayTarget={false}
+      onReplayTargetInputChange={vi.fn()}
+      onApplyReplayTarget={vi.fn()}
       onImportFile={vi.fn()}
       onExport={vi.fn()}
       onResetScenario={vi.fn()}

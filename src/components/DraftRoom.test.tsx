@@ -64,6 +64,12 @@ describe("DraftRoom loaded workspace recommendations", () => {
     expect(markup).toContain("Persisted Draft");
     expect(markup).toContain("Persisted workspace");
     expect(markup).toContain("Not applicable");
+    expect(markup).toContain("Scenario Files");
+    expect(markup).toContain("Open saved scenario");
+    expect(markup).not.toContain("Curated scenario");
+    expect(markup).not.toContain("Early Non-Default Pressure");
+    expect(markup).toMatch(/<input[^>]*type="number"[^>]*disabled=""/);
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Apply Target<\/button>/);
     expect(markup).toContain("Export Scenario");
     expect(markup).not.toContain("Transient Scenario");
 

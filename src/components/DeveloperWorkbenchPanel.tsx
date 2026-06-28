@@ -1,10 +1,6 @@
 "use client";
 
 import type { ChangeEvent } from "react";
-import {
-  CURATED_SCENARIO_IDS,
-  type CuratedScenarioId,
-} from "@/lib/curatedScenarios";
 
 export type WorkbenchMode = "persisted" | "scenario" | "transient-manual";
 
@@ -19,21 +15,19 @@ export type WorkbenchStatus = {
 
 type DeveloperWorkbenchPanelProps = {
   status: WorkbenchStatus;
-  selectedCuratedScenarioId: CuratedScenarioId | "";
   errors: string[];
   isPending: boolean;
   canResetScenario: boolean;
   canRestartTransient: boolean;
-  onSelectCuratedScenario: (id: CuratedScenarioId) => void;
+  replayTargetInput: string;
+  replayTargetMax: number | null;
+  canApplyReplayTarget: boolean;
+  onReplayTargetInputChange: (value: string) => void;
+  onApplyReplayTarget: () => void;
   onImportFile: (file: File) => void;
   onExport: () => void;
   onResetScenario: () => void;
   onRestartTransient: () => void;
-};
-
-const curatedLabels: Record<CuratedScenarioId, string> = {
-  "early-non-default-pressure": "Early Non-Default Pressure",
-  "completed-draft": "Completed Draft",
 };
 
 const modeLabels: Record<WorkbenchMode, string> = {
@@ -44,25 +38,20 @@ const modeLabels: Record<WorkbenchMode, string> = {
 
 export function DeveloperWorkbenchPanel({
   status,
-  selectedCuratedScenarioId,
   errors,
   isPending,
   canResetScenario,
   canRestartTransient,
-  onSelectCuratedScenario,
+  replayTargetInput,
+  replayTargetMax,
+  canApplyReplayTarget,
+  onReplayTargetInputChange,
+  onApplyReplayTarget,
   onImportFile,
   onExport,
   onResetScenario,
   onRestartTransient,
 }: DeveloperWorkbenchPanelProps) {
-  function handleScenarioChange(event: ChangeEvent<HTMLSelectElement>) {
-    const id = event.target.value as CuratedScenarioId | "";
-
-    if (id) {
-      onSelectCuratedScenario(id);
-    }
-  }
-
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
 
@@ -84,26 +73,15 @@ export function DeveloperWorkbenchPanel({
         </p>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_auto] lg:items-end">
+      <div className="mt-4 rounded border border-zinc-200 bg-white p-3">
+        <h3 className="font-semibold text-zinc-900">Scenario Files</h3>
+        <p className="mt-1 text-sm text-zinc-600">
+          Open a previously exported Scenario V1 JSON file. Local files are not
+          stored by the app.
+        </p>
+        <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto] lg:items-end">
         <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
-          Curated scenario
-          <select
-            value={selectedCuratedScenarioId}
-            disabled={isPending}
-            onChange={handleScenarioChange}
-            className="h-9 rounded-md border border-zinc-300 bg-white px-3 font-normal text-zinc-950 disabled:bg-zinc-100"
-          >
-            <option value="">Select a curated scenario</option>
-            {CURATED_SCENARIO_IDS.map((id) => (
-              <option key={id} value={id}>
-                {curatedLabels[id]}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
-          Import local JSON
+          Open saved scenario
           <input
             type="file"
             accept=".json,application/json"
@@ -121,6 +99,10 @@ export function DeveloperWorkbenchPanel({
         >
           Export Scenario
         </button>
+        </div>
+        <p className="mt-2 text-xs text-zinc-500">
+          Export the active state to save it for later reuse.
+        </p>
       </div>
 
       <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
@@ -138,6 +120,35 @@ export function DeveloperWorkbenchPanel({
         <StatusValue label="Applied picks" value={String(status.appliedPickCount)} />
         <StatusValue label="Dirty" value={status.isDirty ? "Yes" : "No"} />
       </dl>
+
+      <div className="mt-4 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
+          Replay target
+          <input
+            type="number"
+            min="0"
+            max={replayTargetMax ?? undefined}
+            step="1"
+            value={replayTargetInput}
+            disabled={isPending || replayTargetMax === null}
+            onChange={(event) => onReplayTargetInputChange(event.target.value)}
+            className="h-9 w-40 rounded-md border border-zinc-300 bg-white px-3 font-normal text-zinc-950 disabled:bg-zinc-100"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={isPending || !canApplyReplayTarget}
+          onClick={onApplyReplayTarget}
+          className="h-9 rounded bg-zinc-800 px-3 text-sm font-medium text-white disabled:bg-zinc-300"
+        >
+          Apply Target
+        </button>
+        <p className="w-full text-xs text-zinc-500">
+          {replayTargetMax === null
+            ? "Available after opening a saved scenario."
+            : `0 through ${replayTargetMax} applied picks.`}
+        </p>
+      </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button

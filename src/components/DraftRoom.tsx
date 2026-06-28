@@ -21,10 +21,6 @@ import type {
   LeagueSetupInput,
   LeagueSetupValidationError,
 } from "@/lib/leagueSetup";
-import {
-  curatedScenarioCatalog,
-  type CuratedScenarioId,
-} from "@/lib/curatedScenarios";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import { exportWorkspaceToScenarioV1 } from "@/lib/scenarioPortability";
 import {
@@ -52,7 +48,6 @@ type DraftRoomProps = {
 };
 
 type TransientSource =
-  | { kind: "curated"; id: CuratedScenarioId }
   | { kind: "imported"; fileName: string }
   | { kind: "restart" };
 
@@ -71,6 +66,7 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
     useState<TransientSource | null>(null);
   const [workbenchErrors, setWorkbenchErrors] = useState<string[]>([]);
   const [isWorkbenchPending, setIsWorkbenchPending] = useState(false);
+  const [replayTargetInput, setReplayTargetInput] = useState("");
 
   const displayedDraft = transientSession?.draft ?? activeDraft;
   const activeRankings = transientSession?.rankings ?? rankings;
@@ -321,24 +317,11 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
 
     setTransientSession(result.session);
     setTransientSource(source);
+    setReplayTargetInput(
+      String(result.session.scenario.replayTarget.appliedPickCount),
+    );
     setWorkbenchErrors([]);
     return true;
-  }
-
-  function selectCuratedScenario(id: CuratedScenarioId) {
-    if (isAnyPending || !shouldReplaceTransientSession()) {
-      return;
-    }
-
-    setWorkbenchErrors([]);
-    const entry = curatedScenarioCatalog.find((candidate) => candidate.id === id);
-
-    if (!entry) {
-      setWorkbenchErrors([`Curated scenario ${id} is unavailable.`]);
-      return;
-    }
-
-    installScenarioSession(entry.json, { kind: "curated", id });
   }
 
   async function importScenarioFile(file: File) {
@@ -437,6 +420,54 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
     }
 
     setTransientSession(result.session);
+    setReplayTargetInput(
+      String(result.session.scenario.replayTarget.appliedPickCount),
+    );
+  }
+
+  function applyReplayTarget() {
+    if (isAnyPending || transientSession?.kind !== "scenario") {
+      return;
+    }
+
+    const max = transientSession.scenario.pickHistory.length;
+    const target = Number(replayTargetInput);
+
+    if (
+      replayTargetInput.trim() === "" ||
+      !Number.isInteger(target) ||
+      target < 0 ||
+      target > max
+    ) {
+      setWorkbenchErrors([
+        `Replay target must be an integer from 0 through ${max}.`,
+      ]);
+      return;
+    }
+
+    if (
+      requiresTransientSessionConfirmation(transientSession, "replace") &&
+      !window.confirm(
+        "Apply a new replay target? Unexported local changes will be lost.",
+      )
+    ) {
+      return;
+    }
+
+    const sourceJson = serializeScenarioV1({
+      ...transientSession.scenario,
+      replayTarget: { appliedPickCount: target },
+    });
+    const result = createTransientScenarioSession(sourceJson);
+
+    if (!result.ok) {
+      setWorkbenchErrors(formatSessionFailure(result));
+      return;
+    }
+
+    setTransientSession(result.session);
+    setReplayTargetInput(String(target));
+    setWorkbenchErrors([]);
   }
 
   function restartConfiguration() {
@@ -455,13 +486,9 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
 
     setTransientSession(restartTransientSession(transientSession));
     setTransientSource({ kind: "restart" });
+    setReplayTargetInput("");
     setWorkbenchErrors([]);
   }
-
-  const selectedCuratedScenarioId =
-    transientSession?.kind === "scenario" && transientSource?.kind === "curated"
-      ? transientSource.id
-      : "";
   const workbenchStatus: WorkbenchStatus = transientSession
     ? {
         mode:
@@ -507,12 +534,21 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
     <div className="grid gap-6">
       <DeveloperWorkbenchPanel
         status={workbenchStatus}
-        selectedCuratedScenarioId={selectedCuratedScenarioId}
         errors={workbenchErrors}
         isPending={isAnyPending}
         canResetScenario={transientSession?.kind === "scenario"}
         canRestartTransient={Boolean(transientSession)}
-        onSelectCuratedScenario={selectCuratedScenario}
+        replayTargetInput={replayTargetInput}
+        replayTargetMax={
+          transientSession?.kind === "scenario"
+            ? transientSession.scenario.pickHistory.length
+            : null
+        }
+        canApplyReplayTarget={
+          transientSession?.kind === "scenario" && !isAnyPending
+        }
+        onReplayTargetInputChange={setReplayTargetInput}
+        onApplyReplayTarget={applyReplayTarget}
         onImportFile={importScenarioFile}
         onExport={exportScenario}
         onResetScenario={resetScenario}
@@ -568,8 +604,6 @@ function formatTransientSource(source: TransientSource | null): string {
   }
 
   switch (source.kind) {
-    case "curated":
-      return `Curated: ${source.id}`;
     case "imported":
       return `Imported file: ${source.fileName}`;
     case "restart":
