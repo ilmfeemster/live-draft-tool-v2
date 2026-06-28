@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Position, RankingEntry } from "@/types/draft";
 
 type PositionFilter = Position | "ALL";
@@ -10,7 +10,7 @@ const positionFilters: PositionFilter[] = ["ALL", "QB", "RB", "WR", "TE", "DST",
 type AvailablePlayersTableProps = {
   isDraftComplete: boolean;
   rankings: RankingEntry[];
-  onDraftPlayer: (playerId: string) => void;
+  onDraftPlayer: (playerId: string) => void | Promise<void>;
 };
 
 export function AvailablePlayersTable({
@@ -20,6 +20,7 @@ export function AvailablePlayersTable({
 }: AvailablePlayersTableProps) {
   const [selectedPosition, setSelectedPosition] = useState<PositionFilter>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const tableViewportRef = useRef<HTMLDivElement>(null);
 
   const availablePlayers = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -40,6 +41,41 @@ export function AvailablePlayersTable({
       })
       .sort((a, b) => a.overallRank - b.overallRank);
   }, [rankings, searchQuery, selectedPosition]);
+
+  async function draftPlayerWithoutLosingPosition(playerId: string) {
+    const tableViewport = tableViewportRef.current;
+
+    if (!tableViewport) {
+      await onDraftPlayer(playerId);
+      return;
+    }
+
+    const previousScrollTop = tableViewport.scrollTop;
+    const previousViewportTop = tableViewport.getBoundingClientRect().top;
+
+    await onDraftPlayer(playerId);
+
+    window.requestAnimationFrame(() => {
+      const updatedTableViewport = tableViewportRef.current;
+
+      if (!updatedTableViewport) {
+        return;
+      }
+
+      updatedTableViewport.scrollTop = previousScrollTop;
+
+      const viewportDelta =
+        updatedTableViewport.getBoundingClientRect().top - previousViewportTop;
+
+      if (viewportDelta !== 0) {
+        window.scrollBy({
+          top: viewportDelta,
+          left: 0,
+          behavior: "auto",
+        });
+      }
+    });
+  }
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4">
@@ -87,7 +123,7 @@ export function AvailablePlayersTable({
       </div>
 
       <div className="overflow-hidden rounded-md border border-zinc-200 bg-white">
-        <div className="max-h-[620px] overflow-auto">
+        <div ref={tableViewportRef} className="max-h-[620px] overflow-auto">
           <table className="w-full border-collapse text-left text-sm">
             <thead className="sticky top-0 bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
               <tr>
@@ -120,7 +156,9 @@ export function AvailablePlayersTable({
                         type="button"
                         className="h-8 rounded bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500"
                         disabled={isDraftComplete}
-                        onClick={() => onDraftPlayer(entry.player.id)}
+                        onClick={() => {
+                          void draftPlayerWithoutLosingPosition(entry.player.id);
+                        }}
                       >
                         Draft
                       </button>

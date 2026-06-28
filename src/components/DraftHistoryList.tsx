@@ -104,35 +104,49 @@ export function DraftHistoryList({
 
       {visibleSummaries.length > 0 ? (
         <div className="flex flex-col gap-3">
-          <div className="rounded-md border border-zinc-200 bg-white p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-600">
-                Active Drafts
-              </h3>
-              <div className="text-sm text-zinc-500">
-                {activeSummaries.length} draft{activeSummaries.length === 1 ? "" : "s"}
+          <details
+            open
+            className="group rounded-md border border-zinc-200 bg-white p-3"
+          >
+            <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-600">
+                  Active Drafts
+                </h3>
+                <div className="flex items-center gap-3 text-sm text-zinc-500">
+                  <span>
+                    {activeSummaries.length} draft
+                    {activeSummaries.length === 1 ? "" : "s"}
+                  </span>
+                  <span aria-hidden="true" className="font-medium text-zinc-600">
+                    <span className="group-open:hidden">Expand</span>
+                    <span className="hidden group-open:inline">Minimize</span>
+                  </span>
+                </div>
               </div>
-            </div>
+            </summary>
 
-            {activeSummaries.length > 0 ? (
-              <div className="flex gap-3 overflow-x-auto pb-1">
-                {activeSummaries.map((summary) => (
-                  <DraftSummaryCard
-                    key={summary.id}
-                    activeDraftId={activeDraftId}
-                    isDeleteDisabled={Boolean(deletingDraftId)}
-                    isDeleting={deletingDraftId === summary.id}
-                    summary={summary}
-                    onDeleteDraft={deleteDraft}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="rounded border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
-                No active drafts. Completed drafts are available below.
-              </div>
-            )}
-          </div>
+            <div className="mt-3">
+              {activeSummaries.length > 0 ? (
+                <div className="flex gap-3 overflow-x-auto pb-1">
+                  {activeSummaries.map((summary) => (
+                    <DraftSummaryCard
+                      key={summary.id}
+                      activeDraftId={activeDraftId}
+                      isDeleteDisabled={Boolean(deletingDraftId)}
+                      isDeleting={deletingDraftId === summary.id}
+                      summary={summary}
+                      onDeleteDraft={deleteDraft}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
+                  No active drafts. Completed drafts are available below.
+                </div>
+              )}
+            </div>
+          </details>
 
           {completedSummaries.length > 0 ? (
             <details

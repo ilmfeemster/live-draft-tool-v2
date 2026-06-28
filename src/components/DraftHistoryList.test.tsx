@@ -29,6 +29,10 @@ describe("DraftHistoryList", () => {
 
     expect(markup).toContain("2 active / 1 complete");
     expect(markup).toContain("Active Drafts");
+    expect(markup).toMatch(/<details[^>]*open=""/);
+    expect(markup).toContain("<summary");
+    expect(markup).toContain("Expand");
+    expect(markup).toContain("Minimize");
     expect(markup).toContain("Completed Drafts (1)");
     expect(markup).toContain("active-1");
     expect(markup).toContain("active-2");

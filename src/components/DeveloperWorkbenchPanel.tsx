@@ -63,15 +63,30 @@ export function DeveloperWorkbenchPanel({
   }
 
   return (
-    <section className="rounded-md border border-zinc-300 bg-zinc-50 p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-zinc-950">
-          Developer Workbench
-        </h2>
-        <p className="text-sm text-zinc-600">
-          Scenario sessions are transient until exported.
-        </p>
-      </div>
+    <details
+      open
+      className="group rounded-md border border-zinc-300 bg-zinc-50 p-4"
+    >
+      <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-semibold text-zinc-950">
+              Developer Workbench
+            </h2>
+            <p className="text-sm text-zinc-600">
+              {modeLabels[status.mode]} - Scenario sessions are transient until
+              exported.
+            </p>
+          </div>
+          <span
+            aria-hidden="true"
+            className="shrink-0 text-sm font-medium text-zinc-600"
+          >
+            <span className="group-open:hidden">Expand</span>
+            <span className="hidden group-open:inline">Minimize</span>
+          </span>
+        </div>
+      </summary>
 
       <div className="mt-4 rounded border border-zinc-200 bg-white p-3">
         <h3 className="font-semibold text-zinc-900">Scenario Files</h3>
@@ -80,25 +95,25 @@ export function DeveloperWorkbenchPanel({
           stored by the app.
         </p>
         <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto] lg:items-end">
-        <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
-          Open saved scenario
-          <input
-            type="file"
-            accept=".json,application/json"
-            disabled={isPending}
-            onChange={handleFileChange}
-            className="h-9 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm font-normal text-zinc-700 disabled:bg-zinc-100"
-          />
-        </label>
+          <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
+            Open saved scenario
+            <input
+              type="file"
+              accept=".json,application/json"
+              disabled={isPending}
+              onChange={handleFileChange}
+              className="h-9 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm font-normal text-zinc-700 disabled:bg-zinc-100"
+            />
+          </label>
 
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={onExport}
-          className="h-9 rounded bg-zinc-800 px-3 text-sm font-medium text-white disabled:bg-zinc-300"
-        >
-          Export Scenario
-        </button>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={onExport}
+            className="h-9 rounded bg-zinc-800 px-3 text-sm font-medium text-white disabled:bg-zinc-300"
+          >
+            Export Scenario
+          </button>
         </div>
         <p className="mt-2 text-xs text-zinc-500">
           Export the active state to save it for later reuse.
@@ -174,7 +189,7 @@ export function DeveloperWorkbenchPanel({
           <p key={error}>{error}</p>
         ))}
       </div>
-    </section>
+    </details>
   );
 }
 
