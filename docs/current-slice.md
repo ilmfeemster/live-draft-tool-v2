@@ -1,240 +1,295 @@
-# Current Slice: Add the Curated Scenario Library
+# Current Slice: Add Recommendation Diagnostics and Debugger
 
 ## Source Context
 
-Phase 4 Task 8: Add the Curated Scenario Library.
+Phase 4 Task 9: Add Recommendation Diagnostics and Debugger.
 
-Tasks 1 through 7 are complete. The project now has a versioned Scenario V1 contract, deterministic serialization, untrusted JSON validation, atomic replay, and semantic import/export round trips. This slice adds a deliberately small set of checked-in raw scenario documents that exercise representative draft and recommendation behavior through exactly those public boundaries.
+Tasks 1 through 8 are complete. Manual, hydrated persisted, replayed, imported, and curated draft states all converge on the same pure Recommendation Engine. Existing `PlayerRecommendation` output already includes ranking data, base score, context score, final total, raw components, evidence, and score-backed reasons. The remaining reconciliation gap is that urgency and context caps can change the applied score without exposing those adjustments.
 
-The library is regression-oriented developer data, not a scenario-management product. It receives no special draft construction, validation, replay, or recommendation path.
+The current `RecommendationsPanel` already receives the engine's authoritative ordered array from `DraftRoom`. This slice can add a read-only native-details debugger there without new state, routing, or DraftRoom orchestration.
 
 ## Goal
 
-Add two version-controlled Scenario V1 JSON documents and a tiny catalog that imports each through the public parser/validator/replay path, covering an early non-default pressure case and a completed draft with exact deterministic assertions.
+Make every recommendation total arithmetically reconcilable from engine-owned structured output and display that output in a compact read-only debugger while preserving scoring, reasons, and returned order exactly.
 
 ## Scope
 
 ### Goals
 
-- Add a small checked-in curated scenario catalog.
-- Store each scenario as raw portable Scenario V1 JSON.
-- Route every curated document through `importScenarioV1Json`.
-- Cover an early-draft baseline in a valid non-default league.
-- Make the early scenario exercise roster need, tier or scarcity pressure, and observed positional-run pressure together.
-- Cover a completed draft and empty post-completion recommendations.
-- Give each scenario stable metadata describing its regression purpose.
-- Assert exact reconstructed draft invariants and important recommendation output.
-- Prove repeated loads are deterministic and return fresh reconstructed values.
-- Keep ranking snapshots embedded and intentionally small.
+- Add a small structured score-adjustment type to recommendation output.
+- Expose urgency-cap adjustment only when raw urgency exceeds its configured cap.
+- Expose context-cap adjustment only when raw context exceeds its positive or negative configured bound.
+- Ensure raw component deltas plus adjustment deltas reconcile to the final total.
+- Preserve all existing component values, evidence, reasons, totals, and ordering.
+- Add an expandable read-only diagnostics section to each existing recommendation card.
+- Display returned position, ranking/tie-break values, base score, context subtotal, final total, raw components, cap adjustments, and exact engine reasons.
+- Keep positive, neutral, and negative component/adjustment values visible.
+- Make the debugger available automatically for existing manual and hydrated persisted DraftRoom workflows.
+- Add focused engine and static-render component coverage.
 
 ### Non-Goals
 
-- A special hard-coded draft setup or direct `ScenarioV1` object path for curated data.
-- Generating curated scenarios at runtime with builders or workspace exporters.
-- Bypassing JSON parsing, validation, or replay because files are checked in.
-- Adding new recommendation behavior or tuning solely to make a scenario interesting.
-- Exhaustive positional, roster, or league combinations.
-- User-created scenario collections, search, filtering, cloud storage, or persistence.
-- Scenario selector, import/export controls, or other workbench UI.
-- Ranking management or importing external ranking formats.
-- Reset/restart or transient scenario-session state.
-- Adding package dependencies.
-- Beginning Phase 4 Task 9.
+- Recalculating totals, caps, reasons, or recommendation order in React.
+- Changing scoring weights, tuning defaults, cap behavior, comparator behavior, or reason selection.
+- Adding a new tie-break model.
+- Sorting or filtering recommendations in the UI.
+- Editing weights, live tuning, strategy profiles, or recommendation inputs.
+- AI-generated explanations or new recommendation factors.
+- Persisting or exporting diagnostics or recommendations.
+- Scenario-session UI, selectors, import/export controls, reset, or restart.
+- Redesigning the Draft Room or recommendation cards.
+- Adding package dependencies or a disclosure component library.
+- Beginning Phase 4 Task 10.
 
-## Curated Scenario Set
+## Engine Output Contract
 
-Use two scenario documents so every file has a clear regression purpose while the slice remains comfortably reviewable.
-
-### 1. Early Non-Default Pressure
-
-File: `src/data/scenarios/early-non-default-pressure.json`
-
-Purpose:
-
-- Establish an early-draft baseline after a short ordered history.
-- Prove a non-default team count, roster construction, round count, and user draft position.
-- Put the user roster in a clear need state.
-- Create a recent positional run.
-- Leave a thin tier or scarcity condition at the needed position.
-- Produce at least one recommendation whose existing structured components demonstrate the intended pressure case.
-
-Use a compact supported snake/PPR setup, preferably four teams and no more than four rounds. Include only the rankings required to satisfy draft capacity and make the recommendation behavior deterministic. The history should be long enough to create observed run evidence but still represent an early draft.
-
-The final authored fixture must demonstrate, through existing engine output rather than metadata claims:
-
-- A non-zero `roster_fit` component for an important recommendation.
-- A non-zero `positional_run` component for a relevant position.
-- At least one non-zero `tier_cliff` or `positional_scarcity` component.
-- A stable recommendation order and total for the primary expected player.
-
-One scenario may cover these related pressure behaviors together; do not add separate near-duplicate files merely to isolate each component.
-
-### 2. Completed Draft
-
-File: `src/data/scenarios/completed-draft.json`
-
-Purpose:
-
-- Replay a full valid history through the final configured pick.
-- Prove completed draft shape, assignments, current-pick behavior, and invariants.
-- Prove no rankings remain available and recommendations are empty.
-
-Use the smallest clear supported configuration, such as two teams with a two-slot roster, and an embedded ranking entry for every pick.
-
-## Raw JSON Requirements
-
-Each file must:
-
-- Be a standalone Scenario V1 document with `schemaVersion: 1`.
-- Use stable metadata ID, name, description, and regression-oriented tags.
-- Omit provenance unless it adds real informational value; curated identity already comes from metadata and catalog key.
-- Carry canonical generated `LeagueSettings`, teams, user-team ID, rankings, ordered pick history, optional assertions, and replay target.
-- Use canonical roster slot IDs, labels, eligibility, and order produced by `buildLeagueSetup`.
-- Include expected pick number and expected team ID on every history entry.
-- Contain no comments, trailing commas, derived draft state, recommendations, persistence IDs, or UI state.
-- Remain well below all fixed Scenario V1 safety limits.
-
-During implementation, use existing builders and serializer in a temporary local test/debug workflow if helpful to author correct JSON, but commit only the canonical JSON documents. Do not add a generator script or a second setup path to production.
-
-## Catalog Boundary
-
-Add `src/lib/curatedScenarios.ts`.
-
-Because `resolveJsonModule` is already enabled, import the two JSON documents as unknown raw data and serialize them back to JSON text for the public import boundary. Do not cast either document to `ScenarioV1`.
-
-Use a small public shape equivalent to:
+Update `src/types/draft.ts` with:
 
 ```ts
-export const CURATED_SCENARIO_IDS = [
-  "early-non-default-pressure",
-  "completed-draft",
-] as const;
+export type RecommendationScoreAdjustmentId =
+  | "urgency_cap"
+  | "context_cap";
 
-export type CuratedScenarioId =
-  (typeof CURATED_SCENARIO_IDS)[number];
-
-export type CuratedScenarioCatalogEntry = {
-  id: CuratedScenarioId;
-  json: string;
+export type RecommendationScoreAdjustment = {
+  id: RecommendationScoreAdjustmentId;
+  delta: number;
+  direction: RecommendationScoreComponentDirection;
+  evidence: {
+    rawScore: number;
+    adjustedScore: number;
+    minScore?: number;
+    maxScore?: number;
+  };
 };
-
-export const curatedScenarioCatalog: CuratedScenarioCatalogEntry[];
-
-export function loadCuratedScenario(
-  id: CuratedScenarioId,
-): ImportScenarioV1Result;
 ```
 
-Catalog construction should:
+Add this required field to `PlayerRecommendation`:
 
-- Keep the stable ID order shown above.
-- Pair each ID with `JSON.stringify(importedDocument)`.
-- Avoid exposing imported objects as trusted typed scenarios.
-- Avoid parsing metadata separately for display; Task 11 can use the normalized successful import when UI integration begins.
+```ts
+scoreAdjustments: RecommendationScoreAdjustment[];
+```
 
-`loadCuratedScenario` should find the matching catalog entry and call `importScenarioV1Json(entry.json)`. The `CuratedScenarioId` union makes an unknown ID impossible for normal TypeScript callers, so no new missing-ID result variant is required.
+Use the existing direction vocabulary:
 
-Do not cache imported/replayed results. Loading the same scenario twice should independently traverse validation and replay and return fresh equal values.
+- Positive delta -> `positive`.
+- Negative delta -> `negative`.
+- Zero delta -> `neutral`, although zero adjustments are not emitted.
 
-## Public-Path Requirement
+The adjustment collection is engine-owned derived output. It is not added to scenario data, persistence, or export.
 
-The only supported flow is:
+## Adjustment Semantics
+
+Update `generatePlayerRecommendations` in `src/lib/recommendations.ts` without changing scoring results.
+
+### Urgency Cap
+
+Define:
 
 ```text
-checked-in JSON document
-        |
-        v
-JSON.stringify(raw imported module)
-        |
-        v
-importScenarioV1Json
-        |
-        +--> parseScenarioV1Json
-        |
-        +--> replayScenarioV1
-        |
-        v
-normalized scenario + draft + recommendations
+raw urgency = tier_cliff + positional_scarcity + positional_run
+applied urgency = min(raw urgency, maxUrgencyScore)
+urgency adjustment = applied urgency - raw urgency
 ```
 
-Do not call `replayScenarioV1` directly on imported JSON, cast JSON to `ScenarioV1`, hydrate final state, or reproduce validation in the catalog.
+When the adjustment is non-zero, emit:
 
-## Exact Regression Assertions
+```ts
+{
+  id: "urgency_cap",
+  delta: appliedUrgency - rawUrgency,
+  direction: "negative",
+  evidence: {
+    rawScore: rawUrgency,
+    adjustedScore: appliedUrgency,
+    maxScore: tuning.maxUrgencyScore,
+  },
+}
+```
 
-Tests should use exact assertions where output is deterministic.
+Do not modify the raw urgency component deltas. Their original values remain the evidence for why the cap was needed.
 
-For every curated scenario, assert:
+### Context Cap
 
-- Import succeeds through `loadCuratedScenario`.
-- Normalized metadata ID equals the catalog ID.
-- Schema version, settings, user-team identity, applied-pick count, drafted count, current pick, and assigned player order are exact.
-- Draft invariants pass with the derived available rankings.
-- Repeated loads return deeply equal results but distinct scenario, draft, and recommendation array references.
+After applying the urgency cap, define:
 
-For `early-non-default-pressure`, additionally assert:
+```text
+raw context = roster_fit + applied urgency + value_opportunity
+applied context = clamp(raw context, min context, max context)
+context adjustment = applied context - raw context
+```
 
-- Exact dynamic team count and rounds.
-- Exact user-team pick identities at the target.
-- Exact available-player identities relevant to the regression.
-- Exact primary recommendation player ID, total score, and returned position.
-- Exact relevant component deltas for `roster_fit`, `positional_run`, and either `tier_cliff` or `positional_scarcity`.
-- Exact score-backed reason IDs/text only where the current engine emits them deterministically.
+When the adjustment is non-zero, emit:
 
-For `completed-draft`, additionally assert:
+```ts
+{
+  id: "context_cap",
+  delta: appliedContext - rawContext,
+  direction: delta > 0 ? "positive" : "negative",
+  evidence: {
+    rawScore: rawContext,
+    adjustedScore: appliedContext,
+    minScore: tuning.maxNegativeContextScore,
+    maxScore: tuning.maxPositiveContextScore,
+  },
+}
+```
 
-- Applied pick count equals configured capacity.
-- Every generated pick has a player ID.
-- Assigned player IDs remain unique and in expected order.
-- Available rankings and recommendations are empty.
+A positive adjustment is expected when a negative raw context is raised to the configured minimum; it is still a cap/floor reconciliation adjustment rather than a strategic bonus.
 
-If the proposed early fixture does not naturally produce the intended current-engine components, adjust only its settings, rankings, tiers, or history. Do not modify recommendation production code in this slice.
+### Ordering and Reconciliation
+
+Store adjustments in applied calculation order:
+
+1. `urgency_cap`, when present.
+2. `context_cap`, when present.
+
+For every recommendation:
+
+```text
+sum(recommendation.components[].delta)
++ sum(recommendation.scoreAdjustments[].delta)
+= recommendation.totalScore
+```
+
+Use tolerance only for unavoidable floating-point comparison in tests. Do not round engine values or change score calculation order to make display arithmetic prettier.
+
+Reasons continue to be selected from raw scoring components exactly as today. Adjustments do not generate reasons in this slice, and existing reason content/order must remain unchanged.
+
+## Read-Only Debugger
+
+Update `src/components/RecommendationsPanel.tsx` rather than adding DraftRoom state or a separate route.
+
+For each recommendation card, retain the existing rank badge, player identity, score, reasons, and Draft button. Add a native `<details>` block below the existing reason chips with summary text `Score details`.
+
+The expanded content should display engine-owned values only.
+
+### Ordering and Ranking Context
+
+- `Returned #<index + 1>` from the existing mapped array position.
+- Player ID.
+- Overall rank.
+- Position rank.
+
+The returned position is display-only. Do not sort a copied array or reproduce `comparePlayerRecommendations`.
+
+### Score Summary
+
+- Final total from `totalScore`.
+- Base value from `baseScore`.
+- Applied context subtotal from `contextScore`.
+
+Use consistent numeric formatting, preferably two decimal places in diagnostics. Keep the existing one-decimal summary score unchanged.
+
+### Raw Components
+
+Render every `components` entry in its engine-provided order with:
+
+- Component ID.
+- Signed raw delta.
+- Direction.
+- Evidence as compact key/value rows when present.
+
+Do not hide zero or negative components. Negative roster/timing/value components are the current penalty representation and must remain inspectable.
+
+Formatting evidence keys and primitive values is allowed. Do not interpret evidence into new strategic claims.
+
+### Cap Adjustments
+
+- Render every `scoreAdjustments` entry in engine order with ID, signed delta, direction, raw score, adjusted score, and configured bound evidence.
+- When the array is empty, render `No cap adjustments.`.
+- Label this section `Cap adjustments` so it cannot be confused with scoring factors.
+
+### Score-Backed Reasons
+
+- Render the existing `reasons` array in its engine order.
+- Show reason ID, source component ID, and exact reason text.
+- When there are no reasons, render `No score-backed reasons.`.
+
+Do not create debugger-only explanations or modify reason text.
+
+## Presentation Constraints
+
+- Use semantic HTML (`details`, `summary`, lists, definition-style labels) and existing Tailwind utilities.
+- Keep the debugger visually subordinate to the existing recommendation and Draft action.
+- Keep it read-only: no inputs, sliders, toggles that change values, or mutation callbacks.
+- A native disclosure is sufficient; do not add component state or a dependency.
+- Add small local formatting helpers only for signed numeric display and evidence primitive rendering.
+- Formatting helpers must not sum scores, infer caps, or calculate rank/order.
 
 ## Testing Strategy
 
-Add `src/lib/curatedScenarios.test.ts`.
+### Engine Tests
 
-### Required Test Cases
+Extend `src/lib/recommendations.test.ts`.
 
-1. Catalog IDs are stable, unique, and match normalized scenario metadata IDs.
-2. Every catalog entry passes the same import/validation/replay path as external JSON.
-3. Every curated scenario replays deterministically on repeated load.
-4. Repeated results are fresh values rather than cached shared state.
-5. Every reconstructed draft satisfies existing invariants.
-6. The early scenario has exact non-default settings, target draft state, availability, and recommendation order.
-7. The early scenario proves non-zero roster need, observed-run pressure, and tier/scarcity pressure through structured component output.
-8. The completed scenario has exact capacity, complete assignments, no availability, and no recommendations.
-9. Raw JSON documents contain no authoritative derived fields such as rosters, availability, current pick, completion, or recommendations.
-10. Every JSON document remains inside the fixed safety limits through normal validation.
+Required cases:
 
-Prefer a parameterized base test over duplicated assertions. Keep scenario-specific expectations in small named blocks so engine regressions are easy to diagnose.
+1. An uncapped recommendation returns `scoreAdjustments: []`.
+2. An urgency-capped recommendation exposes exact raw, adjusted, max, and negative delta values.
+3. A positive context cap exposes the correct negative adjustment and bounds.
+4. A negative context floor exposes the correct positive adjustment and bounds.
+5. A case where both urgency and context caps apply emits both adjustments in calculation order.
+6. For capped and uncapped recommendations, component delta sum plus adjustment delta sum equals final total within floating-point tolerance.
+7. Existing `totalScore`, `baseScore`, `contextScore`, component values, recommendation order, and reasons remain unchanged.
+
+Use the existing cap-oriented fixtures and tuning overrides near the current context/urgency tests rather than creating a parallel test harness.
+
+### Component Tests
+
+Add `src/components/RecommendationsPanel.test.tsx` using the existing `renderToStaticMarkup` strategy.
+
+Build a small `PlayerRecommendation[]` fixture containing:
+
+- At least one positive component.
+- At least one negative component/penalty.
+- An urgency-cap adjustment.
+- A context-cap adjustment.
+- A score-backed reason.
+
+Assert that markup includes:
+
+- Recommendations in supplied order and returned positions.
+- Existing visible summary scores and reason text.
+- `Score details`, player/ranking values, total/base/context values.
+- Raw positive and negative deltas.
+- Both cap IDs and their evidence values.
+- Exact reason ID, source component ID, and text.
+- Draft buttons retain existing enabled/disabled behavior.
+- No-cap and no-reason fallback text in a second fixture/state.
+
+Static rendering does not need to simulate expanding `<details>`; its child markup is rendered and directly assertable.
+
+Existing `DraftRoom.test.tsx` already proves the loaded persisted workspace preserves engine ordering, displayed score, and reasons. Do not modify it unless the required `PlayerRecommendation` type addition creates a direct compile failure there.
 
 ## Implementation Steps
 
-1. Author `src/data/scenarios/early-non-default-pressure.json` as a canonical valid Scenario V1 document whose existing recommendation output demonstrates the combined early pressure case.
-2. Author `src/data/scenarios/completed-draft.json` as a canonical valid completed scenario.
-3. Add `src/lib/curatedScenarios.ts` with stable IDs, raw JSON strings, and public import-based loading.
-4. Add `src/lib/curatedScenarios.test.ts` with parameterized public-path checks, exact state/invariant assertions, exact early recommendation evidence, completion checks, and determinism/freshness coverage.
-5. Run focused curated, portability, validation, replay, workflow, scenario-recommendation, and recommendation tests, then the full suite, lint, and TypeScript validation.
-6. If all acceptance criteria and validation pass, check only Phase 4 Task 8 complete in `docs/tasks.md`. Do not begin Task 9.
+1. Add `RecommendationScoreAdjustment` types and required `scoreAdjustments` output to `src/types/draft.ts`.
+2. Update `generatePlayerRecommendations` to calculate and emit non-zero urgency/context adjustments without changing totals, components, reasons, or sorting.
+3. Extend `src/lib/recommendations.test.ts` with adjustment, reconciliation, and unchanged-output coverage.
+4. Extend `src/components/RecommendationsPanel.tsx` with the native read-only diagnostics disclosure while preserving existing cards and actions.
+5. Add `src/components/RecommendationsPanel.test.tsx` for ordering, positive/negative values, caps, evidence, reasons, fallbacks, and button states.
+6. Run focused engine, scenario, curated, panel, and DraftRoom tests, then the full suite, lint, and TypeScript validation.
+7. If all acceptance criteria and validation pass, check only Phase 4 Task 9 complete in `docs/tasks.md`. Do not begin Task 10.
 
 ## Expected Files
 
-- `src/data/scenarios/early-non-default-pressure.json`
-- `src/data/scenarios/completed-draft.json`
-- `src/lib/curatedScenarios.ts`
-- `src/lib/curatedScenarios.test.ts`
-- `docs/tasks.md` only to mark Phase 4 Task 8 complete after validation passes
+- `src/types/draft.ts`
+- `src/lib/recommendations.ts`
+- `src/lib/recommendations.test.ts`
+- `src/components/RecommendationsPanel.tsx`
+- `src/components/RecommendationsPanel.test.tsx`
+- `docs/tasks.md` only to mark Phase 4 Task 9 complete after validation passes
 
-This five-file blast radius is intentional: two representative documents cover all required scenario categories without a broad fixture collection.
+Five production/test files plus the completion checkbox are expected. No DraftRoom production change is needed because it already passes current manual and hydrated recommendations into the panel.
 
-Do not modify the Scenario V1 contract, serializer, validator, portability layer, replay coordinator, Draft State Engine, Recommendation Engine, domain types, repository, Prisma, actions, or UI. If an existing public boundary cannot load a correctly authored curated document, stop and report the exact conflict rather than adding a privileged path.
+Do not modify scenario contracts/data, replay, portability, persistence, actions, Prisma, or other Draft Room components. If the existing panel cannot display the engine-owned output without calculating domain values, stop and report the missing structured field rather than duplicating logic in the UI.
 
 ## Automated Validation
 
 Run from the repository root in this order:
 
 ```text
-npm test -- src/lib/curatedScenarios.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioReplay.test.ts src/lib/draftWorkflow.test.ts src/lib/recommendations.scenario.test.ts src/lib/recommendations.test.ts
+npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/curatedScenarios.test.ts src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx
 npm test
 npm run lint
 npx tsc --noEmit
@@ -242,50 +297,49 @@ npx tsc --noEmit
 
 Expected result:
 
-- Focused curated and supporting scenario/recommendation regression tests pass.
+- Focused engine, scenario, curated, panel, and DraftRoom tests pass.
 - The full Vitest suite passes.
 - ESLint exits successfully with no errors or warnings.
 - TypeScript no-emit validation exits successfully.
 - No dependency or lockfile change is introduced.
 
-No browser or database manual QA is required because this slice adds version-controlled data and a pure loader without UI or persistence integration. Automated public-path loading and exact regression assertions are the acceptance evidence.
+No browser or database manual QA is required because the debugger uses server-renderable semantic markup over already-tested engine output. Automated render coverage is sufficient for this read-only slice.
 
 ## Acceptance Criteria
 
-- The catalog contains exactly the two approved representative Scenario V1 documents.
-- Together they cover early baseline, roster need, tier/scarcity pressure, observed run pressure, completed state, and dynamic non-default settings.
-- Every document passes the same parser, validator, and replay coordinator as imported JSON.
-- No curated scenario receives a direct typed, hydration, or hard-coded final-state path.
-- Metadata clearly states each scenario's regression purpose.
-- Embedded rankings are self-contained, small, and sufficient for configured capacity.
-- Repeated loads produce equal deterministic draft and recommendation output with fresh values.
-- Exact draft invariants and scenario-specific recommendation behavior are asserted.
-- The early scenario proves its intended pressure behavior through existing structured engine components.
-- The completed scenario has no available players or recommendations.
-- Raw scenario data contains source inputs only and stays within fixed safety limits.
-- No recommendation behavior, persistence, ranking management, package dependency, or UI is introduced.
+- Every recommendation includes an engine-owned `scoreAdjustments` collection.
+- Uncapped recommendations expose an empty collection.
+- Urgency and positive/negative context caps expose exact non-zero reconciliation adjustments only when applied.
+- Raw components remain unchanged and visible.
+- Component deltas plus adjustment deltas reconcile to the final total.
+- Existing scores, reasons, deterministic ordering, and recommendation behavior are unchanged.
+- Every recommendation card exposes a read-only `Score details` disclosure.
+- The debugger displays returned position, player/ranking context, final/base/context scores, all raw components, negative penalties, cap adjustments, evidence, and exact reasons.
+- The UI preserves the engine array order and performs no scoring, cap, reason, or comparator logic.
+- Manual and hydrated persisted DraftRoom recommendations automatically receive the debugger.
+- Diagnostics are neither persisted nor exported.
+- No tuning controls, package dependency, route, or Draft Room redesign is introduced.
 - Focused tests, the full suite, lint, and TypeScript validation pass.
-- Only Phase 4 Task 8 is checked complete after implementation validation.
-- Task 9 is not started.
+- Only Phase 4 Task 9 is checked complete after implementation validation.
+- Task 10 is not started.
 
 ## Failure Handling
 
-- If raw JSON import typing requires a local `unknown` annotation, keep it in the catalog; do not cast the document to `ScenarioV1`.
-- If a curated file fails validation, correct the file's settings, identities, rankings, assertions, history, or target; do not bypass or weaken validation.
-- If replay fails, correct the authored ordered inputs; do not hydrate picks directly.
-- If the early fixture does not produce the intended components, tune only fixture inputs and retain existing Recommendation Engine behavior.
-- If an exact recommendation assertion reveals an unrelated engine defect, report it without changing the engine in this slice.
+- If raw components and adjustments do not reconcile, fix adjustment calculation in the Recommendation Engine; do not patch totals in the UI.
+- If adding `scoreAdjustments` changes order, reasons, or totals, stop and correct the engine refactor before proceeding.
+- If a diagnostic value is unavailable, add only the smallest engine-owned structured field justified by the acceptance criteria; do not infer it from React state.
+- If static markup cannot cover interactive disclosure toggling, assert its semantic markup and read-only contents; do not add a browser test dependency.
 - If automated validation exposes an unrelated failure, report it without expanding scope.
 
 ## Follow-Up Slice
 
-After this slice is implemented and reviewed, plan Phase 4 Task 9: Add Recommendation Diagnostics and Debugger. Do not begin it automatically.
+After this slice is implemented and reviewed, plan Phase 4 Task 10: Add Transient Scenario Session, Reset, Restart, and Dirty-State Behavior. Do not begin it automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. Two complementary files cover all required representative cases without creating a fixture warehouse.
-- Concrete enough for implementation: yes. File purposes, public loading flow, catalog API, exact assertions, tests, and failure handling are explicit.
-- Avoids unnecessary architecture changes: yes. Static JSON flows through completed public portability boundaries with only a tiny catalog.
-- Blast radius reasonable: yes. Two data files, one loader, one test, and the completion checkbox total five files.
-- Review/revert comfort: yes. The slice is additive, local, deterministic, and has no runtime UI or persistence integration.
-- Observable/testable acceptance criteria: yes. Public-path success, exact state, structured recommendation evidence, completion, invariants, and repeatability are directly asserted.
+- Smallest meaningful increment: yes. One engine diagnostic collection closes arithmetic gaps, and one native disclosure makes it usable without workbench orchestration.
+- Concrete enough for implementation: yes. Types, formulas, ordering, evidence, UI fields, tests, files, and commands are explicit.
+- Avoids unnecessary architecture changes: yes. It extends existing derived output and existing recommendation cards without new state or routes.
+- Blast radius reasonable: yes. Two engine/type files, two focused tests, and one existing component are changed/added; the task checkbox is documentation-only completion tracking.
+- Review/revert comfort: yes. The scoring path remains behaviorally identical and the UI addition is isolated and read-only.
+- Observable/testable acceptance criteria: yes. Exact adjustment evidence, reconciliation, unchanged ordering/reasons, and rendered diagnostics are directly asserted.
