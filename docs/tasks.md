@@ -359,7 +359,7 @@ Convert typed manual, persisted, and transient workspaces into portable scenario
 
 ## Task 8 - Add the Curated Scenario Library
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

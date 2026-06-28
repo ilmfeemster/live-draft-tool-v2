@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "metadata": {
+    "id": "completed-draft",
+    "name": "Completed Draft",
+    "description": "Minimal completed two-team draft used to verify final-state replay and empty recommendations.",
+    "tags": ["completed", "final-state", "regression"]
+  },
+  "leagueSettings": {
+    "teamCount": 2,
+    "rounds": 2,
+    "draftType": "SNAKE",
+    "scoringFormat": "PPR",
+    "rosterSlots": [
+      { "id": "qb-1", "label": "QB", "eligiblePositions": ["QB"] },
+      {
+        "id": "bench-1",
+        "label": "BENCH",
+        "eligiblePositions": ["QB", "RB", "WR", "TE", "DST", "K"]
+      }
+    ]
+  },
+  "draftConfiguration": {
+    "teams": [
+      { "id": "team-1", "name": "Team 1", "draftPosition": 1 },
+      { "id": "team-2", "name": "Team 2", "draftPosition": 2 }
+    ]
+  },
+  "rankingContext": {
+    "rankings": [
+      { "player": { "id": "complete-qb-1", "name": "Complete QB 1", "team": "TST", "position": "QB" }, "overallRank": 1, "adpRank": null, "positionRank": 1, "tier": 1 },
+      { "player": { "id": "complete-rb", "name": "Complete RB", "team": "TST", "position": "RB" }, "overallRank": 2, "adpRank": null, "positionRank": 1, "tier": 1 },
+      { "player": { "id": "complete-wr", "name": "Complete WR", "team": "TST", "position": "WR" }, "overallRank": 3, "adpRank": null, "positionRank": 1, "tier": 1 },
+      { "player": { "id": "complete-qb-2", "name": "Complete QB 2", "team": "TST", "position": "QB" }, "overallRank": 4, "adpRank": null, "positionRank": 2, "tier": 2 }
+    ]
+  },
+  "userTeamContext": { "userTeamId": "team-2" },
+  "pickHistory": [
+    { "playerId": "complete-qb-1", "expectedPickNumber": 1, "expectedTeamId": "team-1" },
+    { "playerId": "complete-rb", "expectedPickNumber": 2, "expectedTeamId": "team-2" },
+    { "playerId": "complete-wr", "expectedPickNumber": 3, "expectedTeamId": "team-2" },
+    { "playerId": "complete-qb-2", "expectedPickNumber": 4, "expectedTeamId": "team-1" }
+  ],
+  "replayTarget": { "appliedPickCount": 4 }
+}
