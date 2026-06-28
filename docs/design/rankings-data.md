@@ -92,6 +92,7 @@ It contains:
 - A non-empty display name.
 - Source provenance describing whether it was seeded, imported from a supported external format, imported from the canonical format, or created locally.
 - An ordered collection of canonical ranking entries.
+- Field-capability metadata describing which values came from the source, were derived, or received a documented neutral fallback.
 - Creation and last-update metadata for display and lifecycle control.
 
 The ranking-set identity is local persistence identity, not a portable or provider identity. Importing an exported set creates a new local identity unless the user explicitly chooses a replace workflow. Ranking-set names should be unique case-insensitively within the single-user repository so selection is unambiguous.
@@ -106,16 +107,39 @@ The existing `RankingEntry` remains the canonical engine-facing value. A ranking
 | --- | --- | --- |
 | Player identity | Opaque identity used by picks, availability, and recommendations | Non-empty and unique within the set or snapshot |
 | Player name | Display name | Non-empty after normalization |
-| Team | Current normalized team label | Non-empty supported label; not used as identity by the engines |
+| Team | Current normalized team label | Supported label or the canonical unknown-team value; not used as identity by the engines |
 | Position | Fantasy position | One of the positions already supported by the domain |
 | Overall rank | Canonical total order | Positive, unique, and contiguous from 1 through the set size |
 | Position rank | Order within a position | Derived from canonical overall order and contiguous within each position |
-| Tier | Position-local grouping used by recommendation logic | Positive integer and non-decreasing within a position when ordered by overall rank; gaps are preserved |
+| Tier | Position-local grouping used by recommendation logic | Positive integer and non-decreasing within a position; source gaps are preserved, while missing tier data receives a neutral per-position fallback |
 | ADP rank | Optional comparison input | Positive finite value or null; uniqueness is not required |
 
 Tier numbers are position-local. A tier number for a quarterback is not compared with the same number for a running back. Gaps are meaningful because the current Recommendation Engine interprets a larger gap as a larger tier cliff.
 
 Overall and position ranks are canonical ordinal values, not raw source row numbers. A format adapter may accept source ranks with gaps, but normalization must produce an unambiguous source order and domain conversion must assign canonical contiguous ranks. Ambiguous ties are validation errors rather than being broken by file order.
+
+### Field Capability and Fallback Policy
+
+External files are not required to have the same columns as the seed source. Each supported adapter maps its source fields into canonical semantics, and the shared normalization boundary applies the following policy.
+
+| Canonical semantic | Source requirement | Normalization or fallback | Recorded capability | Feature behavior | Import failure |
+| --- | --- | --- | --- | --- | --- |
+| Ranking-set name | Required from import intent or portable metadata | Use the explicit user/import name; never infer authority from a local file path | `provided` | Used only for management and selection | Missing or conflicting name |
+| Player name | Required | Trim and normalize documented text form | `provided` | Display and source-local identity input remain available | Missing or empty value |
+| Position | Required | Map documented aliases to a supported canonical position | `provided` | Position-dependent draft and recommendation behavior remains enabled | Missing, ambiguous, or unsupported position |
+| Team | Optional | Map documented aliases; use the canonical unknown-team value when absent | `complete`, `partial`, or `none` | Team display may show unknown; current scoring remains unchanged | A supplied team value is malformed or ambiguous under the format profile |
+| Player identity | Optional in external formats; required canonically | Preserve a valid explicit ID, otherwise generate a deterministic source-local ID from stable normalized fields that exclude mutable team assignment | `provided`, `generated`, or `mixed` | Picks and replay use the resulting snapshot-local identity | Generated or supplied identities collide within the set |
+| Overall order | Required semantically | Use a unique explicit source rank when available; otherwise use documented row order; assign contiguous canonical ranks during domain conversion | `explicit` or `row-derived` | Base ranking value and deterministic ordering remain enabled | No unambiguous total order or tied explicit ranks |
+| Position rank | Optional | Always derive from canonical overall order; a supplied value may be checked diagnostically but is not authoritative | `derived` | Position ordering remains enabled | Canonical derivation cannot be completed because position or overall order is invalid |
+| Tier | Optional by position | Preserve complete valid source tiers for a position. If tiers are absent or partially absent for a position, assign every player at that position one neutral tier and emit a warning | Per position: `source` or `defaulted-neutral` | Tier-cliff scoring is naturally disabled for defaulted positions because no next tier exists | A supplied non-empty tier is malformed, contradictory, or decreases within its position |
+| ADP rank | Optional per entry | Normalize a valid value; otherwise store `null` and report partial or absent availability | `complete`, `partial`, or `none` | Any ADP-dependent behavior must no-op for entries with `null`; current non-ADP behavior is unchanged | A supplied non-empty ADP value is malformed |
+| Unsupported extra fields | Not required | Ignore through an adapter-owned allowlist and emit a warning when useful | Not represented | No feature is enabled merely because a source contains extra data | Only when the extra data makes the supported profile ambiguous or unsafe to parse |
+
+Fallbacks are part of the domain import policy, not UI behavior. They must be deterministic, visible in diagnostics, and materialized in canonical ranking entries before persistence. The UI may explain a disabled or degraded capability, but it must not choose fallback values or independently enable recommendation features.
+
+Field-capability metadata is computed from normalized source data and validated against the materialized entries. Canonical Ranking Set JSON preserves it for portability. In Phase 5 it is descriptive: recommendation behavior remains fully determined by canonical entry values such as neutral tiers and nullable ADP. A future feature must not make capability metadata independently affect scoring until Recommendation Engine input, snapshot, and scenario versioning explicitly support that behavior.
+
+The fallback policy distinguishes absence from corruption. Missing optional data can degrade safely. A present but malformed or contradictory value fails import rather than being silently discarded.
 
 ### Player Identity
 
@@ -124,6 +148,19 @@ Phase 5 does not introduce a global player catalog. The canonical `Player` value
 Canonical imports preserve explicit player identities. An external adapter that does not supply identities may generate deterministic, opaque identities from its normalized player fields. Such identities are guaranteed only within the resulting ranking set and its snapshots. If normalized input would produce a collision, import fails and requires corrected source data.
 
 This supports draft state, replay, and deterministic recommendations without pretending to solve cross-provider player matching. Cross-set comparison, merge, and automatic reconciliation remain future work.
+
+### Live Integration and Future Global Player Identity
+
+Source-local identity is bounded technical debt rather than a blocker for live integration. Every draft and scenario carries a complete ranking snapshot, so a Phase 7 provider adapter can map provider player IDs to the identities inside that selected snapshot without changing either engine.
+
+If Phase 7 introduces a canonical or global player catalog:
+
+- New and mutable ranking sets may attach or migrate to canonical player identities through an explicit mapping boundary.
+- Provider identifiers remain aliases owned by provider integration rather than fields interpreted by the Draft State Engine.
+- Historical snapshots and Scenario V1 files keep their original self-contained identities and are not rewritten.
+- Unresolved or ambiguous provider mappings fail clearly and retain the existing manual-entry fallback.
+
+Global player identity can improve player matching, team updates, and provider aliases. It must not own ranking-relative facts such as overall rank, position rank, ADP, or tier. Tier defaults remain a ranking-set normalization policy because the same player can legitimately belong to different tiers in different ranking sources.
 
 ### Source Provenance
 
@@ -157,7 +194,7 @@ A snapshot is not a revision of a ranking set and cannot be edited, refreshed, o
 Phase 5 should begin with two explicit format profiles:
 
 1. **FantasyPros CSV profile:** the external import profile corresponding to the CSV source already used to generate the seed rankings. Its accepted headers, required values, encoding, and tier semantics must be documented and fixture-backed.
-2. **Canonical Ranking Set JSON V1:** the application's lossless, versioned import/export contract. It carries ranking-set metadata and every domain-relevant ranking entry value.
+2. **Canonical Ranking Set JSON V1:** the application's lossless, versioned import/export contract. It carries ranking-set metadata, field-capability metadata, and every domain-relevant ranking entry value.
 
 The canonical JSON format is the Phase 5 export format. Re-exporting a source-specific CSV is not required because source formats may omit internal identity or other domain-relevant information.
 
@@ -209,9 +246,10 @@ It may:
 - Convert supported numeric representations.
 - Establish an unambiguous source order.
 - Produce deterministic source-local player identities when the format lacks explicit identities.
+- Apply only the explicit field fallbacks defined by the capability matrix and record their capability state.
 - Carry source locations forward for error reporting.
 
-Normalization may apply only policies documented for that format. It must not silently infer missing tiers, resolve ambiguous players, or invent ranks when source ordering is ambiguous.
+Normalization may apply only policies documented for that format and in the shared fallback matrix. It must not silently resolve ambiguous players, invent rank order, or turn malformed supplied values into fallbacks. Missing tier data may use the documented neutral fallback; malformed or contradictory tier data may not.
 
 ### 4. Validation
 
@@ -226,6 +264,7 @@ Validation covers:
 - Unique and unambiguous overall ordering.
 - Valid ADP values.
 - Valid, position-local tier progression.
+- Capability states consistent with source availability and materialized fallback values.
 - Cross-record consistency.
 
 Ranking-set validity is separate from draft compatibility. A set may be valid but too small for a particular league configuration. Draft creation performs the compatibility check using the selected league settings and ranking count.
@@ -239,7 +278,7 @@ Domain conversion accepts only a validated candidate. It:
 - Assigns the local ranking-set identity for a create workflow or preserves it for an explicit replacement workflow.
 - Assigns canonical contiguous overall and position ranks.
 - Removes parser locations and source-only fields.
-- Produces canonical ranking entries and ranking-set provenance.
+- Produces canonical ranking entries, field-capability metadata, and ranking-set provenance.
 - Returns a complete valid ranking-set aggregate.
 
 No parser-specific record may cross this boundary.
@@ -272,6 +311,7 @@ The export mapper produces Canonical Ranking Set JSON V1 with:
 
 - Schema version.
 - Portable display metadata and source description.
+- Field-capability metadata and documented fallback provenance.
 - Canonical entry order.
 - Explicit player identities.
 - All ranking values used by the engines.
@@ -357,13 +397,14 @@ Required behavior:
 
 - Each persisted draft receives its own snapshot value at creation.
 - Snapshot entries are complete and do not require the source set to exist.
+- Snapshot metadata copies field-capability states so degraded source quality remains inspectable even after the source set is deleted.
 - Snapshot values never follow later source edits.
 - Snapshot values are never rewritten to adopt new defaults or current player metadata.
 - Recommendation output is recomputed from the snapshot and draft state; it is not stored in the snapshot.
 - Snapshot readers return new domain values rather than mutable persistence objects.
 - Snapshot ordering and identities remain stable for the lifetime of the draft.
 
-The current Phase 2 ranking snapshot array remains a valid legacy representation. Phase 5 does not require rewriting old snapshots. If the canonical ranking entry shape changes in a future phase, version-aware snapshot parsing and explicit migration policy must be designed then; readers must not silently reinterpret historical data.
+The current Phase 2 ranking snapshot array remains a valid legacy representation. Existing snapshots without field-capability metadata are treated as legacy canonical inputs, and their recommendation behavior continues to be derived from their stored entry values. Phase 5 does not require rewriting old snapshots. If the canonical ranking entry shape changes in a future phase, version-aware snapshot parsing and explicit migration policy must be designed then; readers must not silently reinterpret historical data.
 
 ---
 
@@ -398,7 +439,7 @@ Scenario V1 already embeds a complete ranking context and replays picks through 
 - Importing a scenario does not automatically create a mutable ranking set.
 - Starting a persisted draft from scenario rankings, if exposed later, creates a new draft snapshot from the validated scenario values rather than linking to scenario or ranking-set storage.
 
-The canonical `RankingEntry` shape is the compatibility seam. Phase 5 additions to ranking-set metadata must not require a Scenario V1 change. Any future entry-shape change must preserve Scenario V1 readers or introduce an explicit new scenario version.
+The canonical `RankingEntry` shape is the compatibility seam. Phase 5 fallbacks are materialized as canonical values, so a neutral tier or nullable ADP reproduces the same behavior even when Scenario V1 does not carry ranking-set capability metadata. Phase 5 additions to ranking-set metadata must not require a Scenario V1 change or independently alter scoring. Any future feature that makes capability metadata affect engine output must preserve existing readers or introduce explicit snapshot and scenario versioning first.
 
 ---
 
@@ -408,7 +449,7 @@ Mutable ranking sets and immutable snapshots have different storage needs.
 
 ### Mutable Ranking Sets
 
-Mutable ranking sets should be persisted as first-class set metadata plus individually addressable ranking entries behind the repository boundary. This is the normalization deferred by the Phase 2 snapshot decision and is justified now by set listing, replacement, tier management, validation constraints, and multiple-set isolation.
+Mutable ranking sets should be persisted as first-class set metadata, field-capability metadata, and individually addressable ranking entries behind the repository boundary. This is the normalization deferred by the Phase 2 snapshot decision and is justified now by set listing, replacement, tier management, validation constraints, and multiple-set isolation.
 
 The architecture does not require a separately normalized global player catalog. Player values may be duplicated across ranking sets because Phase 5 does not reconcile players across sources.
 
@@ -416,7 +457,7 @@ Complete set replacement should be transactional. Repository reads reconstruct a
 
 ### Immutable Snapshots
 
-Draft ranking snapshots remain whole serialized values because they are written once and loaded as a complete draft input. They are not queried, filtered, or edited independently.
+Draft ranking snapshots remain whole serialized values because they are written once and loaded as a complete draft input. New snapshots may carry copied field-capability metadata for inspection, but canonical entry values remain the authoritative Recommendation Engine input. Snapshots are not queried, filtered, or edited independently.
 
 This hybrid strategy deliberately uses normalized persistence for mutable authoring data and serialized persistence for immutable historical values.
 
@@ -441,6 +482,7 @@ Phase 5 does not persist:
 | Format choice and import intent | UI / application boundary |
 | Source grammar and source field locations | Format adapter |
 | Source aliases and documented source conversions | Format normalizer |
+| Missing-field fallback and capability classification | Shared normalization and domain validation |
 | Ranking-set and entry invariants | Domain validation |
 | Canonical rank and position-rank assignment | Domain conversion |
 | Tier edit rules and whole-set validity | Domain layer |
@@ -449,7 +491,7 @@ Phase 5 does not persist:
 | Ranking-set storage and mapping | Ranking set repository |
 | Draft and snapshot atomic persistence | Draft repository |
 | Pick progression and draft invariants | Draft State Engine |
-| Recommendation scoring and reasons | Recommendation Engine |
+| Recommendation scoring, neutral fallback behavior, and reasons | Recommendation Engine from canonical snapshot values |
 
 The UI may collect a user's desired edits, but it cannot declare data valid, calculate canonical ranks independently, or mutate a snapshot. It displays domain results and diagnostics.
 
@@ -469,7 +511,7 @@ Adapters share domain validation and conversion. They do not receive repositorie
 
 A small explicit adapter selection table is sufficient. Phase 5 should not add runtime plugin discovery, dependency injection infrastructure, generic user-configurable column mapping, or a provider SDK. If several real adapters later reveal repeated behavior, shared parser utilities may be extracted from demonstrated duplication.
 
-New optional ranking attributes may be added only when the canonical domain and snapshot compatibility policy define how engines, exports, old snapshots, and scenarios treat absence. External-source fields should not be added to the domain merely because one format provides them.
+New optional ranking attributes may be added only when the field-capability matrix and snapshot compatibility policy define how engines, exports, old snapshots, and scenarios treat absence. Every new semantic field must be classified as required, safely derivable, neutralizable, or unsupported before an adapter exposes it. External-source fields should not be added to the domain merely because one format provides them.
 
 ---
 
@@ -481,6 +523,7 @@ New optional ranking attributes may be added only when the canonical domain and 
 - Valid, malformed, empty, oversized, and unsupported-version documents.
 - Header and alias normalization defined by the format profile.
 - Numeric, null, team, position, and tier normalization.
+- Missing optional columns, capability classification, warning diagnostics, and neutral fallbacks.
 - Stable row and field locations in diagnostics.
 - Deterministic generated player identities and collision rejection.
 
@@ -490,6 +533,8 @@ New optional ranking attributes may be added only when the canonical domain and 
 - Canonical contiguous overall and position ranks.
 - Supported positions and valid optional ADP.
 - Position-local tier progression with meaningful gaps preserved.
+- Neutral one-tier fallback for positions without complete source tiers.
+- Unknown-team and nullable-ADP behavior without fabricated scoring signal.
 - Multiple independent errors returned when safe.
 - League compatibility validated separately from ranking-set validity.
 - Domain conversion does not mutate parsed or normalized input.
@@ -513,10 +558,12 @@ New optional ranking attributes may be added only when the canonical domain and 
 ### Snapshot and Draft Integration Tests
 
 - Draft creation captures the selected set exactly.
+- Draft snapshots preserve materialized fallback values and copied capability metadata.
 - Editing or deleting the source set does not change an existing draft.
 - Existing Phase 2 snapshots still load.
 - Insufficient ranking counts fail before draft creation without partial persistence.
 - Equal draft state and snapshot inputs produce equal recommendation outputs.
+- Tier-cliff output remains neutral for every position marked `defaulted-neutral`.
 - No Recommendation Engine or Draft State Engine path reads a ranking-set repository.
 
 ### Replay Regression Tests
@@ -558,6 +605,14 @@ Manual QA should cover importing the supported external format, understanding va
 
 **Tradeoff:** Each genuinely different source needs a small adapter and fixtures. That cost is preferable to supporting ambiguous arbitrary mappings.
 
+### Degrade Missing Optional Fields Explicitly
+
+**Decision:** Classify every canonical field as required, derivable, safely defaultable, or unsupported. Missing optional team, tier, and ADP data uses the documented capability matrix; malformed supplied values still fail import.
+
+**Rationale:** Ranking sources commonly expose different columns. Explicit neutral fallbacks allow reliable imports without fabricating recommendation evidence or allowing the UI to guess which features should run.
+
+**Tradeoff:** A successfully imported set may provide fewer recommendation signals than a complete source. Capability metadata and warnings must make that degradation visible, and adapters require tests for both complete and incomplete inputs.
+
 ### Keep Player Identity Source-Local
 
 **Decision:** Do not create a canonical player catalog or automatic cross-source resolver in Phase 5.
@@ -595,7 +650,9 @@ Manual QA should cover importing the supported external format, understanding va
 ## Architectural Risks
 
 - **Identity collisions:** External formats without stable IDs may contain indistinguishable normalized players. Imports must reject collisions rather than silently merge them.
-- **Tier semantic drift:** External tier values may be global while the engine treats tiers as position-local. Each adapter must document and normalize tier semantics explicitly.
+- **Tier semantic drift:** External tier values may be global while the engine treats tiers as position-local. Each adapter must document and normalize tier semantics explicitly; incomplete positions must use the neutral fallback rather than mix incompatible tier meanings.
+- **Capability drift:** Capability metadata could disagree with canonical fallback values after edits or persistence mapping. Domain validation must recompute or verify capability states on every complete replacement.
+- **False confidence from fallback data:** Neutral defaults can look like real source values. Management UI and exports must preserve and display capability provenance.
 - **Snapshot compatibility:** Future additions to `RankingEntry` could break historical drafts and Scenario V1 if absence semantics are not designed first.
 - **Boundary duplication:** Scenario validation and ranking import validation could diverge. Both should reuse canonical ranking-entry validation while keeping their document-level rules separate.
 - **Partial writes:** Set replacement and draft-plus-snapshot creation must remain transactional at repository boundaries.
@@ -608,7 +665,7 @@ Manual QA should cover importing the supported external format, understanding va
 
 No unresolved architectural question blocks task planning.
 
-Before implementation tasks are written, the initial FantasyPros CSV profile must be frozen as a concrete data contract: accepted headers, tier interpretation, null markers, maximum input size, and representative fixtures. Those are format-contract details within this design, not reasons to change the architecture.
+Before the first implementation slice is promoted, the initial FantasyPros CSV profile must be frozen as a concrete data contract: accepted headers, tier interpretation, null markers, maximum input size, and representative complete and missing-column fixtures. Those are format-contract details within this design, not reasons to change the architecture.
 
 ---
 
@@ -619,4 +676,7 @@ Before implementation tasks are written, the initial FantasyPros CSV profile mus
 - Add a dedicated ranking-set repository; do not expand the Draft State Engine or Recommendation Engine into data access.
 - Prove legacy snapshot and replay compatibility early.
 - Keep the first external adapter limited to the exact supported CSV profile.
+- Test every supported format against the field-capability matrix, including missing team, tier, ADP, ID, and position-rank columns.
+- Keep neutral fallbacks materialized in canonical entries so current Recommendation Engine and Scenario V1 behavior does not depend on new metadata.
+- Reconcile `docs/tasks.md` with this fallback policy before promoting Task 1 into `docs/current-slice.md`.
 - Do not add a player catalog, generic parser registry, background ingestion, or ranking history unless project scope changes.

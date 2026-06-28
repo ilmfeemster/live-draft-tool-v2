@@ -2,615 +2,954 @@
 
 ## Current Focus
 
-Phase 4: Developer Tools & Simulator.
+Phase 5: Rankings & Data.
 
-Phase 4 first completes configurable league creation, then adds a local development workbench around the existing Draft State Engine and Recommendation Engine. The work should let developers create and persist supported non-default drafts before making scenarios portable, deterministic, fast to replay, and easy to inspect.
+Phase 5 makes rankings first-class managed data while preserving the existing immutable snapshot boundary. Work begins with canonical domain invariants and staged import contracts, then adds format-specific parsing, normalization, validation, domain conversion, persistence, application workflows, snapshot integration, and focused UI.
 
 The source documents for this task plan are:
 
 - `docs/project.md`
-- `docs/design/phase-4-developer-tools-simulator.md`
+- `docs/design/rankings-data.md`
 - `docs/architecture.md`
+- `docs/decisions.md`
 - `docs/testing.md`
-- `docs/roadmap.md` for phase boundaries only
 
-Completed Phase 1 and Phase 2 task history remains archived in `docs/completed-tasks.md`. Phase 3 engine implementation and automated coverage are complete; its former completion task was not marked complete in the previous plan, so Phase 4 completion validation must retain full manual and persisted-workflow regression coverage rather than assume that evidence.
-
----
-
-## Phase 4 Task Ordering
-
-The tasks are ordered to complete the shared configuration path before scenario infrastructure or workbench controls:
-
-1. Define the league-setup input, supported bounds, and deterministic settings builder.
-2. Create and persist configured drafts through the existing repository boundary.
-3. Add the developer-facing draft setup workflow and prove persisted non-default use.
-4. Define the portable scenario contract and serialization boundary using those settings.
-5. Validate untrusted scenarios and enforce fixed MVP safety limits.
-6. Replay validated pick history through the existing Draft State Engine.
-7. Add typed import/export mapping and prove semantic round trips.
-8. Build the curated scenario library on the public scenario path.
-9. Make Recommendation Engine totals fully inspectable and display them read-only.
-10. Add transient scenario-session, reset, restart, and dirty-state behavior.
-11. Integrate the focused developer workbench controls.
-12. Complete cross-feature regression and Phase 4 exit validation.
-
-Do not promote multiple unrelated tasks into `docs/current-slice.md` at once.
+Phase 4 is complete. Its developer workbench, Scenario V1 contract, replay path, persisted draft behavior, and manual QA remain regression constraints throughout Phase 5.
 
 ---
 
-## Task 1 - Define League Setup and Validation
+## Phase 5 Task Ordering
 
-- [x] Complete
+Tasks are ordered so untrusted external data crosses explicit boundaries before it can become domain data or engine input:
+
+1. Define the ranking-set domain and canonical entry invariants.
+2. Define import-stage contracts, diagnostics, and the two supported format profiles.
+3. Parse FantasyPros CSV into source-shaped records.
+4. Parse Canonical Ranking Set JSON V1 into source-shaped records.
+5. Normalize parsed formats into one source-neutral candidate.
+6. Validate complete normalized candidates without creating domain objects.
+7. Convert validated candidates into canonical ranking sets.
+8. Export canonical ranking sets deterministically as JSON V1.
+9. Add pure ranking-set edit and tier-management operations.
+10. Persist, load, and list first-class ranking sets.
+11. Replace and delete ranking sets atomically.
+12. Bootstrap the existing seed rankings through the managed ranking path.
+13. Add the application import workflow.
+14. Add application ranking-management and export workflows.
+15. Formalize immutable snapshot creation from managed rankings.
+16. Integrate explicit ranking-set selection into draft creation.
+17. Add the ranking library and import/export UI.
+18. Add focused ranking and tier editing UI.
+19. Add ranking-set selection to draft setup.
+20. Complete Phase 5 regression and exit validation.
+
+Do not promote multiple unrelated tasks into `docs/current-slice.md` at once. Parser, normalization, validation, conversion, repository, and UI tasks should retain their documented boundaries when split into implementation slices.
+
+---
+
+## Task 1 - Define the Ranking Set Domain and Canonical Invariants
+
+- [ ] Complete
 
 ### Goal
 
-Create one pure, deterministic boundary that validates supported league-setup input and builds the existing `LeagueSettings` and user-team identity used by draft creation.
+Establish the pure domain model and reusable invariant checks for mutable ranking sets, canonical entries, summaries, source provenance, and immutable snapshot values.
 
 ### Scope
 
-- Define a small setup input for team count, user draft position, QB, RB, WR, TE, FLEX, DST, K, and BENCH counts, draft type, and scoring format.
-- Keep the current 12-team, 16-round, Team 1 league as the default setup input.
-- Support team counts from 2 through 20 and draft positions within the selected team count.
-- Support non-negative roster counts with at least one non-BENCH starter and 1 through 30 total slots.
-- Support only `SNAKE` and `PPR`.
-- Generate deterministic ordered roster slots with unique category/index IDs and approved eligibility.
-- Derive rounds from total roster slots and derive user-team identity from draft position.
-- Validate total draft capacity against a supplied ranking-snapshot player count.
-- Return structured validation failures suitable for server enforcement and form feedback.
+- Define a domain `RankingSet` with local identity, unique display name, source provenance, canonical entries, and lifecycle metadata.
+- Preserve the existing `RankingEntry` and `Player` shapes as the Draft State and Recommendation Engine compatibility seam.
+- Define lightweight ranking-set summaries without persistence or UI types.
+- Treat player identity as opaque and unique only within a ranking set or snapshot.
+- Define overall rank as contiguous canonical order and position rank as derived contiguous order within each position.
+- Define tiers as positive, position-local, non-decreasing values whose gaps remain meaningful.
+- Add pure invariant checks over already-canonical ranking values with structured domain failures.
+- Keep all new domain types and checks independent of Prisma, React, files, and transport formats.
 
 ### Non-Goals
 
-- Do not add a setup form or change draft creation yet.
-- Do not persist form counts as a second settings model.
-- Do not add arbitrary slot eligibility, custom positions, auction, keeper, dynasty, or alternate scoring.
-- Do not change Draft State Engine or Recommendation Engine behavior.
-- Do not add package dependencies.
+- Do not parse or normalize external input.
+- Do not add repositories or persistence models.
+- Do not generate cross-source player identity.
+- Do not change recommendation scoring.
+- Do not add ranking UI.
 
 ### Acceptance Criteria
 
-- Valid setup input produces the existing typed `LeagueSettings` and a valid user-team ID.
-- Identical input produces identical roster-slot order and IDs.
-- Rounds equal the generated roster-slot count and are not independently supplied.
-- Default input produces the current MVP league settings and Team 1 identity.
-- Non-default team count, roster construction, and draft position produce valid dynamic settings.
-- Invalid bounds, unsupported values, empty starting lineups, and insufficient ranking capacity return clear errors.
-- No draft or persistence record is created by the builder.
+- Canonical ranking sets can be represented without importing persistence, UI, or format-specific types.
+- Invariant checks reject empty sets, duplicate player IDs, invalid canonical ranks, unsupported positions, invalid ADP, and invalid tier progression.
+- Position rank is demonstrably derived from overall order rather than independently authoritative.
+- Two ranking sets may contain unrelated identities without being merged.
+- Existing Draft State, Recommendation Engine, snapshot, and scenario code continues compiling against `RankingEntry[]`.
 
 ### Suggested Tests
 
-- Unit tests for default and non-default settings generation.
-- Unit tests for every supported slot category and deterministic IDs.
-- Boundary tests for team count, draft position, roster total, and ranking capacity.
-- Unit tests rejecting non-integer counts, unsupported draft/scoring values, and bench-only rosters.
+- Unit tests for valid canonical sets and every set-wide invariant.
+- Unit tests for position-local tier progression and preserved tier gaps.
+- Unit tests for canonical overall and position rank ordering.
+- Type boundary test proving domain code has no Prisma or React dependency.
 
 ---
 
-## Task 2 - Create and Persist Configured Drafts
+## Task 2 - Define Import Contracts, Diagnostics, and Format Profiles
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Use the shared league-setup builder at the server boundary so valid configured drafts are persisted and hydrated through the existing repository architecture.
+Define the typed handoffs between import stages and freeze the supported source contracts before parser implementation.
 
 ### Scope
 
-- Accept league-setup input in configured draft creation.
-- Revalidate all setup input on the server before repository access.
-- Check draft capacity against the seed ranking snapshot used for Phase 4 creation.
-- Pass only generated `LeagueSettings`, seed rankings, and derived user-team identity into the existing repository input.
-- Preserve the current JSON settings snapshot and `userTeamId` persistence shape.
-- Return useful validation failure data without creating a draft.
-- Route automatic first-run/default creation through the same default setup builder.
-- Prove a non-default draft persists, hydrates, and resumes with identical settings and user-team identity.
+- Define distinct parsed-source, normalized-candidate, validated-candidate, and import-result contracts.
+- Define structured diagnostics with stage, stable code, severity, message, and optional document, row, or field location.
+- Define bounded transport-preflight input and failure contracts.
+- Freeze the FantasyPros CSV Profile V1 contract using the source profile already used for seed rankings.
+- Define accepted encoding, required and optional columns, null markers, supported aliases, tier interpretation, and maximum input size for that profile.
+- Define Canonical Ranking Set JSON V1 as a separate versioned format profile.
+- Keep Ranking Set JSON distinct from Scenario V1 JSON.
+- Define a small explicit supported-format identifier set without runtime plugin discovery.
 
 ### Non-Goals
 
-- Do not add a Prisma migration or normalized settings tables.
-- Do not edit settings on an existing draft or migrate existing picks.
-- Do not add a client setup form yet.
-- Do not change ranking sources or add ranking management.
-- Do not alter pick, undo, reset, or delete semantics.
+- Do not parse files yet.
+- Do not create domain ranking sets.
+- Do not build generic user-configurable column mapping.
+- Do not persist raw files or transient candidates.
+- Do not add UI.
 
 ### Acceptance Criteria
 
-- Valid configured creation writes one draft through the existing repository.
-- Invalid setup creates no draft or ranking snapshot record.
-- A persisted non-default draft hydrates the same team count, rounds, roster slots, draft type, scoring format, and user-team identity.
-- The generated draft order and teams match the configured settings.
-- Existing default creation remains behaviorally equivalent but uses the shared builder.
-- No database schema change is required.
+- Every import stage has one documented input and output contract.
+- Parsed source records cannot be passed directly to engines or repositories.
+- The FantasyPros CSV fixture contract is precise enough to implement without guessing headers or tier semantics.
+- Unsupported format and version failures have stable diagnostic categories.
+- Canonical ranking JSON and Scenario V1 cannot be confused at the type or format-selection boundary.
 
 ### Suggested Tests
 
-- Server-action test for valid configured creation.
-- Server-action test proving invalid input never calls the repository.
-- Repository round-trip test for non-default settings and draft position.
-- Loader regression test for automatic default creation.
-- Existing persistence tests should continue to pass.
+- Compile-time fixtures for stage handoffs.
+- Unit tests for transport-preflight bounds and format selection.
+- Contract fixtures for the minimum and representative FantasyPros CSV documents.
+- Contract fixtures for supported and unsupported canonical versions.
 
 ---
 
-## Task 3 - Add the Draft Setup Workflow
+## Task 3 - Parse FantasyPros CSV Source Records
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Allow a developer to create and resume any supported league configuration from the application without modifying code.
+Parse the exact FantasyPros CSV Profile V1 syntax into located source records without applying domain normalization or validation.
 
 ### Scope
 
-- Open a compact setup workflow from `Start New Draft` instead of immediately creating the fixed default.
-- Prefill the current MVP team count, roster construction, draft position, `SNAKE`, and `PPR` values.
-- Provide numeric controls for team count, draft position, and supported roster-slot counts.
-- Show `SNAKE` and `PPR` as the active supported settings without offering unsupported choices.
-- Show immediate shared-validation feedback and authoritative server failures.
-- Submit configured creation, preserve the existing draft in history, and route to the new draft.
-- Allow cancel without changing the active draft.
-- Display the hydrated configured team count, rounds, draft position, scoring format, and draft type through existing draft surfaces.
-- Confirm recommendations, picks, undo, reset, refresh, and resume consume the persisted non-default settings.
+- Accept preflight-approved text and the explicit FantasyPros CSV format identifier.
+- Parse the documented CSV grammar, including quoted values and row boundaries required by the frozen profile.
+- Identify required source columns and preserve optional supported source values.
+- Return source-shaped records with row and field locations.
+- Report malformed CSV, missing required columns, duplicate required columns, and unsupported source shape as parser diagnostics.
+- Ignore or warn about documented non-domain columns without adding them to canonical types.
+- Keep source strings unnormalized for the next stage.
 
 ### Non-Goals
 
-- Do not build an arbitrary roster-slot editor or custom eligibility UI.
-- Do not edit an existing draft's settings.
-- Do not add custom draft names, ranking selection, or saved league presets.
-- Do not redesign the Draft Room beyond the compact setup flow and necessary feedback.
-- Do not add unsupported scoring or draft formats.
+- Do not trim or canonicalize player, team, position, numeric, or tier values beyond syntax handling.
+- Do not create player IDs or ranking entries.
+- Do not validate set-wide ranking invariants.
+- Do not call repositories or engines.
+- Do not add a general CSV framework beyond the supported profile.
 
 ### Acceptance Criteria
 
-- A developer can create a valid non-default draft without source changes.
-- Invalid fields are identified and no draft is created.
-- The selected draft position maps to the correct user team.
-- Rounds derive from roster construction and are visible after creation.
-- Refresh and history resume preserve the configured settings.
-- Draft State and Recommendation Engine behavior use the hydrated configuration.
-- Existing default creation remains quick through prefilled values.
+- A valid representative FantasyPros CSV produces deterministic located source records.
+- Quoted values and supported line endings parse correctly.
+- Malformed syntax and header problems return parser-stage diagnostics.
+- Source records retain enough original location data for later normalization and validation errors.
+- No parsed record is a `RankingEntry` or `RankingSet`.
 
 ### Suggested Tests
 
-- Component tests for defaults, field validation, cancel, and successful submit.
-- Integration test for creating and routing to a non-default persisted draft.
-- Regression test for in-progress-draft confirmation and history preservation.
-- Workflow test for pick, recommendation, undo, reset, and refresh under non-default settings.
-- Focused manual QA for one non-default configuration.
+- Fixture tests for minimum and representative valid CSV files.
+- Tests for quoted commas, escaped quotes, blank lines, and supported line endings.
+- Tests for missing, duplicate, and unknown headers.
+- Tests proving source casing and raw numeric strings are preserved.
 
 ---
 
-## Task 4 - Define the Scenario V1 Contract
+## Task 4 - Parse Canonical Ranking Set JSON V1
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Create the typed, versioned, self-contained scenario contract that later Phase 4 work can validate, replay, import, and export.
+Parse Canonical Ranking Set JSON V1 into located source records without trusting it as domain data.
 
 ### Scope
 
-- Define the Phase 4 scenario v1 shape for metadata, optional informational provenance, league settings, draft configuration, embedded ranking context, user-team identity, ordered pick history, and `appliedPickCount`.
-- Reuse existing domain types where their meaning matches the scenario contract.
-- Represent optional expected pick-number and team assertions without making them authoritative draft commands.
-- Define deterministic serialization for an already-valid typed scenario.
-- Keep the contract capable of representing supported dynamic league settings.
-- Exclude rosters, availability, active pick, completion flags, recommendations, database rows, and React state from authoritative scenario data.
+- Accept preflight-approved text and the explicit canonical JSON format identifier.
+- Parse JSON syntax and reject non-object roots.
+- Validate only the format envelope needed to identify schema version, metadata, and entry locations.
+- Reject missing or unsupported schema versions clearly.
+- Preserve entry field values as parsed source data for shared normalization and validation.
+- Distinguish ranking-set JSON from Scenario V1 and other JSON documents.
+- Preserve portable player IDs as source values without yet declaring them valid.
 
 ### Non-Goals
 
-- Do not validate untrusted JSON yet.
-- Do not replay picks.
-- Do not add import/export UI.
-- Do not add database storage for scenarios.
-- Do not introduce ranking management or a generic Draft Source interface.
+- Do not bypass normalization because the file is application-owned.
+- Do not create a ranking set or reuse local repository identity automatically.
+- Do not replay scenarios.
+- Do not perform set-wide domain validation.
+- Do not persist parsed data.
 
 ### Acceptance Criteria
 
-- The contract has one explicit supported schema version.
-- A scenario embeds the ranking snapshot needed for deterministic recommendation input.
-- Metadata and provenance cannot affect reconstructed draft state or recommendation output.
-- Replay target semantics are unambiguous for zero, intermediate, and completed pick counts.
-- The contract supports a valid non-default league configuration without 12-team or 16-round assumptions.
-- Serialized scenarios contain source inputs rather than fabricated derived state.
+- Valid JSON V1 produces deterministic located source records.
+- Malformed JSON, incorrect roots, missing versions, unsupported versions, and scenario-shaped documents fail at the parser boundary.
+- Portable metadata and entry values remain available to later stages.
+- Local ranking-set identity is not accepted as authoritative import identity.
+- Parsed JSON records cannot be passed directly to repositories or engines.
 
 ### Suggested Tests
 
-- Type or compile validation for the public scenario types.
-- Unit test for deterministic serialization of a representative typed scenario.
-- Unit test that a non-default league fixture can be represented.
-- Unit test that optional provenance does not alter serialized domain inputs.
+- Unit tests for valid minimum and representative documents.
+- Tests for malformed JSON and unsupported versions.
+- Test proving Scenario V1 is rejected as ranking-set JSON.
+- Test proving explicit portable player IDs survive parsing unchanged.
 
 ---
 
-## Task 5 - Add Scenario Parsing and Validation
+## Task 5 - Normalize Supported Sources into Ranking Candidates
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Reject malformed, incompatible, unsafe, or internally inconsistent scenarios before they can reach replay or replace active state.
+Convert either supported parsed source format into one source-neutral ranking candidate without declaring it domain-valid.
 
 ### Scope
 
-- Parse untrusted scenario JSON into the v1 contract.
-- Validate required fields, supported version, metadata, settings, draft configuration, ranking entries, user-team identity, pick references, optional assertions, and replay-target bounds.
-- Reject duplicate ranking players, duplicate drafted players, invalid pick references, inconsistent team configuration, and history beyond draft capacity.
-- Reuse existing league and draft validation rules where available instead of duplicating domain logic.
-- Enforce the fixed Phase 4 limits: 1 MiB JSON, 1,000 ranking entries, 1,000 configured or historical picks, and 50 metadata tags.
-- Return clear structured failures without mutating current or persisted draft state.
+- Normalize documented whitespace, casing, team labels, position aliases, numeric representations, and null markers.
+- Establish an unambiguous source order while retaining source locations.
+- Map FantasyPros fields and canonical JSON fields into the same candidate shape.
+- Preserve explicit canonical player IDs.
+- Generate deterministic source-local player ID candidates for the CSV profile when no identity is supplied.
+- Preserve position-local tier gaps and the profile's documented tier semantics.
+- Return normalization diagnostics for values that cannot be interpreted under a documented format policy.
+- Keep normalization pure and deterministic.
 
 ### Non-Goals
 
-- Do not semantically apply the pick sequence yet.
-- Do not migrate unsupported scenario versions.
-- Do not make safety limits configurable.
-- Do not parse external ranking formats or add Phase 5 ranking features.
-- Do not add UI beyond error data needed by later work.
+- Do not enforce complete set-wide invariants.
+- Do not assign local ranking-set identity.
+- Do not persist candidates.
+- Do not resolve ambiguous players against other ranking sets.
+- Do not silently infer missing tiers or ambiguous order.
 
 ### Acceptance Criteria
 
-- Valid v1 scenarios produce typed scenario data.
-- Malformed JSON and unsupported versions fail clearly.
-- Missing ranking context, invalid user-team references, duplicate players, invalid pick assertions, and out-of-range targets fail clearly.
-- Dynamic valid league settings pass within the fixed safety limits.
-- Oversized or over-complex scenarios fail before replay.
-- Validation has no side effects on active or persisted drafts.
+- Both supported formats produce the same source-neutral candidate shape.
+- Identical source values produce identical normalized output and generated player ID candidates.
+- Unsupported aliases, ambiguous order, and identity collisions remain diagnosable rather than guessed.
+- Source locations survive normalization.
+- Normalized candidates remain distinct from canonical domain ranking sets.
 
 ### Suggested Tests
 
-- Unit tests for malformed JSON, missing fields, and unsupported versions.
-- Unit tests for duplicate players, bad references, inconsistent settings, and invalid targets.
-- Boundary tests for file size, rankings, picks, and metadata tags.
-- Unit test for a valid non-default league configuration.
+- Table tests for team, position, numeric, null, and text normalization.
+- Cross-format test showing semantically equivalent inputs produce equivalent candidates.
+- Determinism tests for generated player identity candidates.
+- Tests for ambiguous aliases, missing tiers, and unusable source order.
 
 ---
 
-## Task 6 - Add Deterministic Replay Infrastructure
+## Task 6 - Validate Complete Normalized Ranking Candidates
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Reconstruct zero-pick, intermediate, and completed draft states by applying validated scenario history through the existing Draft State Engine.
+Validate complete source-neutral candidates and return actionable diagnostics without creating domain aggregates or mutating existing data.
 
 ### Scope
 
-- Add a small replay coordinator that creates a fresh base draft from scenario settings and configuration.
-- Apply every ordered pick through the canonical pure draft transition.
-- Capture the state at `appliedPickCount` while continuing to validate the full supplied history.
-- Return the target state only after the complete history succeeds.
-- Treat rejected or no-op transitions as replay failures with the relevant pick index and reason.
-- Recompute recommendations from the reconstructed state, embedded rankings, league settings, and user-team identity.
-- Prove equivalent manual and replay inputs produce equivalent domain state and recommendation output.
-- Support immediate replay-to-target only.
+- Validate required set metadata and non-empty bounded entry collections.
+- Validate player identity candidates, names, team labels, supported positions, ranks, ADP, and tiers.
+- Reject duplicate or colliding player identities and ambiguous overall ordering.
+- Validate position-local tier progression while preserving meaningful gaps.
+- Validate cross-record consistency and all reusable canonical entry invariants that can be established before conversion.
+- Accumulate independent row-level errors where safe.
+- Return an explicit validated-candidate result that is the only accepted input to domain conversion.
+- Keep ranking-set validity separate from league-specific draft capacity.
 
 ### Non-Goals
 
-- Do not inject rosters, availability, current pick, or completion directly.
-- Do not add step controls, timing, animation, or real-time playback.
-- Do not write replay picks to persistence.
-- Do not introduce an event bus, provider adapter, or Phase 7 normalization model.
-- Do not change draft rules to accommodate invalid scenarios.
+- Do not assign local set identity or lifecycle metadata.
+- Do not assign final canonical overall or position ranks.
+- Do not call repositories.
+- Do not validate a particular league's total pick capacity.
+- Do not change active data on failure.
 
 ### Acceptance Criteria
 
-- Replay uses the existing Draft State Engine transition for every pick.
-- Zero, intermediate, and completed targets reconstruct valid domain state.
-- The entire history must validate even when the target is intermediate.
-- Repeated replay of identical input produces identical draft and recommendation output.
-- Manual and replay paths are equivalent for the same inputs.
-- A replay failure returns no partially reconstructed active state.
+- Invalid candidates cannot reach domain conversion through the typed public boundary.
+- Multiple independent semantic problems are returned in one result when safe.
+- Duplicate identities, invalid values, ambiguous order, and invalid tier progression identify relevant source locations.
+- A valid but small ranking set can pass set validation and later fail draft compatibility.
+- Validation is pure and deterministic.
 
 ### Suggested Tests
 
-- Unit tests for zero, intermediate, and completed replay targets.
-- Integration test comparing manual and replay state field by field.
-- Integration test comparing deterministic recommendation output.
-- Regression test that a late invalid pick rejects the whole scenario.
-- Replay test using a non-default league configuration.
+- Unit tests for every field and set-wide rule.
+- Tests for multiple accumulated errors and stable diagnostic ordering.
+- Tests distinguishing fatal normalization failures from validation failures.
+- Test proving league capacity is not part of ranking-set validity.
 
 ---
 
-## Task 7 - Add Portable Import and Export Round Trips
+## Task 7 - Convert Validated Candidates into Canonical Ranking Sets
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Convert typed manual, persisted, and transient workspaces into portable scenarios and reconstruct them without crossing persistence or UI boundaries.
+Create complete canonical `RankingSet` aggregates only from validated candidates.
 
 ### Scope
 
-- Add a pure domain-facing export mapper over typed workspace data.
-- Extract league settings, team configuration, user-team identity, embedded rankings, and ordered assigned picks without serializing derived state.
-- Generate safe default scenario metadata, accept a lightweight name override, and include optional informational source provenance.
-- Import through the shared parser, validator, and replay coordinator.
-- Preserve `appliedPickCount`, defaulting export to the active drafted-pick count.
-- Prove export/import semantic round trips for manual, hydrated persisted, and transient scenario states.
-- Keep import and export local and explicit.
+- Assign a new local ranking-set identity for create workflows.
+- Preserve the existing local identity only for an explicit replacement workflow.
+- Assign contiguous overall ranks from validated source order.
+- Derive contiguous position ranks from canonical overall order.
+- Remove parser locations and format-specific fields.
+- Create canonical source provenance and lifecycle metadata.
+- Recheck canonical domain invariants before returning the aggregate.
+- Guarantee that conversion does not mutate the validated candidate.
 
 ### Non-Goals
 
-- Do not query Prisma or server actions from the mapper.
-- Do not persist imported scenarios or exported recommendation output.
-- Do not require byte-for-byte equality after re-export.
-- Do not add arbitrary ranking-file import, tier editing, or ranking collections.
-- Do not add final workbench controls yet.
+- Do not persist the ranking set.
+- Do not parse, normalize, or repair invalid candidates.
+- Do not preserve portable set identity as local repository identity.
+- Do not create a draft snapshot yet.
+- Do not add UI.
 
 ### Acceptance Criteria
 
-- The mapper consumes typed workspace values rather than database records or React state.
-- Exported files contain canonical source inputs and no authoritative derived state.
-- Importing an exported scenario reproduces equivalent domain state and recommendation input.
-- Informational provenance can be removed or changed without changing replay output.
-- Exporting a hydrated persisted draft performs no persistence mutation.
-- Round trips preserve dynamic league configuration and ordered pick history.
+- Validated inputs produce complete canonical ranking sets.
+- Final overall and position ranks are contiguous and deterministic.
+- Source rank gaps do not alter canonical ordinal rank, while tier gaps remain intact.
+- Create and explicit replacement workflows have unambiguous identity behavior.
+- The output passes the canonical invariant checker and contains no parser-specific data.
 
 ### Suggested Tests
 
-- Unit test for workspace-to-scenario mapping.
-- Round-trip test for an in-memory manual workspace.
-- Round-trip test for a hydrated persisted workspace.
-- Round-trip test after transient scenario exploration.
-- Test that derived rosters, availability, and recommendations are absent from export.
+- Exact conversion tests for both source formats.
+- Tests for canonical overall and position rank assignment.
+- Tests for create versus replacement identity behavior.
+- Immutability test for validated input.
 
 ---
 
-## Task 8 - Add the Curated Scenario Library
+## Task 8 - Export Canonical Ranking Set JSON V1
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Provide a small version-controlled library of representative draft situations that uses the same contract and replay path as imported scenarios.
+Serialize a valid domain ranking set into one deterministic, lossless, versioned portable format.
 
 ### Scope
 
-- Add curated v1 scenarios for an early baseline, roster need, tier or scarcity pressure, observed run pressure, a late or completed draft, and a non-default league configuration.
-- Load curated files through the public scenario parser, validator, and replay coordinator.
-- Give each scenario concise metadata that explains the behavior it is intended to reproduce.
-- Assert stable draft state and important recommendation behavior for each curated scenario.
-- Keep the library deliberately small and regression-oriented.
+- Map domain ranking-set metadata and entries into Canonical Ranking Set JSON V1.
+- Include explicit player identities and every value used by the engines.
+- Preserve canonical entry order and tier gaps.
+- Treat local set identity as optional non-authoritative provenance, never import identity.
+- Produce deterministic serialization for identical domain values.
+- Parse, normalize, validate, and convert exported files through the public import stages in tests.
+- Exclude recommendations, drafts, league settings, raw source records, and UI state.
 
 ### Non-Goals
 
-- Do not add a special hard-coded setup path for curated scenarios.
-- Do not build user scenario collections, search infrastructure, cloud storage, or exhaustive combinatorial coverage.
-- Do not add new recommendation behavior merely to make a curated scenario interesting.
-- Do not turn the library into ranking management.
-- Do not add the final scenario-selector UI yet.
+- Do not export FantasyPros CSV.
+- Do not query persistence from the serializer.
+- Do not overwrite an existing set during import implicitly.
+- Do not export Scenario V1.
+- Do not add file-download UI.
 
 ### Acceptance Criteria
 
-- Every curated file passes the same validation as an imported file.
-- Every curated file replays deterministically through the existing Draft State Engine.
-- The library covers representative draft-state and recommendation cases without duplicating setup logic.
-- At least one scenario proves dynamic non-default settings.
-- Scenario assertions are exact where behavior is deterministic.
+- Export followed by the public import pipeline preserves all domain-relevant entry values and portable metadata.
+- Repeated serialization of the same set is deterministic.
+- The exported document is clearly distinguishable from Scenario V1.
+- Local repository identity is not reused automatically after import.
+- No recommendation or draft state is present.
 
 ### Suggested Tests
 
-- Parameterized validation and replay test for every curated scenario.
-- Exact invariant checks for reconstructed draft state.
-- Recommendation ordering, total, component, or reason checks appropriate to each scenario.
-- Repeated-replay determinism test.
+- Exact serialization test for a representative set.
+- Semantic export/import round-trip test.
+- Determinism test.
+- Test proving excluded state is absent.
 
 ---
 
-## Task 9 - Add Recommendation Diagnostics and Debugger
+## Task 9 - Add Pure Ranking Set Editing and Tier Operations
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Make Recommendation Engine scoring fully reconcilable and inspectable without moving recommendation logic into the UI.
+Provide pure domain operations for supported ranking corrections, reordering, and tier management without allowing intermediate invalid aggregates.
 
 ### Scope
 
-- Extend structured Recommendation Engine output with engine-owned urgency-cap and context-cap adjustments when they apply.
-- Ensure raw component deltas plus adjustment deltas reconcile exactly to the final total.
-- Preserve existing base score, context score, components, penalties, reasons, ranking data, and authoritative returned order.
-- Add a read-only developer debugger that displays totals, raw components, modifiers, penalties, cap adjustments, and score-backed reasons.
-- Display returned position and existing tie-break values without re-sorting recommendations in the UI.
-- Make the debugger usable for current manual and hydrated persisted drafts so the same view can later serve scenario sessions.
+- Support rename, supported player-field correction, overall reorder, tier assignment, and tier update intents.
+- Recalculate canonical overall and position ranks after ordering changes.
+- Validate the complete proposed set before returning an updated aggregate.
+- Preserve local ranking-set identity, source provenance, and creation metadata while updating lifecycle metadata.
+- Reject name, identity, position, ADP, order, and tier changes that would violate domain invariants.
+- Return structured domain failures suitable for later application and UI feedback.
+- Keep operations immutable and deterministic.
 
 ### Non-Goals
 
-- Do not calculate scores, caps, reasons, or sort order in the UI.
-- Do not add weight editing, live tuning, strategy profiles, or AI explanations.
-- Do not persist diagnostics or recommendation output.
-- Do not change scoring behavior except to expose existing applied adjustments.
-- Do not redesign the draft room.
+- Do not persist edits.
+- Do not add authoring history or undo stacks.
+- Do not merge ranking sets or reconcile players across sources.
+- Do not edit immutable snapshots.
+- Do not add UI.
 
 ### Acceptance Criteria
 
-- Every displayed recommendation total can be reconciled from engine-owned structured output.
-- Capped and uncapped examples expose the correct adjustments.
-- Negative modifiers and penalties remain visible.
-- Debugger reasons exactly match Recommendation Engine reasons.
-- The UI preserves engine ordering and adds no parallel recommendation rules.
-- Existing recommendation output remains deterministic.
+- Every successful edit returns a new complete valid ranking set.
+- Failed edits leave the original set unchanged.
+- Reordering deterministically recalculates overall and position ranks.
+- Tier edits preserve position-local non-decreasing progression and meaningful gaps.
+- No operation can target a snapshot.
 
 ### Suggested Tests
 
-- Unit tests for urgency-cap and context-cap adjustment output.
-- Unit test that components plus adjustments equal total score.
-- Regression tests proving recommendation order and reasons are unchanged.
-- Component test for debugger rendering of positive, negative, and capped scores.
+- Unit tests for every supported edit intent.
+- Tests for rank recalculation after movement across positions.
+- Tests for valid and invalid tier changes.
+- Immutability and deterministic-output tests.
 
 ---
 
-## Task 10 - Add Transient Scenario Sessions and Reset/Restart
+## Task 10 - Persist, Load, and List Ranking Sets
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Allow safe local exploration of replayed scenarios with distinct reset and restart behavior while preserving existing persisted-draft actions.
+Add a dedicated repository boundary for creating, loading, and listing first-class mutable ranking sets.
 
 ### Scope
 
-- Introduce a transient scenario-session mode around a successful replay result.
-- Route scenario picks and undo through existing pure Draft State Engine transitions without repository writes.
-- Keep manual and hydrated persisted draft sessions on their existing server-action and repository path.
-- Track the loaded scenario baseline and whether local exploratory changes have diverged from it.
-- Reset a scenario by validating and replaying its source back to its target.
-- Restart with the same settings, rankings, and user-team identity at zero picks as a transient manual session.
-- Confirm reset, restart, or scenario replacement only when it would discard dirty local changes.
-- Recompute recommendations after every local transition, reset, and restart.
+- Add persistence capable of storing ranking-set metadata and individually addressable canonical entries.
+- Add a ranking-set repository that accepts and returns domain values only.
+- Create a complete validated set transactionally.
+- Load one complete set by local identity and reconstruct canonical ordering.
+- List lightweight summaries without loading every entry.
+- Enforce case-insensitive display-name uniqueness through a domain-facing conflict result.
+- Keep persistence records and client types private to repository mapping.
+- Add focused fake-client tests and a real persistence round-trip path.
 
 ### Non-Goals
 
-- Do not autosave scenarios or add scenario persistence tables.
-- Do not call persisted reset or pick actions from a transient scenario session.
-- Do not add a global browser navigation warning or recovery system.
-- Do not change existing persisted-draft confirmation or save behavior.
-- Do not add final workbench layout polish.
+- Do not replace, delete, import, or export yet.
+- Do not expose entry-level repository mutation.
+- Do not normalize a global player catalog.
+- Do not change draft snapshot persistence.
+- Do not add UI.
 
 ### Acceptance Criteria
 
-- Scenario exploration creates no database writes.
-- Local picks and undo use the same pure transitions as persisted draft operations.
-- Reset restores the declared replay target rather than a cached final state.
-- Restart produces a valid zero-pick transient draft with the same configuration and rankings.
-- Dirty destructive actions require confirmation; unchanged sessions proceed immediately.
-- Existing manual and persisted draft actions behave as before.
+- A canonical ranking set can be created and loaded without losing domain values or order.
+- Listing summaries does not load full entry collections.
+- Duplicate names return an explicit conflict without partial data.
+- Domain callers never receive persistence records or Prisma types.
+- A real persistence round trip proves repository mapping and storage work together.
 
 ### Suggested Tests
 
-- Integration test proving scenario picks and undo avoid repository actions.
-- Integration test for reset after exploratory picks.
-- Integration test for restart at zero picks.
-- Tests for dirty and unchanged confirmation behavior.
-- Regression tests for existing persisted pick, undo, and reset flows.
+- Repository create/load tests with injected fakes.
+- Summary projection test proving entries are not loaded.
+- Name-conflict and transaction rollback tests.
+- Real persistence integration test for one representative set.
 
 ---
 
-## Task 11 - Integrate the Developer Workbench Controls
+## Task 11 - Replace and Delete Ranking Sets Atomically
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Expose the completed scenario, replay, export, debugger, reset, and restart capabilities in one focused simulator workflow.
+Complete the mutable ranking-set repository lifecycle while preserving set-wide validity and snapshot independence.
 
 ### Scope
 
-- Add a compact curated-scenario selector.
-- Add local JSON import and export controls.
-- Replay selected or imported scenarios immediately to their declared target.
-- Show active scenario name, source, replay target, applied-pick count, and dirty state.
-- Surface concise validation and replay errors without replacing the active draft on failure.
-- Expose scenario reset and configured-draft restart actions with the finalized confirmation behavior.
-- Keep recommendation details accessible in the same workflow.
-- Preserve normal manual and persisted draft navigation and actions.
+- Replace an existing set with a complete validated aggregate using the same local identity.
+- Replace metadata and entries atomically so readers never observe a partial set.
+- Delete a ranking set by identity.
+- Return explicit not-found and name-conflict outcomes.
+- Prove multiple ranking sets remain isolated through replacement and deletion.
+- Ensure deletion has no cascade path to draft ranking snapshots or scenarios.
+- Keep optimistic concurrency or revision history deferred unless existing application behavior requires it.
 
 ### Non-Goals
 
-- Do not add step playback, animation, timelines, or event streaming.
-- Do not add scenario editing, cloud storage, ranking editing, or user collections.
-- Do not add consumer onboarding, mobile-first polish, or a broad design-system refactor.
-- Do not add new services, queues, workers, or deployment infrastructure.
-- Do not introduce Phase 7 provider controls.
+- Do not expose individual row updates.
+- Do not add soft deletion, audit logs, revisions, or restore.
+- Do not delete or rewrite draft snapshots.
+- Do not add application actions or UI.
+- Do not add multi-user ownership.
 
 ### Acceptance Criteria
 
-- A developer can select or import a scenario and reach its target state within seconds.
-- Invalid import leaves the current draft unchanged and shows a useful error.
-- Export is available for manual, persisted, and transient scenario states.
-- Reset, restart, local picks, undo, and debugger inspection work from the scenario workflow.
-- Workbench controls clearly distinguish transient scenario behavior from persisted draft behavior.
-- Existing draft workflows remain usable without entering scenario mode.
+- Successful replacement is all-or-nothing and preserves local set identity.
+- Failed replacement leaves the previously stored set unchanged.
+- Deleting one set leaves other sets and all draft snapshots unchanged.
+- Not-found and name conflicts do not leak database errors.
+- Repository behavior remains deterministic for canonical inputs.
 
 ### Suggested Tests
 
-- Component or integration test for curated scenario selection and immediate replay.
-- Component or integration test for successful and failed file import.
-- Component test for source, target, count, and dirty-state indicators.
-- Component test for export action and destructive confirmation behavior.
-- Focused manual QA of the complete workbench loop.
+- Transactional replacement and rollback tests.
+- Multiple-set isolation tests.
+- Delete and not-found tests.
+- Integration test proving draft snapshot survival after source deletion.
 
 ---
 
-## Task 12 - Complete Phase 4 Regression and Exit Validation
+## Task 12 - Bootstrap Seed Rankings as a Managed Set
 
-- [x] Complete
+- [ ] Complete
 
 ### Goal
 
-Prove the finished workbench meets Phase 4 success criteria and has not regressed the Draft State Engine, Recommendation Engine, or persistence workflows.
+Make the existing seed rankings available through the Phase 5 domain and repository path without changing their recommendation behavior.
 
 ### Scope
 
-- Run and complete deterministic unit, integration, scenario, and regression coverage across the Phase 4 path.
-- Confirm every supported league-setup field validates, creates, persists, hydrates, and reaches the Draft State and Recommendation Engines correctly.
-- Confirm invalid league setup creates no persisted draft or ranking snapshot.
-- Confirm replay equivalence, import/export round trips, validation failure isolation, reset/restart behavior, and recommendation determinism.
-- Confirm draft invariants after replay, local exploration, reset, restart, and completed scenarios.
-- Confirm the curated library covers intermediate, completed, recommendation-focused, and non-default configurations.
-- Re-run existing manual draft, recommendation, hydration, repository, and persisted-workflow coverage.
-- Complete focused manual QA for scenario load, import, export, debugger inspection, dirty confirmation, reset, restart, and persisted-draft preservation.
-- Verify the developer can recreate representative target states within seconds.
+- Convert the existing seed data into one valid initial managed ranking set with seed provenance.
+- Run seed data through canonical domain invariant checks before persistence.
+- Make bootstrap idempotent so repeated startup or setup does not duplicate the set.
+- Preserve existing player identities, canonical order, ADP, position ranks, and tiers.
+- Provide a clear failure if existing seed data violates the new domain contract.
+- Keep the seed asset as bootstrap input rather than the runtime source for every new draft.
+- Prove recommendations from the managed seed set match recommendations from the existing seed array for identical draft inputs.
 
 ### Non-Goals
 
-- Do not add new Phase 4 features during exit validation.
-- Do not weaken existing assertions or change expected recommendation behavior without an approved product decision.
-- Do not optimize for synthetic scale beyond the approved safety limits.
-- Do not begin Phase 5 ranking work or Phase 7 provider work.
-- Do not expand UI polish beyond a direct usability blocker.
+- Do not silently repair invalid seed data.
+- Do not remove legacy snapshot readers.
+- Do not import external files during bootstrap.
+- Do not add user-facing seed controls.
+- Do not change recommendation tuning.
 
 ### Acceptance Criteria
 
-- All Phase 4 task acceptance criteria are satisfied.
-- Relevant focused and full automated suites pass.
-- Manual QA confirms the end-to-end developer workflow.
-- A developer can create and resume a supported non-default configuration without modifying code.
-- Replay and scenario tooling preserve the configured team count, roster construction, draft position, draft type, and scoring format.
-- Manual and replay inputs produce equivalent domain state and recommendation output.
-- Invalid scenarios never partially replace active state or mutate persistence.
-- Existing manual and persisted draft workflows pass regression validation.
-- No Phase 4 non-goals or future-phase architecture were introduced.
+- One managed seed ranking set exists after bootstrap, even when bootstrap runs repeatedly.
+- The managed set is domain-equivalent to the current seed data.
+- Existing deterministic recommendation outputs remain unchanged for equivalent inputs.
+- New runtime ranking selection can load the seed set through the repository.
+- Bootstrap failure is explicit and leaves no partial set.
 
 ### Suggested Tests
 
-- Run the full automated test suite and project validation commands.
-- Create, persist, refresh, and resume one non-default league through the setup workflow.
-- Run every curated scenario through validation and replay.
-- Complete the focused Phase 4 manual QA checklist.
-- Repeat one scenario after a reset and compare exact recommendation output.
-- Export and import one hydrated persisted draft without mutating its source record.
+- Idempotent bootstrap test.
+- Exact seed-to-managed-set equivalence test.
+- Recommendation parity regression test.
+- Failure test for invalid seed input.
+
+---
+
+## Task 13 - Add the Application Import Workflow
+
+- [ ] Complete
+
+### Goal
+
+Orchestrate preflight, format parsing, normalization, validation, domain conversion, and atomic persistence without allowing invalid imports to affect stored data.
+
+### Scope
+
+- Accept import text, explicit supported format, desired set name, and create or explicit replacement intent.
+- Execute the public import stages in the documented order.
+- Stop at the failing stage and return structured diagnostics.
+- Create a new local set by default.
+- Preserve local set identity only for an explicit authorized replacement.
+- Commit only a complete canonical domain aggregate through the ranking-set repository.
+- Return the saved domain set or summary after success.
+- Keep transient parser and candidate data out of persistence.
+
+### Non-Goals
+
+- Do not read browser files in the domain workflow.
+- Do not add UI or preview state.
+- Do not auto-detect arbitrary formats.
+- Do not merge imported rows into an existing set.
+- Do not create drafts or scenarios.
+
+### Acceptance Criteria
+
+- Valid CSV and canonical JSON imports create independent managed sets.
+- Invalid import at any stage creates or replaces nothing.
+- Replacement requires explicit intent and preserves the target set's local identity.
+- Diagnostics retain stage and source location through the application boundary.
+- The workflow never passes parsed or normalized records to the repository.
+
+### Suggested Tests
+
+- End-to-end application tests for both supported formats.
+- Failure isolation test for each import stage.
+- Create-versus-replace identity tests.
+- Test proving an existing valid set survives failed replacement.
+
+---
+
+## Task 14 - Add Application Ranking Management and Export Workflows
+
+- [ ] Complete
+
+### Goal
+
+Expose repository-backed list, load, edit, delete, and canonical export operations through application boundaries suitable for UI use.
+
+### Scope
+
+- List lightweight ranking-set summaries.
+- Load one complete domain ranking set for review or editing.
+- Apply supported pure edit intents and persist only complete valid replacements.
+- Delete a ranking set without affecting snapshots.
+- Export a loaded valid set through the canonical serializer.
+- Return structured not-found, conflict, validation, and persistence failures.
+- Keep application results free of persistence records and framework-specific state.
+
+### Non-Goals
+
+- Do not add UI.
+- Do not expose direct entry persistence.
+- Do not add history, undo, set merge, or cross-source comparison.
+- Do not export source-specific CSV.
+- Do not edit snapshots or existing drafts.
+
+### Acceptance Criteria
+
+- List and load operations return domain-facing values.
+- Supported edits use the pure domain operations and atomic repository replacement.
+- Invalid edits and conflicts preserve the current stored set.
+- Delete leaves existing draft snapshots loadable.
+- Export is deterministic and performs no persistence mutation.
+
+### Suggested Tests
+
+- Application tests for list, load, edit, delete, and export.
+- Failure mapping tests for not-found, conflict, and invalid edits.
+- Snapshot-survival integration test after deletion.
+- Test proving export does not write.
+
+---
+
+## Task 15 - Formalize Immutable Snapshot Creation from Managed Rankings
+
+- [ ] Complete
+
+### Goal
+
+Create a pure snapshot boundary that copies canonical ranking entries and preserves all existing persisted and scenario compatibility.
+
+### Scope
+
+- Add or formalize pure snapshot creation from a valid `RankingSet` or validated ranking context.
+- Deep-copy every domain-relevant player and ranking value.
+- Keep source-set identity and name optional, non-authoritative provenance outside engine input.
+- Expose no snapshot update or refresh operation.
+- Preserve the current Phase 2 serialized ranking-array reader as a supported legacy representation.
+- Ensure Scenario V1 continues embedding complete canonical ranking entries.
+- Reuse canonical ranking-entry validation between managed imports, snapshots, and scenarios without conflating their document rules.
+
+### Non-Goals
+
+- Do not change draft setup yet.
+- Do not migrate or rewrite existing snapshot records.
+- Do not link snapshot loading to a source ranking set.
+- Do not persist recommendations.
+- Do not introduce a generic snapshot-version framework before the entry shape changes.
+
+### Acceptance Criteria
+
+- Snapshot creation returns a complete value copy with no shared mutable player or entry objects.
+- Changing or deleting the source set cannot change the snapshot value.
+- Existing Phase 2 snapshots still parse and hydrate exactly.
+- Existing Scenario V1 files still validate and replay.
+- Engines continue receiving only canonical `RankingEntry[]` values.
+
+### Suggested Tests
+
+- Deep-copy and source-mutation tests.
+- Legacy snapshot parsing regression tests.
+- Scenario V1 validation and replay regression tests.
+- Deterministic snapshot serialization test.
+
+---
+
+## Task 16 - Integrate Ranking Set Selection into Draft Creation
+
+- [ ] Complete
+
+### Goal
+
+Create new drafts from an explicitly selected managed ranking set while preserving atomic snapshot persistence and existing draft behavior.
+
+### Scope
+
+- Accept a ranking-set identity in configured draft creation.
+- Load the selected set through the ranking-set repository.
+- Validate ranking count against the selected league configuration at draft creation time.
+- Create an immutable snapshot from the selected canonical entries.
+- Persist the draft and its snapshot atomically through the existing draft repository boundary.
+- Stop using the code-owned seed array as an implicit runtime input for configured creation.
+- Preserve existing draft hydration, pick, undo, reset, delete, recommendation, and resume behavior.
+- Reject attempts to switch ranking sets on an existing persisted draft.
+
+### Non-Goals
+
+- Do not add draft-setup UI selection yet.
+- Do not edit or refresh an existing draft snapshot.
+- Do not persist source-set dependence in engine inputs.
+- Do not add ranking merge or fallback behavior.
+- Do not alter recommendation scoring.
+
+### Acceptance Criteria
+
+- A new draft uses the exact selected ranking set snapshot.
+- An insufficient set fails before any draft or snapshot is created.
+- Later edit or deletion of the source set does not alter or prevent loading the draft.
+- Existing draft operations and deterministic recommendations use the captured snapshot.
+- Existing drafts created before Phase 5 continue to load.
+
+### Suggested Tests
+
+- Application test for draft creation with two distinct ranking sets.
+- Insufficient-capacity failure isolation test.
+- Source-edit and source-delete snapshot isolation tests.
+- Existing persisted draft compatibility regression.
+
+---
+
+## Task 17 - Add Ranking Library and Import/Export UI
+
+- [ ] Complete
+
+### Goal
+
+Allow a user to view managed ranking sets, import supported files, export a set, and delete a set through a focused ranking-library workflow.
+
+### Scope
+
+- Display lightweight ranking-set summaries with name, source kind, entry count, and lifecycle metadata.
+- Add explicit FantasyPros CSV and Canonical JSON import choices.
+- Read selected local files and submit text to the application import workflow.
+- Display parser, normalization, validation, conflict, and persistence diagnostics with row or field locations when available.
+- Refresh the library after successful import or deletion.
+- Export the selected set using the canonical JSON workflow.
+- Confirm destructive deletion and explain that existing draft snapshots remain unchanged.
+- Preserve the current draft and workbench state when import fails.
+
+### Non-Goals
+
+- Do not implement ranking entry or tier editing yet.
+- Do not build generic column mapping or source previews beyond concise diagnostics.
+- Do not import Scenario V1 as rankings.
+- Do not add cloud storage, drag-and-drop polish, or source refresh scheduling.
+- Do not redesign the Draft Room.
+
+### Acceptance Criteria
+
+- A user can import each supported format and see the resulting set in the library.
+- Invalid files show actionable stage-specific diagnostics and create no set.
+- A user can export canonical JSON and re-import it as an independent set.
+- Deleting a set removes it from the library without affecting existing drafts.
+- UI code performs no ranking normalization, validation, or export mapping.
+
+### Suggested Tests
+
+- Component tests for summary loading and empty state.
+- Integration tests for successful CSV and JSON import.
+- Component tests for stage-specific diagnostics.
+- Export/re-import and delete-confirmation workflow tests.
+- Manual QA with one valid and one invalid source file.
+
+---
+
+## Task 18 - Add Ranking and Tier Editing UI
+
+- [ ] Complete
+
+### Goal
+
+Allow supported ranking corrections, reordering, and tier changes while keeping domain rules authoritative.
+
+### Scope
+
+- Load one complete ranking set from the application management workflow.
+- Display canonical order, position rank, player facts, ADP, and position-local tier.
+- Collect rename, supported player-field correction, reorder, and tier-change intents.
+- Submit edits through pure domain operations and atomic application replacement.
+- Display structured validation and conflict failures without replacing the current valid view.
+- Refresh from the saved canonical aggregate after success.
+- Clearly distinguish mutable ranking sets from immutable draft snapshots.
+
+### Non-Goals
+
+- Do not calculate ranks or tier validity independently in the UI.
+- Do not add spreadsheet-grade bulk editing, drag animation, history, or undo.
+- Do not edit source files or past draft snapshots.
+- Do not merge or compare sets.
+- Do not add recommendation tuning controls.
+
+### Acceptance Criteria
+
+- Supported edits persist and reload as a valid canonical ranking set.
+- Reordering displays domain-derived overall and position ranks after save.
+- Invalid tier or player edits return useful feedback and preserve stored data.
+- Existing drafts created from earlier set values remain unchanged.
+- UI contains no duplicated domain validation or rank calculations.
+
+### Suggested Tests
+
+- Component tests for loading and displaying canonical values.
+- Integration tests for rename, reorder, correction, and tier edits.
+- Failure tests for invalid tiers, conflicts, and stale not-found targets.
+- Snapshot-isolation regression after editing a source set.
+
+---
+
+## Task 19 - Add Ranking Set Selection to Draft Setup
+
+- [ ] Complete
+
+### Goal
+
+Allow the user to choose which managed ranking set will anchor a new draft.
+
+### Scope
+
+- Load available ranking-set summaries into the existing configured draft setup workflow.
+- Require an explicit valid ranking-set selection.
+- Default to the managed seed set when available without hard-coding its entries into draft creation.
+- Show set name, source kind, and player count needed to make a useful selection.
+- Surface league-capacity incompatibility before or during authoritative creation validation.
+- Submit ranking-set identity to the shared draft-creation application workflow.
+- Preserve cancel behavior and existing in-progress-draft confirmation.
+- Make clear that the selected set is snapshotted and cannot be switched on the created draft.
+
+### Non-Goals
+
+- Do not edit rankings inside draft setup.
+- Do not blend multiple ranking sets.
+- Do not allow existing drafts to switch snapshots.
+- Do not add league presets or account preferences.
+- Do not redesign unrelated draft controls.
+
+### Acceptance Criteria
+
+- A user can create two drafts from different sets and receive the corresponding deterministic recommendations.
+- The managed seed set provides a quick default path.
+- Missing, deleted, or insufficient ranking sets produce clear failures without partial draft creation.
+- Refresh and resume continue using each draft's captured snapshot.
+- Draft setup UI passes identity only and contains no ranking-copy logic.
+
+### Suggested Tests
+
+- Component test for summary loading, default selection, and empty state.
+- Integration test creating drafts from two distinct sets.
+- Failure tests for missing, deleted, and insufficient sets.
+- Persisted refresh/resume snapshot regression test.
+
+---
+
+## Task 20 - Complete Phase 5 Regression and Exit Validation
+
+- [ ] Complete
+
+### Goal
+
+Prove Phase 5 meets its success criteria without regressing deterministic draft, recommendation, persistence, or replay behavior.
+
+### Scope
+
+- Run focused and full automated validation across domain, import, persistence, application, snapshot, draft, replay, and UI boundaries.
+- Confirm FantasyPros CSV and Canonical JSON contracts with frozen fixtures.
+- Confirm import/export semantic round trips and deterministic serialization.
+- Confirm invalid imports and edits never partially replace stored data.
+- Confirm multiple-set isolation, tier management, and atomic lifecycle behavior.
+- Confirm source edits and deletion do not affect existing draft snapshots or Scenario V1 replay.
+- Confirm legacy Phase 2 snapshots and existing persisted drafts still load.
+- Confirm recommendation output remains deterministic for identical draft and snapshot inputs.
+- Complete focused manual QA from import through draft creation, source edit, reload, export, and deletion.
+- Validate linting, type checking, production build, persistence integration, and full tests.
+
+### Non-Goals
+
+- Do not add new Phase 5 features during exit validation.
+- Do not weaken tests or silently change expected recommendation behavior.
+- Do not add unsupported formats, player reconciliation, feeds, or Phase 6 strategy.
+- Do not normalize historical snapshots merely to simplify validation.
+- Do not begin live-provider integration.
+
+### Acceptance Criteria
+
+- Every Phase 5 task acceptance criterion is satisfied.
+- Both supported import profiles pass exact positive and negative fixtures.
+- A canonical export/import round trip preserves domain-relevant ranking values.
+- At least two managed sets remain isolated through import, edit, selection, and deletion.
+- Existing drafts and scenarios remain usable after their source set changes or is deleted.
+- Manual, persisted, and replay workflows continue producing deterministic recommendations.
+- Full automated and manual validation passes with no Phase 5 non-goals introduced.
+
+### Suggested Tests
+
+- Run the full automated suite and project validation commands.
+- Complete a real persistence round trip for a managed set and selected draft snapshot.
+- Run existing curated scenarios before and after managed ranking changes.
+- Complete the Phase 5 manual QA checklist.
+- Compare exact recommendation output for repeated identical snapshot inputs.
 
 ---
 
 ## Testing Status
 
-Phase 1 manual simulator coverage and Phase 2 persistence validation are complete and archived.
+Phase 1 manual simulator, Phase 2 persistence, Phase 3 recommendation, and Phase 4 developer workbench coverage are complete.
 
-Phase 3 implementation and automated coverage are complete for deterministic recommendation scoring, bounded modifiers, ordering, explanations, representative scenarios, workflow integration, and persisted parity. Its previously unrecorded final manual gate was covered by the Phase 4 persisted-workflow and full-draft exit regression.
+Phase 4 exit validation passed 27 automated test files and 305 tests, ESLint, TypeScript no-emit validation, Prisma schema validation, the production build, and the recorded manual QA in `docs/qa/manual-phase-4-qa.md`.
 
-Phase 4 Tasks 1-12 are complete. Exit validation passed 27 automated test files and 305 tests, ESLint, TypeScript no-emit validation, Prisma schema validation, the production build, and the recorded manual QA in `docs/qa/manual-phase-4-qa.md`.
+Phase 5 testing is planned through Tasks 1-20. Each implementation task includes focused validation; Task 20 is the cross-feature regression and manual exit gate.
 
 ---
 
 ## Backlog
 
-Not required for Phase 4:
+Not required for Phase 5:
 
-- Authentication or multi-user support
-- Scenario database storage, cloud sync, or user collections
-- Runtime ranking management or multiple managed ranking sets
-- Arbitrary ranking-source import or tier editing
+- Canonical cross-provider player catalog or automatic player reconciliation
+- Arbitrary CSV column mapping or runtime parser plugins
+- Additional ranking formats beyond the approved FantasyPros CSV and Canonical JSON profiles
+- Ranking-set merge, comparison, blending, history, undo, or collaboration
+- Raw-file retention, scheduled refresh, scraping, news, projections, or third-party feeds
+- Authentication, accounts, cloud sharing, or ranking marketplaces
+- Recommendation model changes, simulations, opponent modeling, or Phase 6 insights
 - Generic Draft Source or live-provider interfaces
 - ESPN, Yahoo, or Sleeper integration
 - Polling, WebSockets, reconnect behavior, or provider event normalization
-- Step-by-step or animated replay
-- Opponent modeling or draft simulation
-- AI-generated reasoning or Phase 6 insights
-- Recommendation weight-editing UI
-- Polished consumer draft-room expansion
-- Mobile-first redesign
+- Existing-draft ranking-set switching or snapshot rewriting
+- Mobile-first redesign or broad draft-room polish
 - New services, queues, workers, or deployment infrastructure
 
 See `future_ideas.md` for additional deferred ideas.
