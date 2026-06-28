@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting approval. No implementation has started.
+Complete. Validated candidates now convert into canonical `RankingSet` aggregates through explicit create or replacement lifecycle requests. Conversion assigns contiguous overall and derived position ranks, preserves player values, tier gaps, fallbacks, provenance, and capabilities, removes import-only fields, owns new nested values and dates, and rechecks the final aggregate with `validateRankingSet`. Validation passed with 15 focused conversion tests, 449 full-suite tests, TypeScript checking, and focused and repository-wide linting.
 
 ## Source Context
 

@@ -335,7 +335,7 @@ Validate complete source-neutral candidates and return actionable diagnostics wi
 
 ## Task 7 - Convert Validated Candidates into Canonical Ranking Sets
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
