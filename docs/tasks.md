@@ -225,7 +225,7 @@ Create the typed, versioned, self-contained scenario contract that later Phase 4
 
 ## Task 5 - Add Scenario Parsing and Validation
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
