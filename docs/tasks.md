@@ -471,7 +471,7 @@ Provide pure domain operations for supported ranking corrections, reordering, an
 
 ## Task 10 - Persist, Load, and List Ranking Sets
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

@@ -1,417 +1,232 @@
-# Current Slice: Persist, Load, and List Ranking Sets
+# Current Slice: Replace and Delete Ranking Sets Atomically
 
 ## Completion Status
 
-Implementation complete; Task 10 completion is blocked only by the required real PostgreSQL validation. The Prisma schema, repository, strict mapping, transactional create, ordered load, lightweight summaries, conflict handling, focused fake-client coverage, TypeScript, and lint all pass. The full suite passes 515 tests with one intentional skip: the opt-in PostgreSQL round trip. `RANKING_SET_TEST_DATABASE_URL` is not configured, so no isolated database was available for safe schema push and integration execution. Task 10 remains unchecked until that test passes.
+Planned and awaiting implementation approval. Phase 5 Tasks 1 through 10 are complete. This slice promotes only Task 11.
 
 ## Source Context
 
-Phase 5 Tasks 1 through 9 are complete:
-
-- canonical mutable `RankingSet` aggregates and lightweight `RankingSetSummary` values are defined;
-- complete domain invariants validate identity, canonical order, tiers, ADP, source provenance, capabilities, and lifecycle metadata;
-- import, conversion, export, and pure editing boundaries now produce complete canonical aggregates;
-- immutable draft ranking snapshots remain serialized values owned by the existing draft repository;
-- mutable ranking sets are explicitly designed to use first-class metadata and entry persistence behind a dedicated repository;
-- the project uses PostgreSQL, Prisma 7 with `@prisma/adapter-pg`, an ignored generated client, and injected Prisma-like fake clients for focused repository tests;
-- the repository currently has no checked-in Prisma migration history or database integration-test harness.
-
-This slice promotes Phase 5 Task 10 only. It adds the first durable mutable ranking-set boundary: schema, create, load, summaries, conflict mapping, and a real isolated Postgres round trip. Replacement and deletion remain Task 11.
+- The ranking-set repository already creates, loads, and lists complete canonical `RankingSet` aggregates behind strict domain mapping.
+- `createRankingSet` validates before persistence, uses a nested atomic write, normalizes names for database uniqueness, and maps normalized-name conflicts into a domain-facing result.
+- `RankingSetEntry` rows already cascade only when their owning mutable `RankingSet` is deleted.
+- Immutable `RankingSnapshot` records are owned by drafts and have no schema relation or cascade path from mutable ranking sets.
+- Pure ranking edits preserve the ranking-set local identity, source provenance, and creation metadata while returning a complete validated aggregate with an updated lifecycle timestamp.
+- The existing repository fake snapshots its in-memory records around `$transaction`, and the existing opt-in PostgreSQL harness uses an explicitly isolated `RANKING_SET_TEST_DATABASE_URL`.
+- The repository has no checked-in Prisma migration baseline. Task 11 does not require a schema change.
 
 ## Goal
 
-Persist complete canonical ranking sets as first-class metadata plus individually addressable ordered entries, then load domain aggregates and list lightweight summaries without leaking Prisma records, JSON blobs, or database types across the repository boundary.
+Complete the mutable ranking-set repository lifecycle by replacing one existing set from a complete canonical aggregate and deleting a set by local identity, with explicit outcomes and tests proving atomicity, set isolation, and immutable draft-snapshot independence.
 
 ## Scope
 
 ### Goals
 
-- Extend the Prisma schema with mutable ranking-set and ranking-entry storage.
-- Keep existing draft and immutable `RankingSnapshot` persistence unchanged.
-- Add one dedicated ranking-set repository with injected-client and default-client entry points.
-- Accept and return domain `RankingSet` and `RankingSetSummary` values only.
-- Validate a complete canonical set before attempting create persistence.
-- Create set metadata and all entries atomically through one transaction and nested write.
-- Preserve caller-issued local ID, display name, source provenance, capabilities, canonical entries, and lifecycle timestamps.
-- Enforce case-insensitive, outer-whitespace-insensitive display-name uniqueness through a private normalized-name column and database unique constraint.
-- Map normalized-name unique violations into a stable domain-facing name-conflict result.
-- Load one set by local ID with entries ordered by canonical overall rank.
-- Reconstruct new domain-owned source, capability, entry, player, and date values.
-- Revalidate reconstructed aggregates with `validateRankingSet` before returning them.
-- List `RankingSetSummary[]` using metadata, capabilities, and database entry counts without selecting entry rows.
-- Sort summaries deterministically by most recently updated, then display name, then local ID.
-- Add focused injected-fake tests for create/load/list, mapping, conflicts, atomic failure, and query shape.
-- Add an opt-in real PostgreSQL integration path for complete and safely degraded create/load round trips.
-- Run Prisma schema validation and client generation in addition to TypeScript, lint, and tests.
-- Check Phase 5 Task 10 complete only after the real persistence round trip has actually passed.
+- Add a repository replacement operation that accepts one complete canonical `RankingSet`.
+- Use the aggregate's `id` as both the lookup identity and the preserved persisted identity.
+- Validate the complete replacement before any database call.
+- Replace all mutable set metadata, capability metadata, lifecycle values, and canonical entries as one atomic operation.
+- Remove the prior entry collection and create the replacement entry collection inside the same nested update and transaction.
+- Reconstruct and revalidate the persisted replacement before the transaction commits.
+- Return explicit invalid-ranking-set, not-found, and normalized-name-conflict results without leaking expected Prisma errors.
+- Add a repository deletion operation keyed only by local ranking-set ID.
+- Delete the set and its owned entry rows while returning an explicit not-found result for a missing ID.
+- Preserve all other ranking sets during replacement and deletion.
+- Prove with an isolated PostgreSQL integration test that deleting a mutable source set leaves an existing draft and its immutable ranking snapshot unchanged and loadable.
+- Preserve existing create, load, list, mapping, ordering, and conflict behavior.
 
 ### Non-Goals
 
-- Replacing, renaming in persistence, deleting, or editing stored ranking sets.
-- Exposing entry-level create/update/delete repository operations.
-- Import/export application orchestration or server actions.
-- Seed-ranking bootstrap.
-- Draft creation from a selected ranking set.
-- Changing draft snapshot JSON storage or the draft repository.
-- Adding a global player catalog or cross-set player relation.
-- Persisting raw imports, parser records, candidates, diagnostics, recommendations, or UI state.
-- Adding accounts, ownership, author history, revisions, or soft deletion.
-- Adding caching, pagination, search, background jobs, or generic repositories.
-- Creating a production migration baseline in this slice when the repository has no established migration history; isolated integration setup uses Prisma schema push.
-- Running destructive schema push against a non-isolated or production database.
-- Adding UI or changing dependencies.
+- Exposing entry-level insert, update, reorder, or delete operations.
+- Persisting edit intents or allowing intermediate invalid ranking sets.
+- Adding optimistic concurrency, versions, revisions, history, restore, soft deletion, or audit logs.
+- Changing the ranking-set or draft-snapshot schema.
+- Adding a relation between `RankingSet` and `RankingSnapshot`.
+- Deleting, rewriting, or repairing draft snapshots or scenarios.
+- Adding application actions, import orchestration, seed bootstrap, draft selection, or UI.
+- Adding ownership, accounts, authorization, caching, pagination, or generic repository abstractions.
+- Changing dependencies, generated Prisma source, or migration policy.
 
 ## Implementation Design
 
-### Prisma Schema
+### Public Repository Results
 
-Update `prisma/schema.prisma` with private persistence enums:
-
-```prisma
-enum RankingSourceKind {
-  SEED
-  EXTERNAL
-  CANONICAL
-  MANUAL
-}
-
-enum RankingDataAvailability {
-  COMPLETE
-  PARTIAL
-  NONE
-}
-
-enum RankingPlayerIdentityCapability {
-  PROVIDED
-  GENERATED
-  MIXED
-}
-
-enum RankingOverallOrderCapability {
-  EXPLICIT
-  ROW_DERIVED
-}
-
-enum RankingPosition {
-  QB
-  RB
-  WR
-  TE
-  DST
-  K
-}
-```
-
-Add:
-
-```prisma
-model RankingSet {
-  id                       String                          @id
-  name                     String
-  normalizedName           String                          @unique
-  sourceKind               RankingSourceKind
-  sourceFormatId           String?
-  sourceFormatVersion      Int?
-  sourceLabel              String?
-  sourceImportedAt         DateTime?
-  teamCapability           RankingDataAvailability
-  playerIdentityCapability RankingPlayerIdentityCapability
-  overallOrderCapability   RankingOverallOrderCapability
-  adpCapability            RankingDataAvailability
-  tierCapabilities         Json
-  entries                  RankingSetEntry[]
-  createdAt                DateTime
-  updatedAt                DateTime
-
-  @@index([updatedAt])
-}
-
-model RankingSetEntry {
-  id           String          @id @default(cuid())
-  rankingSetId String
-  rankingSet   RankingSet      @relation(fields: [rankingSetId], references: [id], onDelete: Cascade)
-  playerId     String
-  playerName   String
-  team         String
-  position     RankingPosition
-  overallRank  Int
-  positionRank Int
-  tier         Int
-  adpRank      Float?
-
-  @@unique([rankingSetId, playerId])
-  @@unique([rankingSetId, overallRank])
-  @@unique([rankingSetId, position, positionRank])
-  @@index([rankingSetId, overallRank])
-}
-```
-
-`positionRank` capability is always `derived` in the domain, so do not persist a redundant enum column for its one legal value. Repository mapping reconstructs `positionRank: "derived"` explicitly.
-
-Store per-position tier capabilities as a small JSON metadata value because it is loaded as a whole map, not queried or independently mutated. Keep it behind strict repository parsing and canonical validation.
-
-Do not add defaults for caller-owned aggregate identity or lifecycle timestamps. Repository creation must persist the canonical values it receives.
-
-### Name Uniqueness
-
-Persist both display `name` and private `normalizedName`.
-
-Compute normalized name with one private helper:
+Keep the existing create result unchanged. Add focused exported result types:
 
 ```ts
-name.trim().toLocaleLowerCase("en-US")
-```
-
-The canonical display name remains unchanged. The normalized key exists only to enforce single-user case-insensitive uniqueness safely under concurrent creates.
-
-Do not perform a check-then-create query. Rely on the database unique constraint and map a Prisma-compatible `P2002` error whose target identifies `normalizedName` into the repository's `name-conflict` result.
-
-Other persistence failures should propagate rather than being mislabeled as conflicts.
-
-### Repository API
-
-Add `src/lib/rankingSetRepository.ts` with an internal structural client contract and:
-
-```ts
-type CreateRankingSetError = Readonly<{
-  code: "invalid-ranking-set" | "name-conflict";
+type ReplaceRankingSetError = Readonly<{
+  code: "invalid-ranking-set" | "not-found" | "name-conflict";
   message: string;
   path?: string;
 }>;
 
-type CreateRankingSetResult =
-  | Readonly<{
-      ok: true;
-      rankingSet: RankingSet;
-    }>
+type ReplaceRankingSetResult =
+  | Readonly<{ ok: true; rankingSet: RankingSet }>
   | Readonly<{
       ok: false;
-      errors: readonly CreateRankingSetError[];
+      errors: readonly ReplaceRankingSetError[];
     }>;
 
-createRankingSetRepository(db)
+type DeleteRankingSetError = Readonly<{
+  code: "not-found";
+  message: string;
+  path: "id";
+}>;
 
-createRankingSet(rankingSet): Promise<CreateRankingSetResult>
-getRankingSetById(id): Promise<RankingSet | null>
-listRankingSetSummaries(): Promise<RankingSetSummary[]>
+type DeleteRankingSetResult =
+  | Readonly<{ ok: true; id: string }>
+  | Readonly<{ ok: false; errors: readonly DeleteRankingSetError[] }>;
 ```
 
-As with `draftRepository`, export convenience functions that obtain `getPrismaClient()` and cast it only at the private structural boundary. Do not export the structural client, persistence record, Prisma argument, or enum types.
-
-The repository must not accept normalized candidates, converted wrappers, parser records, JSON export documents, or edit intents.
-
-### Create Flow
-
-Before touching the database:
-
-1. call `validateRankingSet`;
-2. if invalid, map ordered domain failures to `invalid-ranking-set`, preserving message and path;
-3. compute normalized name;
-4. map the complete domain aggregate into metadata plus nested entry-create records.
-
-Run creation through `$transaction` when available. Inside it, perform one `rankingSet.create` with nested `entries.create` and an include that returns entries ordered by `overallRank` ascending.
-
-The transaction callback returns the created persistence record. Map and validate that record before returning success.
-
-If a unique normalized-name violation occurs, return:
+Expose the operations through both the injected repository and default-client wrappers:
 
 ```ts
-{
-  ok: false,
-  errors: [{
-    code: "name-conflict",
-    message: "A ranking set with this name already exists.",
-    path: "name",
-  }],
-}
+replaceRankingSet(rankingSet: RankingSet): Promise<ReplaceRankingSetResult>
+deleteRankingSetById(id: string): Promise<DeleteRankingSetResult>
 ```
 
-Nested creation must be all-or-nothing. No metadata-only or partial entry result may remain after a failed create.
+Use these stable expected failures:
 
-### Persistence Mapping
+- invalid replacement input: ordered `invalid-ranking-set` errors mapped from `validateRankingSet`;
+- missing replacement or deletion target: one `not-found` error with `path: "id"` and message `"Ranking set was not found."`;
+- replacement name conflict: the existing `name-conflict` message and `path: "name"`.
 
-Keep persistence record types private in `rankingSetRepository.ts`; the slice does not need a second mapping module.
+Do not change `getRankingSetById` missing behavior; reads continue returning `null`.
 
-Map domain values to persistence as follows:
+### Replacement Persistence Shape
 
-- source and capability string unions to explicit Prisma enum spellings;
-- optional provenance fields to omitted/undefined values rather than fabricated defaults;
-- tier capabilities to a plain JSON object in supported position order;
-- canonical entries to nested rows in current overall-rank order;
-- ADP null to database null;
-- lifecycle dates as caller-provided values.
+Extend the private structural client only with the methods and shapes needed by this slice:
 
-Map loaded records back into newly allocated domain values:
+- `rankingSet.update` with `where: { id }`, complete replacement data, and the existing ordered full-record include;
+- `rankingSet.delete` with `where: { id }` and a minimal `select: { id: true }`.
 
-- enum spellings through exhaustive explicit maps, never case conversion guesses;
-- tier-capability JSON through an `unknown` parser accepting only supported positions and `source` / `defaulted-neutral` values;
-- entries through explicit player/ranking field mapping;
-- positions through explicit supported enum mapping;
-- dates through clones so returned aggregates do not share fake/client record references.
+Add a private update-data mapper that:
 
-After reconstruction, call `validateRankingSet`. If stored data is malformed or inconsistent, throw a stable repository mapping error that includes the first canonical path/message. Do not repair storage data, omit invalid entries, or expose a partial aggregate.
+- never puts `id` in update data;
+- writes the display name and recomputed private normalized name;
+- writes all source provenance fields, including clearing optional persisted values when the canonical aggregate omits them;
+- writes all capability metadata, including the complete tier-capability JSON value;
+- writes caller-owned `createdAt` and `updatedAt` lifecycle values from the validated aggregate;
+- maps ADP null and every canonical entry exactly as create does;
+- sets nested entries to `deleteMany: {}` plus `create: [...]`.
 
-### Load Flow
+Reuse small mapping helpers where that removes duplication, but do not add a generic persistence mapper or repository abstraction.
 
-`getRankingSetById(id)` calls `rankingSet.findUnique` with:
+### Atomic Replace Flow
 
-```ts
-{
-  where: { id },
-  include: {
-    entries: {
-      orderBy: { overallRank: "asc" },
-    },
-  },
-}
-```
+`replaceRankingSet` must:
 
-Return `null` for a missing identity. Otherwise map the complete record into a domain `RankingSet` and revalidate it.
+1. Call `validateRankingSet` before touching the database.
+2. Return all ordered validation failures as `invalid-ranking-set`; do not check existence first.
+3. Run one `rankingSet.update` inside `runRepositoryTransaction`, targeting `validation.rankingSet.id`.
+4. Replace metadata and the full owned entry collection through one nested update.
+5. Map and revalidate the returned full record inside the transaction callback so a mapping failure aborts the transaction.
+6. Return the independently owned canonical replacement on success.
+7. Map only an attributable normalized-name `P2002` to `name-conflict`.
+8. Map `P2025` from the target update to `not-found`.
+9. Rethrow unrelated unique, mapping, and persistence failures.
 
-Do not accept portable source identity, display name, or player ID as a load key.
+The operation must not perform a check-then-update read. The database write determines whether the target exists and whether the normalized name conflicts, avoiding a race between validation and replacement.
 
-### Summary Listing
+The replacement aggregate's `id` is authoritative and immutable during the operation: it appears only in `where`, while every other persisted aggregate field is replaced from the validated input.
 
-`listRankingSetSummaries()` calls `rankingSet.findMany` with a `select` containing only:
+### Delete Flow
 
-- `id`;
-- `name`;
-- `sourceKind`;
-- capability metadata needed by `RankingSetSummary`;
-- `_count.entries`;
-- `createdAt`;
-- `updatedAt`.
+`deleteRankingSetById` must:
 
-It must not select or include `entries`.
+1. Call one `rankingSet.delete` with `where: { id }` and `select: { id: true }`.
+2. Return `{ ok: true, id }` only after the delete succeeds.
+3. Map `P2025` to the stable `not-found` result.
+4. Rethrow all unrelated persistence failures.
 
-Use deterministic database ordering:
+Rely on the existing `RankingSetEntry.rankingSet` cascade for owned entry cleanup. Do not query or mutate `Draft`, `RankingSnapshot`, scenario data, or any other aggregate before or after deletion.
 
-```ts
-orderBy: [
-  { updatedAt: "desc" },
-  { name: "asc" },
-  { id: "asc" },
-]
-```
+### Expected Prisma Error Mapping
 
-Map `_count.entries` to `entryCount`, map source kind and capabilities to domain unions, reconstruct `positionRank: "derived"`, parse tier-capability JSON, and clone dates.
+Keep normalized-name conflict detection as narrow as the existing create path. Add a small private `P2025` predicate based on the Prisma error code; do not infer not-found from arbitrary messages.
 
-### Structural Client and Transaction Boundary
-
-Define only the Prisma-like methods this repository needs:
-
-- optional `$transaction(callback)`;
-- `rankingSet.create`;
-- `rankingSet.findUnique`;
-- `rankingSet.findMany`.
-
-The transaction client omits `$transaction`. Use a small `runRepositoryTransaction` helper matching the existing draft-repository convention so focused fakes can execute without Prisma.
-
-Do not introduce a shared generic repository or transaction abstraction.
+Expected replace/delete outcomes are returned as domain-facing results. Unexpected database failures and malformed persisted records remain thrown errors.
 
 ### Focused Fake-Client Tests
 
-Add `src/lib/rankingSetRepository.test.ts` with an in-memory fake matching only the structural contract. Cover:
+Extend the existing in-memory repository fake rather than creating a second harness:
 
-- creating and loading a representative complete set without value loss;
-- creating and loading a safely degraded set with unknown teams, null ADP, neutral tiers, and defaulted capabilities;
-- exact mapping of source provenance and optional fields;
-- exact canonical entry order independent of fake storage insertion order;
-- returned source, capabilities, tier map, entries, players, and dates are new domain-owned values;
-- invalid domain input rejected before any database call;
-- normalized name uses outer trim plus `en-US` lowercase while display name is preserved;
-- names differing only by case or outer whitespace return `name-conflict`;
-- unrelated `P2002` targets and non-Prisma failures propagate;
-- a simulated nested-entry failure rolls back both set metadata and all staged entries;
-- missing ID returns null;
-- malformed stored enum, tier JSON, order, capability, or entry data throws the stable mapping error;
-- summary list returns exact lightweight domain summaries;
-- summary query does not request entry rows and uses `_count.entries`;
-- summary ordering is deterministic;
-- repository return types expose no persistence-only `normalizedName`, row IDs, foreign keys, or Prisma enums;
-- separate sets with unrelated player IDs remain isolated.
+- add `update` and `delete` methods to its structural `rankingSet` object;
+- reuse its transaction record snapshot so simulated nested replacement failures restore the exact previous set;
+- make the existing entry-failure control apply to replacement entry creation;
+- add operation counters only where needed to prove invalid input is rejected before persistence;
+- preserve normalized-name uniqueness and clone returned records to exercise repository ownership and ordering.
 
-Keep fake tests behavior-focused. They may inspect create/include and summary/select shapes only where required to prove atomic nested creation, canonical order, and lightweight listing.
+Cover:
 
-### Real PostgreSQL Round Trip
+- a successful replacement preserves the local ID and exactly replaces name, normalized-name behavior, source provenance, capabilities, lifecycle values, and canonical entries;
+- replacement reload returns canonical overall-rank order even if the fake returns reversed entry rows;
+- capability changes and fallback values survive replacement and reload without inconsistency;
+- invalid replacement input performs no update and leaves the prior set byte-for-byte equivalent at the domain boundary;
+- a simulated failure partway through nested entry creation rolls back all metadata and entries;
+- a name-conflicting replacement returns `name-conflict` and leaves both sets unchanged;
+- replacement of a missing ID returns `not-found`;
+- unrelated `P2002`, non-`P2025`, and generic persistence failures still throw;
+- deleting a set returns its ID, removes its owned entries, and leaves another set unchanged;
+- deleting a missing set returns `not-found`;
+- replacing or deleting one set never changes another set, including when player identities overlap;
+- repeated loads after a successful canonical replacement are deterministic and expose no persistence-only fields.
 
-In the same test file, add an opt-in integration `describe` gated by both:
+Do not weaken existing create/load/list assertions while extending the fake.
+
+### Isolated PostgreSQL Validation
+
+Extend the existing opt-in `ranking set repository PostgreSQL` block, still gated by both:
 
 - `RUN_RANKING_SET_DB_TESTS === "1"`;
-- a dedicated `RANKING_SET_TEST_DATABASE_URL`.
+- `RANKING_SET_TEST_DATABASE_URL`.
 
-The integration path must:
+Use only fixed test-owned ranking-set, ranking-snapshot, and draft IDs. Clean those records before and after the integration test in foreign-key-safe order.
 
-1. construct an isolated Prisma client with `PrismaPg` using `RANKING_SET_TEST_DATABASE_URL`;
-2. create the repository through the same public factory;
-3. delete only test-owned ranking-set IDs before and after the test;
-4. create/load a representative complete set;
-5. create/load a safely degraded set;
-6. list both summaries without loading entries;
-7. attempt a case-insensitive duplicate name and receive `name-conflict`;
-8. disconnect in cleanup.
+The real database path must:
 
-Before running the integration test, apply the current schema to the explicitly isolated database with Prisma schema push. Never run schema push against the default development URL merely because it exists.
+1. Create two independent ranking sets.
+2. Replace one with the same local ID but changed metadata, capabilities, lifecycle values, and entries.
+3. Reload both sets and prove the replacement is exact while the other set is unchanged.
+4. Exercise replacement name-conflict and not-found outcomes.
+5. Persist a test-owned immutable `RankingSnapshot` and a `Draft` that references it, using ranking JSON captured before source deletion.
+6. Delete the mutable source ranking set through `deleteRankingSetById`.
+7. Reload the draft with its snapshot through Prisma and prove the draft still exists, its snapshot identity and ranking JSON are unchanged, and the other mutable set remains loadable.
+8. Exercise delete not-found behavior.
 
-Required validation commands for the opt-in path:
+The integration test may use Prisma directly only to arrange and inspect the draft/snapshot independence assertion. Repository replacement and deletion must run through the public injected repository API.
 
-```text
-$env:DATABASE_URL=$env:RANKING_SET_TEST_DATABASE_URL
-npx prisma db push --skip-generate
-$env:RUN_RANKING_SET_DB_TESTS="1"
-npm test -- src/lib/rankingSetRepository.test.ts
-```
-
-Use equivalent environment syntax outside PowerShell.
-
-If no isolated Postgres URL is available, focused fake tests may continue, but Task 10 must remain incomplete and the implementation report must name the missing real round trip as a blocker.
-
-### Prisma Workflow
-
-After editing the schema:
-
-```text
-npx prisma validate
-npx prisma generate
-```
-
-The generated client remains ignored according to the existing repository convention. Do not edit generated files manually.
-
-Because this repository has no established migration history, this slice uses schema push only for the isolated test database and does not introduce an incomplete migration baseline. Recommend establishing a deployment migration baseline before production deployment rather than silently treating schema push as production migration policy.
+Never run schema push against an unverified database. This slice has no schema change, so reuse the isolated database already prepared with the current schema. If the isolated database is absent or stale, follow the existing Task 10 safety rule and apply the current schema only after `DATABASE_URL` is explicitly set to `RANKING_SET_TEST_DATABASE_URL`.
 
 ## Implementation Steps
 
-1. Add ranking persistence enums, `RankingSet`, and `RankingSetEntry` models plus constraints/indexes to `prisma/schema.prisma` without changing draft/snapshot models.
-2. Add private structural client/record types, enum and tier-capability mappers, domain validation mapping, and default-client wrappers in `rankingSetRepository.ts`.
-3. Implement transactional nested create with normalized-name conflict mapping.
-4. Implement canonical ordered load with strict record reconstruction and invariant revalidation.
-5. Implement lightweight deterministic summary listing using `_count.entries` and no entry selection.
-6. Add focused fake-client tests for complete/degraded round trips, conflicts, rollback, mapping failures, isolation, ownership, and summary query shape.
-7. Add and run the opt-in real PostgreSQL complete/degraded round trip and conflict test against an explicitly isolated database.
-8. Run Prisma validate/generate, focused tests, TypeScript, and focused lint.
-9. Run the full test suite and repository-wide lint.
-10. After every acceptance criterion, including the real database round trip, passes, mark only Phase 5 Task 10 complete in `docs/tasks.md` and update this slice status.
-11. Report results and stop. Do not begin Task 11 replacement/deletion.
+1. Add replace/delete result types and the two injected-repository methods to `src/lib/rankingSetRepository.ts`.
+2. Extend the private structural client types and add the complete update-data mapping without changing the Prisma schema.
+3. Implement validated transactional replacement with nested entry delete/create, in-transaction reconstruction, normalized-name conflict mapping, and explicit not-found mapping.
+4. Implement delete-by-ID with minimal return selection and explicit not-found mapping.
+5. Add default-client wrappers for replacement and deletion.
+6. Extend the existing fake client and focused tests for exact replacement, rollback, validation, conflicts, not-found outcomes, deletion, ownership, determinism, and multi-set isolation.
+7. Extend the opt-in isolated PostgreSQL test to cover real replacement and draft-snapshot survival after source deletion.
+8. Run focused tests, TypeScript no-emit, and focused lint.
+9. Run the isolated PostgreSQL repository test using the dedicated test database.
+10. Run the full test suite and repository-wide lint.
+11. After every acceptance criterion, including the real database snapshot-survival test, passes, mark only Phase 5 Task 11 complete in `docs/tasks.md` and update this slice's completion status.
+12. Report results and stop. Do not begin Task 12 seed bootstrap.
 
 ## Expected Files
 
-- `prisma/schema.prisma`
 - `src/lib/rankingSetRepository.ts`
 - `src/lib/rankingSetRepository.test.ts`
 - `docs/tasks.md`
 - `docs/current-slice.md` for completion status
 
-Ignored generated Prisma client files may refresh through `prisma generate` but must not be edited manually or reported as source changes.
-
-No draft repository, snapshot serializer, import/export pipeline, editing operation, domain type, engine, application action, dependency, or UI file should change.
+No Prisma schema, generated client, draft repository, domain type, editing operation, import/export pipeline, snapshot serializer, scenario, dependency, or UI file should change.
 
 ## Automated Validation
 
 Run from the repository root:
 
 ```text
-npx prisma validate
-npx prisma generate
 npm test -- src/lib/rankingSetRepository.test.ts
 npx tsc --noEmit
 npm run lint -- src/lib/rankingSetRepository.ts src/lib/rankingSetRepository.test.ts
@@ -419,60 +234,68 @@ npm test
 npm run lint
 ```
 
-Then run the isolated real-database setup and focused test commands specified above.
+Run the isolated database path with the existing safe environment contract:
+
+```text
+$env:DATABASE_URL=$env:RANKING_SET_TEST_DATABASE_URL
+$env:RUN_RANKING_SET_DB_TESTS="1"
+npm test -- src/lib/rankingSetRepository.test.ts
+```
+
+Use equivalent environment syntax outside PowerShell.
 
 Expected result:
 
-- Prisma schema validation and client generation pass.
-- Focused fake-client repository tests pass with exact mapping, conflict, rollback, ownership, and query-shape assertions.
-- The opt-in real PostgreSQL complete/degraded create-load-list round trip and duplicate-name conflict pass.
-- TypeScript no-emit validation passes.
-- Focused lint passes without warnings.
-- The full Vitest suite passes; the real-database block is skipped unless explicitly enabled.
-- Repository-wide lint passes.
-- Existing Tasks 1 through 9 behavior and draft snapshot persistence remain unchanged.
-- No network, browser, build, migration, or manual-QA requirement is introduced beyond the explicitly authorized isolated Postgres validation.
+- focused fake-client tests pass for exact replacement, rollback, conflicts, not-found outcomes, deletion, and isolation;
+- the isolated PostgreSQL test passes for replacement and immutable draft-snapshot survival after mutable source deletion;
+- TypeScript no-emit passes;
+- focused lint passes without warnings;
+- the full Vitest suite passes, with the database block skipped unless explicitly enabled;
+- repository-wide lint passes;
+- existing create/load/list and Tasks 1 through 10 behavior remain unchanged.
 
 ## Acceptance Criteria
 
-- A valid complete canonical ranking set creates and loads without domain-value loss.
-- A safely degraded set preserves unknown team, null ADP, neutral tiers, and defaulted capability metadata.
-- Create is atomic and never leaves metadata or partial entries after failure.
-- Case-insensitive, outer-whitespace-insensitive duplicate names return an explicit domain-facing conflict.
-- Load reconstructs canonical order and returns null for a missing local ID.
-- Stored malformed or inconsistent values fail loudly at the repository mapping boundary rather than being repaired.
-- Summary listing returns `RankingSetSummary[]` without selecting entry rows.
-- Multiple ranking sets remain isolated even when player identities overlap or differ.
-- Domain callers receive no persistence-only records, row IDs, normalized names, JSON blobs, or Prisma types.
-- Prisma schema validation and generation pass.
-- Focused fake-client tests, isolated real Postgres round trip, TypeScript, focused lint, full tests, and repository-wide lint pass.
-- Only Phase 5 Task 10 is checked complete after all validation, including the real database test.
-- No dependency, draft snapshot, unrelated generated source, or unrelated documentation change is introduced.
+- A valid complete replacement persists under the same local ranking-set ID and reloads without domain-value loss.
+- Metadata, capability metadata, lifecycle values, and the entire canonical entry collection change all-or-nothing.
+- Invalid input, name conflict, mapping failure, or nested entry failure leaves the previously stored set unchanged.
+- Capability metadata inconsistent with canonical fallback values is rejected before persistence.
+- Missing replacement and deletion targets return explicit `not-found` results without leaking Prisma errors.
+- Deleting one set removes only that set and its owned entries; all other ranking sets remain unchanged.
+- Deleting a mutable source set leaves an existing draft and its immutable ranking snapshot unchanged and loadable in the isolated PostgreSQL test.
+- Replacement and deletion remain deterministic for canonical inputs and return no persistence-only fields.
+- Existing create, load, list, normalized-name conflict, strict mapping, and summary behavior continue to pass.
+- Focused tests, isolated PostgreSQL validation, TypeScript, focused lint, full tests, and repository-wide lint pass.
+- Only Phase 5 Task 11 is checked complete after all validation passes.
+- No schema, migration, dependency, generated source, snapshot, scenario, application-action, or UI change is introduced.
 
 ## Failure Handling
 
-- If the Prisma schema cannot express a documented uniqueness or ordering constraint, stop and report the mismatch rather than weakening it silently.
-- If stored tier-capability JSON cannot be parsed exactly, fail mapping rather than defaulting capabilities.
-- If a `P2002` target cannot be attributed to normalized name, rethrow it rather than reporting a false name conflict.
-- If a nested create or transaction fake cannot prove rollback, improve the fake transaction semantics rather than weakening the atomicity assertion.
-- If generated Prisma runtime does not expose the new model after schema generation, stop before claiming repository functionality.
-- If no explicitly isolated Postgres database is available, do not run schema push against another database and do not mark Task 10 complete; report the integration blocker.
-- If the real database round trip reveals schema/mapping disagreement, fix only this slice's persistence boundary and rerun all validation.
-- If unrelated tests fail, report them separately and do not broaden the slice.
+- If complete replacement cannot be expressed as one nested Prisma update inside the existing transaction boundary, stop rather than splitting metadata and entry writes.
+- If post-write reconstruction fails, let the in-transaction mapping error roll back replacement; do not return or repair a partial aggregate.
+- If a `P2002` cannot be attributed to `normalizedName`, rethrow it instead of reporting a false name conflict.
+- If an error is not exactly a `P2025` from replace/delete, do not report not-found.
+- If the fake cannot prove exact rollback, strengthen its transaction snapshot behavior rather than weakening the assertion.
+- If the schema or real database reveals any cascade from `RankingSet` to `Draft` or `RankingSnapshot`, stop and report the architecture violation.
+- If no explicitly isolated PostgreSQL database is available, do not use another database and do not mark Task 11 complete; report the missing integration validation.
+- If the isolated database schema is stale, apply the current schema only with its URL explicitly assigned as `DATABASE_URL`.
+- If unrelated tests fail, report them separately and do not broaden this slice.
 
 ## Follow-Up Slice
 
-Promote Phase 5 Task 11: atomically replace and delete persisted ranking sets while preserving identity, validating complete replacements, mapping missing/conflict outcomes, and proving draft snapshots remain unaffected.
+Promote Phase 5 Task 12: bootstrap the existing seed rankings as one deterministic managed ranking set through the supported conversion and repository path, with idempotent initialization and no duplicate set on repeated startup.
 
 ## Documentation Recommendation
 
-After Task 10 is implemented and a deployment database workflow is chosen, establish a checked-in Prisma migration baseline and document local/CI database setup. Do not make an ad hoc schema-push integration command the production migration policy.
+No architecture or decision update is expected for Task 11 because the mutable-set lifecycle and immutable-snapshot boundary are already documented. After implementation, update only Task 11 completion and this slice status unless implementation reveals a new durable decision.
+
+The existing recommendation to establish a checked-in Prisma migration baseline and document local/CI database setup remains open before production deployment; do not fold it into this slice.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It adds one complete create/load/list repository boundary without replacement, deletion, application orchestration, or UI.
-- Executable by a lower-reasoning pass: yes. Schema, mapping, transaction, conflict, query, integration setup, and validation behavior are explicit.
-- Avoids unnecessary architecture changes: yes. It follows the existing monolith, Prisma adapter, injected-client, and domain-mapping conventions without a generic repository layer.
-- Blast radius reasonable: yes. Five source/document files are expected; generated Prisma output remains ignored.
-- Review/revert comfort: yes. New tables and one isolated repository are additive and do not alter draft snapshot storage.
-- Observable/testable acceptance criteria: yes. Exact domain round trips, conflict results, rollback, summary select shape, and real Postgres behavior are directly testable.
+- Smallest meaningful increment: yes. It completes only repository replacement and deletion, leaving seed bootstrap and application workflows for later tasks.
+- Executable by a lower-reasoning pass: yes. APIs, result shapes, transaction order, error mapping, fake behavior, database proof, and validation commands are explicit.
+- Avoids unnecessary architecture changes: yes. It extends the existing repository and transaction seams without changing schema boundaries or adding abstractions.
+- Blast radius reasonable: yes. Four source/document files are expected.
+- Review/revert comfort: yes. The change is confined to two repository files plus task/status documentation and has no migration.
+- Observable/testable acceptance criteria: yes. Exact reloads, rollback, stable outcomes, isolation, and real snapshot survival are directly asserted.
