@@ -23,6 +23,26 @@ export type CreateRankingSetResult =
   | Readonly<{ ok: true; rankingSet: RankingSet }>
   | Readonly<{ ok: false; errors: readonly CreateRankingSetError[] }>;
 
+export type ReplaceRankingSetError = Readonly<{
+  code: "invalid-ranking-set" | "not-found" | "name-conflict";
+  message: string;
+  path?: string;
+}>;
+
+export type ReplaceRankingSetResult =
+  | Readonly<{ ok: true; rankingSet: RankingSet }>
+  | Readonly<{ ok: false; errors: readonly ReplaceRankingSetError[] }>;
+
+export type DeleteRankingSetError = Readonly<{
+  code: "not-found";
+  message: string;
+  path: "id";
+}>;
+
+export type DeleteRankingSetResult =
+  | Readonly<{ ok: true; id: string }>
+  | Readonly<{ ok: false; errors: readonly DeleteRankingSetError[] }>;
+
 export class RankingSetRepositoryMappingError extends Error {
   readonly path: string;
 
@@ -99,6 +119,25 @@ type RankingSetCreateData = Omit<
   entries: { create: RankingSetEntryCreateData[] };
 };
 
+type RankingSetUpdateData = Omit<
+  RankingSetCreateData,
+  | "id"
+  | "sourceFormatId"
+  | "sourceFormatVersion"
+  | "sourceLabel"
+  | "sourceImportedAt"
+  | "entries"
+> & {
+  sourceFormatId: string | null;
+  sourceFormatVersion: number | null;
+  sourceLabel: string | null;
+  sourceImportedAt: Date | null;
+  entries: {
+    deleteMany: Record<string, never>;
+    create: RankingSetEntryCreateData[];
+  };
+};
+
 type FullRecordInclude = {
   entries: {
     orderBy: { overallRank: "asc" };
@@ -128,6 +167,15 @@ type RankingSetRepositoryDb = {
       data: RankingSetCreateData;
       include: FullRecordInclude;
     }): Promise<PersistedRankingSetRecord>;
+    update(args: {
+      where: { id: string };
+      data: RankingSetUpdateData;
+      include: FullRecordInclude;
+    }): Promise<PersistedRankingSetRecord>;
+    delete(args: {
+      where: { id: string };
+      select: { id: true };
+    }): Promise<{ id: string }>;
     findUnique(args: {
       where: { id: string };
       include: FullRecordInclude;
@@ -219,6 +267,73 @@ export function createRankingSetRepository(db: RankingSetRepositoryDb) {
       }
     },
 
+    async replaceRankingSet(
+      rankingSet: RankingSet,
+    ): Promise<ReplaceRankingSetResult> {
+      const validation = validateRankingSet(rankingSet);
+
+      if (!validation.ok) {
+        return {
+          ok: false,
+          errors: validation.errors.map((domainError) => ({
+            code: "invalid-ranking-set",
+            message: domainError.message,
+            path: domainError.path,
+          })),
+        };
+      }
+
+      try {
+        const replaced = await runRepositoryTransaction(db, async (tx) => {
+          const record = await tx.rankingSet.update({
+            where: { id: validation.rankingSet.id },
+            data: mapRankingSetToUpdateData(validation.rankingSet),
+            include: fullRecordInclude,
+          });
+
+          return mapRecordToRankingSet(record);
+        });
+
+        return { ok: true, rankingSet: replaced };
+      } catch (error) {
+        if (isNormalizedNameConflict(error)) {
+          return {
+            ok: false,
+            errors: [
+              {
+                code: "name-conflict",
+                message: "A ranking set with this name already exists.",
+                path: "name",
+              },
+            ],
+          };
+        }
+
+        if (isPrismaErrorCode(error, "P2025")) {
+          return notFoundResult();
+        }
+
+        throw error;
+      }
+    },
+
+    async deleteRankingSetById(id: string): Promise<DeleteRankingSetResult> {
+      try {
+        const deleted = await db.rankingSet.delete({
+          where: { id },
+          select: { id: true },
+        });
+
+        return { ok: true, id: deleted.id };
+      } catch (error) {
+        if (isPrismaErrorCode(error, "P2025")) {
+          return notFoundResult();
+        }
+
+        throw error;
+      }
+    },
+
     async getRankingSetById(id: string): Promise<RankingSet | null> {
       const record = await db.rankingSet.findUnique({
         where: { id },
@@ -253,6 +368,22 @@ export async function getRankingSetById(
   return createRankingSetRepository(
     getPrismaClient() as unknown as RankingSetRepositoryDb,
   ).getRankingSetById(id);
+}
+
+export async function replaceRankingSet(
+  rankingSet: RankingSet,
+): Promise<ReplaceRankingSetResult> {
+  return createRankingSetRepository(
+    getPrismaClient() as unknown as RankingSetRepositoryDb,
+  ).replaceRankingSet(rankingSet);
+}
+
+export async function deleteRankingSetById(
+  id: string,
+): Promise<DeleteRankingSetResult> {
+  return createRankingSetRepository(
+    getPrismaClient() as unknown as RankingSetRepositoryDb,
+  ).deleteRankingSetById(id);
 }
 
 export async function listRankingSetSummaries(): Promise<RankingSetSummary[]> {
@@ -302,6 +433,49 @@ function mapRankingSetToCreateData(rankingSet: RankingSet): RankingSetCreateData
     },
     createdAt: cloneDate(rankingSet.createdAt),
     updatedAt: cloneDate(rankingSet.updatedAt),
+  };
+}
+
+function mapRankingSetToUpdateData(rankingSet: RankingSet): RankingSetUpdateData {
+  return {
+    name: rankingSet.name,
+    normalizedName: normalizeName(rankingSet.name),
+    sourceKind: mapSourceKindToPersisted(rankingSet.source.kind),
+    sourceFormatId: rankingSet.source.formatId ?? null,
+    sourceFormatVersion: rankingSet.source.formatVersion ?? null,
+    sourceLabel: rankingSet.source.label ?? null,
+    sourceImportedAt:
+      rankingSet.source.importedAt === undefined
+        ? null
+        : cloneDate(rankingSet.source.importedAt),
+    teamCapability: mapAvailabilityToPersisted(rankingSet.capabilities.team),
+    playerIdentityCapability: mapIdentityToPersisted(
+      rankingSet.capabilities.playerIdentity,
+    ),
+    overallOrderCapability: mapOrderToPersisted(
+      rankingSet.capabilities.overallOrder,
+    ),
+    adpCapability: mapAvailabilityToPersisted(rankingSet.capabilities.adp),
+    tierCapabilities: mapTierCapabilitiesToJson(rankingSet.capabilities.tiers),
+    entries: {
+      deleteMany: {},
+      create: rankingSet.entries.map(mapEntryToCreateData),
+    },
+    createdAt: cloneDate(rankingSet.createdAt),
+    updatedAt: cloneDate(rankingSet.updatedAt),
+  };
+}
+
+function mapEntryToCreateData(entry: RankingEntry): RankingSetEntryCreateData {
+  return {
+    playerId: entry.player.id,
+    playerName: entry.player.name,
+    team: entry.player.team,
+    position: mapPositionToPersisted(entry.player.position),
+    overallRank: entry.overallRank,
+    positionRank: entry.positionRank,
+    tier: entry.tier,
+    adpRank: entry.adpRank,
   };
 }
 
@@ -627,6 +801,23 @@ function isNormalizedNameConflict(error: unknown): boolean {
   // Prisma's PostgreSQL driver adapter can omit meta.target from P2002 errors,
   // while retaining the conflicting field in the generated error message.
   return message.includes("normalizedName");
+}
+
+function isPrismaErrorCode(error: unknown, code: string): boolean {
+  return asRecord(error)?.code === code;
+}
+
+function notFoundResult() {
+  return {
+    ok: false,
+    errors: [
+      {
+        code: "not-found",
+        message: "Ranking set was not found.",
+        path: "id",
+      },
+    ],
+  } as const;
 }
 
 async function runRepositoryTransaction<T>(

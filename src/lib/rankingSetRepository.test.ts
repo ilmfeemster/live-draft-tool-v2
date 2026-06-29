@@ -1,6 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient, type Prisma } from "@/generated/prisma/client";
 import {
   createRankingSetRepository,
 } from "@/lib/rankingSetRepository";
@@ -198,6 +198,209 @@ describe("ranking set repository", () => {
     expect(fake.transactionCount).toBe(1);
   });
 
+  it("atomically replaces every mutable value while preserving local identity", async () => {
+    const fake = createFakeRankingSetDb();
+    const repository = createRankingSetRepository(fake.db);
+    const source = createCompleteSet();
+    const replacement = createDegradedSet({
+      id: source.id,
+      name: "  Replacement Rankings  ",
+      createdAt: source.createdAt,
+      updatedAt: new Date("2026-06-29T12:00:00.000Z"),
+    });
+    await repository.createRankingSet(source);
+
+    const result = await repository.replaceRankingSet(replacement);
+    const firstLoad = await repository.getRankingSetById(source.id);
+    const secondLoad = await repository.getRankingSetById(source.id);
+
+    expect(result).toEqual({ ok: true, rankingSet: replacement });
+    expect(firstLoad).toEqual(replacement);
+    expect(secondLoad).toEqual(replacement);
+    expect(firstLoad?.entries.map((entry) => entry.overallRank)).toEqual([1, 2]);
+    expect(fake.records[0]).toMatchObject({
+      id: source.id,
+      name: "  Replacement Rankings  ",
+      normalizedName: "replacement rankings",
+      sourceKind: "MANUAL",
+      sourceFormatId: null,
+      sourceFormatVersion: null,
+      sourceLabel: null,
+      sourceImportedAt: null,
+      teamCapability: "NONE",
+      adpCapability: "NONE",
+    });
+    expect(fake.updateCount).toBe(1);
+    expect(fake.transactionCount).toBe(2);
+    expect(result.ok && result.rankingSet).not.toHaveProperty("normalizedName");
+  });
+
+  it("rejects invalid replacement before persistence and preserves the stored set", async () => {
+    const fake = createFakeRankingSetDb();
+    const repository = createRankingSetRepository(fake.db);
+    const source = createCompleteSet();
+    await repository.createRankingSet(source);
+
+    const result = await repository.replaceRankingSet(
+      createCompleteSet({
+        id: source.id,
+        capabilities: createCapabilities({ team: "none" }),
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      errors: [{ code: "invalid-ranking-set", path: "capabilities.team" }],
+    });
+    expect(fake.updateCount).toBe(0);
+    expect(fake.transactionCount).toBe(1);
+    await expect(repository.getRankingSetById(source.id)).resolves.toEqual(source);
+  });
+
+  it("rolls back the exact previous set after nested replacement failure", async () => {
+    const fake = createFakeRankingSetDb();
+    const repository = createRankingSetRepository(fake.db);
+    const source = createCompleteSet();
+    await repository.createRankingSet(source);
+    fake.failEntryIndex = 1;
+
+    await expect(
+      repository.replaceRankingSet(
+        createDegradedSet({
+          id: source.id,
+          name: "Failed Replacement",
+          createdAt: source.createdAt,
+        }),
+      ),
+    ).rejects.toThrow("simulated nested entry failure");
+
+    await expect(repository.getRankingSetById(source.id)).resolves.toEqual(source);
+    expect(fake.transactionCount).toBe(2);
+  });
+
+  it("rolls back replacement when persisted reconstruction fails before commit", async () => {
+    const fake = createFakeRankingSetDb();
+    const repository = createRankingSetRepository(fake.db);
+    const source = createCompleteSet();
+    await repository.createRankingSet(source);
+    fake.corruptNextUpdateResult = true;
+
+    await expect(
+      repository.replaceRankingSet(
+        createDegradedSet({
+          id: source.id,
+          name: "Malformed Replacement",
+          createdAt: source.createdAt,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "RankingSetRepositoryMappingError",
+      path: "source.kind",
+    });
+
+    await expect(repository.getRankingSetById(source.id)).resolves.toEqual(source);
+  });
+
+  it("returns explicit replacement conflicts and not-found outcomes without mutation", async () => {
+    const fake = createFakeRankingSetDb();
+    const repository = createRankingSetRepository(fake.db);
+    const first = createCompleteSet();
+    const second = createDegradedSet({
+      id: "ranking-set-2",
+      name: "Second Rankings",
+    });
+    await repository.createRankingSet(first);
+    await repository.createRankingSet(second);
+
+    const conflict = await repository.replaceRankingSet({
+      ...first,
+      name: " second RANKINGS ",
+      updatedAt: new Date("2026-06-29T12:00:00.000Z"),
+    });
+    const missing = await repository.replaceRankingSet(
+      createCompleteSet({
+        id: "missing",
+        name: "Missing Rankings",
+      }),
+    );
+
+    expect(conflict).toEqual({
+      ok: false,
+      errors: [
+        {
+          code: "name-conflict",
+          message: "A ranking set with this name already exists.",
+          path: "name",
+        },
+      ],
+    });
+    expect(missing).toEqual({
+      ok: false,
+      errors: [
+        {
+          code: "not-found",
+          message: "Ranking set was not found.",
+          path: "id",
+        },
+      ],
+    });
+    await expect(repository.getRankingSetById(first.id)).resolves.toEqual(first);
+    await expect(repository.getRankingSetById(second.id)).resolves.toEqual(second);
+  });
+
+  it("rethrows unrelated replacement and deletion persistence failures", async () => {
+    const fake = createFakeRankingSetDb();
+    const repository = createRankingSetRepository(fake.db);
+    const source = createCompleteSet();
+    await repository.createRankingSet(source);
+
+    fake.nextError = prismaError("P2002", ["id"]);
+    await expect(repository.replaceRankingSet(source)).rejects.toMatchObject({
+      code: "P2002",
+    });
+
+    fake.nextError = new Error("delete unavailable");
+    await expect(repository.deleteRankingSetById(source.id)).rejects.toThrow(
+      "delete unavailable",
+    );
+    await expect(repository.getRankingSetById(source.id)).resolves.toEqual(source);
+  });
+
+  it("deletes only the targeted set and returns explicit missing outcomes", async () => {
+    const fake = createFakeRankingSetDb();
+    const repository = createRankingSetRepository(fake.db);
+    const first = createCompleteSet();
+    const second = createCompleteSet({
+      id: "ranking-set-2",
+      name: "Second Rankings",
+      entries: first.entries.map((entry) => ({
+        ...entry,
+        player: { ...entry.player },
+      })),
+    });
+    await repository.createRankingSet(first);
+    await repository.createRankingSet(second);
+
+    await expect(repository.deleteRankingSetById(first.id)).resolves.toEqual({
+      ok: true,
+      id: first.id,
+    });
+    await expect(repository.getRankingSetById(first.id)).resolves.toBeNull();
+    await expect(repository.getRankingSetById(second.id)).resolves.toEqual(second);
+    await expect(repository.deleteRankingSetById(first.id)).resolves.toEqual({
+      ok: false,
+      errors: [
+        {
+          code: "not-found",
+          message: "Ranking set was not found.",
+          path: "id",
+        },
+      ],
+    });
+    expect(fake.records.map((record) => record.id)).toEqual([second.id]);
+    expect(fake.deleteCount).toBe(2);
+  });
+
   it("returns null for a missing local identity", async () => {
     const repository = createRankingSetRepository(createFakeRankingSetDb().db);
 
@@ -322,6 +525,8 @@ describe.runIf(runDatabaseTests)("ranking set repository PostgreSQL", () => {
   let prisma: PrismaClient;
   let repository: ReturnType<typeof createRankingSetRepository>;
   const testIds = ["integration-complete", "integration-degraded"];
+  const testSnapshotId = "integration-ranking-snapshot";
+  const testDraftId = "integration-ranking-draft";
 
   beforeAll(async () => {
     prisma = new PrismaClient({
@@ -330,15 +535,23 @@ describe.runIf(runDatabaseTests)("ranking set repository PostgreSQL", () => {
     repository = createRankingSetRepository(
       prisma as unknown as Parameters<typeof createRankingSetRepository>[0],
     );
+    await prisma.draft.deleteMany({ where: { id: testDraftId } });
+    await prisma.rankingSnapshot.deleteMany({
+      where: { id: testSnapshotId },
+    });
     await prisma.rankingSet.deleteMany({ where: { id: { in: testIds } } });
   });
 
   afterAll(async () => {
+    await prisma.draft.deleteMany({ where: { id: testDraftId } });
+    await prisma.rankingSnapshot.deleteMany({
+      where: { id: testSnapshotId },
+    });
     await prisma.rankingSet.deleteMany({ where: { id: { in: testIds } } });
     await prisma.$disconnect();
   });
 
-  it("round-trips complete and degraded sets with conflicts and summaries", async () => {
+  it("replaces and deletes sets without changing an independent draft snapshot", async () => {
     const complete = createCompleteSet({
       id: testIds[0],
       name: "Integration Complete",
@@ -374,6 +587,94 @@ describe.runIf(runDatabaseTests)("ranking set repository PostgreSQL", () => {
         expect.objectContaining({ id: degraded.id, entryCount: 2 }),
       ]),
     );
+
+    const replacementConflict = await repository.replaceRankingSet({
+      ...complete,
+      name: " integration DEGRADED ",
+      updatedAt: new Date("2026-06-29T12:00:00.000Z"),
+    });
+    expect(replacementConflict).toMatchObject({
+      ok: false,
+      errors: [{ code: "name-conflict" }],
+    });
+    await expect(
+      repository.replaceRankingSet(
+        createCompleteSet({
+          id: "integration-missing",
+          name: "Integration Missing",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      errors: [{ code: "not-found" }],
+    });
+
+    const replacement = createDegradedSet({
+      id: complete.id,
+      name: "Integration Replacement",
+      createdAt: complete.createdAt,
+      updatedAt: new Date("2026-06-29T12:00:00.000Z"),
+    });
+    await expect(repository.replaceRankingSet(replacement)).resolves.toEqual({
+      ok: true,
+      rankingSet: replacement,
+    });
+    await expect(repository.getRankingSetById(complete.id)).resolves.toEqual(
+      replacement,
+    );
+    await expect(repository.getRankingSetById(degraded.id)).resolves.toEqual(
+      degraded,
+    );
+
+    const snapshotRankings = JSON.parse(
+      JSON.stringify(complete.entries),
+    ) as Prisma.InputJsonValue;
+    await prisma.rankingSnapshot.create({
+      data: {
+        id: testSnapshotId,
+        rankings: snapshotRankings,
+      },
+    });
+    await prisma.draft.create({
+      data: {
+        id: testDraftId,
+        name: "Ranking deletion integration draft",
+        leagueSettings: { integrationFixture: true },
+        userTeamId: "team-1",
+        rankingSnapshotId: testSnapshotId,
+      },
+    });
+
+    await expect(repository.deleteRankingSetById(complete.id)).resolves.toEqual({
+      ok: true,
+      id: complete.id,
+    });
+    await expect(repository.getRankingSetById(complete.id)).resolves.toBeNull();
+    await expect(repository.getRankingSetById(degraded.id)).resolves.toEqual(
+      degraded,
+    );
+
+    const persistedDraft = await prisma.draft.findUnique({
+      where: { id: testDraftId },
+      include: { rankingSnapshot: true },
+    });
+    expect(persistedDraft).toMatchObject({
+      id: testDraftId,
+      rankingSnapshotId: testSnapshotId,
+      rankingSnapshot: { id: testSnapshotId },
+    });
+    expect(persistedDraft?.rankingSnapshot.rankings).toEqual(snapshotRankings);
+
+    await expect(repository.deleteRankingSetById(complete.id)).resolves.toEqual({
+      ok: false,
+      errors: [
+        {
+          code: "not-found",
+          message: "Ranking set was not found.",
+          path: "id",
+        },
+      ],
+    });
   });
 });
 
@@ -384,8 +685,11 @@ function createFakeRankingSetDb() {
   const state = {
     records: [] as FakeRecord[],
     createCount: 0,
+    updateCount: 0,
+    deleteCount: 0,
     transactionCount: 0,
     failEntryIndex: undefined as number | undefined,
+    corruptNextUpdateResult: false,
     nextError: undefined as unknown,
     summarySelectedEntries: false,
     summarySelectedCount: false,
@@ -452,6 +756,99 @@ function createFakeRankingSetDb() {
       return cloneRecord(record, true);
     },
 
+    async update(args) {
+      state.updateCount += 1;
+
+      if (state.nextError) {
+        const error = state.nextError;
+        state.nextError = undefined;
+        throw error;
+      }
+
+      const recordIndex = state.records.findIndex(
+        (candidate) => candidate.id === args.where.id,
+      );
+
+      if (recordIndex < 0) {
+        throw prismaError("P2025", []);
+      }
+
+      if (
+        state.records.some(
+          (record, index) =>
+            index !== recordIndex &&
+            record.normalizedName === args.data.normalizedName,
+        )
+      ) {
+        throw prismaError("P2002", ["normalizedName"]);
+      }
+
+      const record: FakeRecord = {
+        id: args.where.id,
+        name: args.data.name,
+        normalizedName: args.data.normalizedName,
+        sourceKind: args.data.sourceKind,
+        sourceFormatId: args.data.sourceFormatId,
+        sourceFormatVersion: args.data.sourceFormatVersion,
+        sourceLabel: args.data.sourceLabel,
+        sourceImportedAt: args.data.sourceImportedAt
+          ? new Date(args.data.sourceImportedAt)
+          : null,
+        teamCapability: args.data.teamCapability,
+        playerIdentityCapability: args.data.playerIdentityCapability,
+        overallOrderCapability: args.data.overallOrderCapability,
+        adpCapability: args.data.adpCapability,
+        tierCapabilities: structuredClone(args.data.tierCapabilities),
+        entries: [],
+        createdAt: new Date(args.data.createdAt),
+        updatedAt: new Date(args.data.updatedAt),
+      };
+      state.records[recordIndex] = record;
+
+      for (let index = 0; index < args.data.entries.create.length; index += 1) {
+        if (state.failEntryIndex === index) {
+          throw new Error("simulated nested entry failure");
+        }
+
+        const entry = args.data.entries.create[index];
+        record.entries.push({
+          id: `${record.id}-replacement-entry-${index + 1}`,
+          rankingSetId: record.id,
+          ...entry,
+        });
+      }
+
+      const result = cloneRecord(record, true);
+
+      if (state.corruptNextUpdateResult) {
+        state.corruptNextUpdateResult = false;
+        result.sourceKind = "PROVIDER" as FakeRecord["sourceKind"];
+      }
+
+      return result;
+    },
+
+    async delete(args) {
+      state.deleteCount += 1;
+
+      if (state.nextError) {
+        const error = state.nextError;
+        state.nextError = undefined;
+        throw error;
+      }
+
+      const recordIndex = state.records.findIndex(
+        (candidate) => candidate.id === args.where.id,
+      );
+
+      if (recordIndex < 0) {
+        throw prismaError("P2025", []);
+      }
+
+      const [deleted] = state.records.splice(recordIndex, 1);
+      return { id: deleted.id };
+    },
+
     async findUnique(args) {
       const record = state.records.find(
         (candidate) => candidate.id === args.where.id,
@@ -512,6 +909,12 @@ function createFakeRankingSetDb() {
     get createCount() {
       return state.createCount;
     },
+    get updateCount() {
+      return state.updateCount;
+    },
+    get deleteCount() {
+      return state.deleteCount;
+    },
     get transactionCount() {
       return state.transactionCount;
     },
@@ -526,6 +929,9 @@ function createFakeRankingSetDb() {
     },
     set failEntryIndex(value: number | undefined) {
       state.failEntryIndex = value;
+    },
+    set corruptNextUpdateResult(value: boolean) {
+      state.corruptNextUpdateResult = value;
     },
     set nextError(value: unknown) {
       state.nextError = value;

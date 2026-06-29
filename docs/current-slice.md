@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting implementation approval. Phase 5 Tasks 1 through 10 are complete. This slice promotes only Task 11.
+Implemented locally, with required isolated PostgreSQL validation blocked. The repository replace/delete APIs, fake-client rollback and isolation coverage, and opt-in draft-snapshot survival integration test are implemented. Focused validation passes 23 tests with one database-only skip; TypeScript no-emit and focused lint pass. The normal full suite passes 37 files and 524 tests with that same intentional skip, and repository-wide lint passes. `RANKING_SET_TEST_DATABASE_URL` is not available in the current shell or standard local environment file, so the real database test was not run and Phase 5 Task 11 remains incomplete.
 
 ## Source Context
 
