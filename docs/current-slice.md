@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting approval. No implementation has started.
+Complete. Canonical ranking sets now support pure rename, player correction, single-player reorder, complete position-tier assignment, and individual source-tier update intents. Successful edits preserve local identity/source/creation metadata, own new nested values, update lifecycle and affected capabilities, derive canonical ranks, and pass whole-set validation; failed edits return structured errors without mutating the source set. Validation passed with 38 focused editing tests, 501 full-suite tests, TypeScript checking, and focused and repository-wide linting.
 
 ## Source Context
 

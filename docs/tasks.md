@@ -425,7 +425,7 @@ Serialize a valid domain ranking set into one deterministic, lossless, versioned
 
 ## Task 9 - Add Pure Ranking Set Editing and Tier Operations
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
