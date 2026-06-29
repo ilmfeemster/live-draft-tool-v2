@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting approval. No implementation has started.
+Implementation complete; Task 10 completion is blocked only by the required real PostgreSQL validation. The Prisma schema, repository, strict mapping, transactional create, ordered load, lightweight summaries, conflict handling, focused fake-client coverage, TypeScript, and lint all pass. The full suite passes 515 tests with one intentional skip: the opt-in PostgreSQL round trip. `RANKING_SET_TEST_DATABASE_URL` is not configured, so no isolated database was available for safe schema push and integration execution. Task 10 remains unchecked until that test passes.
 
 ## Source Context
 

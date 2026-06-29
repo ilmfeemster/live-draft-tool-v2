@@ -13,6 +13,39 @@ enum DraftStatus {
   COMPLETE
 }
 
+enum RankingSourceKind {
+  SEED
+  EXTERNAL
+  CANONICAL
+  MANUAL
+}
+
+enum RankingDataAvailability {
+  COMPLETE
+  PARTIAL
+  NONE
+}
+
+enum RankingPlayerIdentityCapability {
+  PROVIDED
+  GENERATED
+  MIXED
+}
+
+enum RankingOverallOrderCapability {
+  EXPLICIT
+  ROW_DERIVED
+}
+
+enum RankingPosition {
+  QB
+  RB
+  WR
+  TE
+  DST
+  K
+}
+
 model Draft {
   id                String          @id @default(cuid())
   name              String?
@@ -43,4 +76,44 @@ model DraftPick {
 
   @@unique([draftId, pickNumber])
   @@index([draftId])
+}
+
+model RankingSet {
+  id                       String                          @id
+  name                     String
+  normalizedName           String                          @unique
+  sourceKind               RankingSourceKind
+  sourceFormatId           String?
+  sourceFormatVersion      Int?
+  sourceLabel              String?
+  sourceImportedAt         DateTime?
+  teamCapability           RankingDataAvailability
+  playerIdentityCapability RankingPlayerIdentityCapability
+  overallOrderCapability   RankingOverallOrderCapability
+  adpCapability            RankingDataAvailability
+  tierCapabilities         Json
+  entries                  RankingSetEntry[]
+  createdAt                DateTime
+  updatedAt                DateTime
+
+  @@index([updatedAt])
+}
+
+model RankingSetEntry {
+  id           String          @id @default(cuid())
+  rankingSetId String
+  rankingSet   RankingSet      @relation(fields: [rankingSetId], references: [id], onDelete: Cascade)
+  playerId     String
+  playerName   String
+  team         String
+  position     RankingPosition
+  overallRank  Int
+  positionRank Int
+  tier         Int
+  adpRank      Float?
+
+  @@unique([rankingSetId, playerId])
+  @@unique([rankingSetId, overallRank])
+  @@unique([rankingSetId, position, positionRank])
+  @@index([rankingSetId, overallRank])
 }
