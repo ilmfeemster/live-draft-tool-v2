@@ -42,6 +42,195 @@ describe("validateRankingSet", () => {
     });
   });
 
+  it("accepts source-overall tier metadata without position-local progression", () => {
+    const rankingSet = createCompleteRankingSet({
+      tierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: [
+            { playerId: "qb-1", overallRank: 1, tier: 2 },
+            { playerId: "rb-1", overallRank: 2, tier: 1 },
+            { playerId: "qb-2", overallRank: 3, tier: 1 },
+          ],
+        },
+        recommendation: {
+          QB: "recommendation-position",
+          RB: "recommendation-position",
+        },
+      },
+    });
+
+    expectSuccess(validateRankingSet(rankingSet));
+  });
+
+  it("rejects malformed, duplicate, and unknown source-tier references", () => {
+    const result = validateRankingSet(
+      createCompleteRankingSet({
+        tierSemantics: {
+          source: {
+            kind: "source-overall",
+            values: [
+              { playerId: " ", overallRank: 1, tier: 1 },
+              { playerId: "qb-1", overallRank: 0, tier: 0 },
+              { playerId: "qb-1", overallRank: 1, tier: 1 },
+              { playerId: "qb-1", overallRank: 1, tier: 2 },
+              { playerId: "missing", overallRank: 4, tier: 1 },
+            ],
+          },
+          recommendation: {
+            QB: "recommendation-position",
+            RB: "recommendation-position",
+          },
+        },
+      }),
+    );
+
+    expectFailure(result);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "invalid-capability",
+          path: "tierSemantics.source.values[0].playerId",
+        }),
+        expect.objectContaining({
+          code: "invalid-capability",
+          path: "tierSemantics.source.values[1].overallRank",
+        }),
+        expect.objectContaining({
+          code: "invalid-tier",
+          path: "tierSemantics.source.values[1].tier",
+        }),
+        expect.objectContaining({
+          code: "invalid-capability",
+          path: "tierSemantics.source.values[3]",
+        }),
+        expect.objectContaining({
+          code: "invalid-capability",
+          path: "tierSemantics.source.values[4].playerId",
+        }),
+      ]),
+    );
+  });
+
+  it("accepts valid neutral recommendation metadata", () => {
+    const rankingSet = {
+      ...createDegradedRankingSet(),
+      tierSemantics: {
+        source: { kind: "none" },
+        recommendation: {
+          QB: "neutral",
+          RB: "neutral",
+        },
+      },
+    } satisfies RankingSet;
+
+    expectSuccess(validateRankingSet(rankingSet));
+  });
+
+  it("rejects neutral recommendation metadata with non-neutral entry tiers", () => {
+    const result = validateRankingSet(
+      createCompleteRankingSet({
+        capabilities: createCapabilities({
+          tiers: { QB: "defaulted-neutral", RB: "source" },
+        }),
+        tierSemantics: {
+          source: { kind: "none" },
+          recommendation: {
+            QB: "neutral",
+            RB: "recommendation-position",
+          },
+        },
+      }),
+    );
+
+    expectError(result, "invalid-tier", "tierSemantics.recommendation.QB");
+  });
+
+  it("accepts recommendation-position metadata for complete non-decreasing tiers", () => {
+    const rankingSet = createCompleteRankingSet({
+      tierSemantics: {
+        source: { kind: "none" },
+        recommendation: {
+          QB: "recommendation-position",
+          RB: "recommendation-position",
+        },
+      },
+    });
+
+    expectSuccess(validateRankingSet(rankingSet));
+  });
+
+  it("rejects recommendation-position metadata when entry tiers decrease", () => {
+    const entries = [...createCompleteRankingSet().entries];
+    entries[0] = { ...entries[0], tier: 2 };
+    entries[2] = { ...entries[2], tier: 1 };
+
+    expectError(
+      validateRankingSet(
+        createCompleteRankingSet({
+          entries,
+          tierSemantics: {
+            source: { kind: "none" },
+            recommendation: {
+              QB: "recommendation-position",
+              RB: "recommendation-position",
+            },
+          },
+        }),
+      ),
+      "invalid-tier",
+      "entries[2].tier",
+    );
+  });
+
+  it("loads legacy ambiguous source tiers only with neutral recommendation metadata", () => {
+    const legacyNeutral = {
+      ...createDegradedRankingSet(),
+      tierSemantics: {
+        source: {
+          kind: "legacy-ambiguous",
+          values: [
+            { playerId: "generated-qb", overallRank: 1, tier: 3 },
+            { playerId: "generated-rb", overallRank: 2, tier: 1 },
+          ],
+        },
+        recommendation: {
+          QB: "neutral",
+          RB: "neutral",
+        },
+      },
+    } satisfies RankingSet;
+
+    expectSuccess(validateRankingSet(legacyNeutral));
+
+    const legacyRecommendationEligible = createCompleteRankingSet({
+      tierSemantics: {
+        source: {
+          kind: "legacy-ambiguous",
+          values: [
+            { playerId: "qb-1", overallRank: 1, tier: 1 },
+            { playerId: "rb-1", overallRank: 2, tier: 1 },
+            { playerId: "qb-2", overallRank: 3, tier: 2 },
+          ],
+        },
+        recommendation: {
+          QB: "recommendation-position",
+          RB: "recommendation-position",
+        },
+      },
+    });
+
+    expectError(
+      validateRankingSet(legacyRecommendationEligible),
+      "invalid-capability",
+      "tierSemantics.recommendation.QB",
+    );
+  });
+
+  it("continues to accept ranking sets without tier semantics metadata", () => {
+    expectSuccess(validateRankingSet(createCompleteRankingSet()));
+  });
+
   it("accepts partial team and ADP availability", () => {
     const rankingSet = createCompleteRankingSet({
       entries: [

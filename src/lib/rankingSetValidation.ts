@@ -3,7 +3,9 @@ import {
   NEUTRAL_TIER,
   UNKNOWN_TEAM,
   type RankingDataAvailability,
+  type RankingRecommendationTierSemantics,
   type RankingSet,
+  type RankingSourceTierSemantics,
   type RankingTierCapability,
 } from "@/types/rankings";
 
@@ -40,6 +42,15 @@ const AVAILABILITY_VALUES = ["complete", "partial", "none"] as const;
 const IDENTITY_VALUES = ["provided", "generated", "mixed"] as const;
 const ORDER_VALUES = ["explicit", "row-derived"] as const;
 const TIER_VALUES = ["source", "defaulted-neutral"] as const;
+const SOURCE_TIER_SEMANTIC_VALUES = [
+  "none",
+  "source-overall",
+  "legacy-ambiguous",
+] as const;
+const RECOMMENDATION_TIER_SEMANTIC_VALUES = [
+  "neutral",
+  "recommendation-position",
+] as const;
 
 export function validateRankingSet(
   rankingSet: RankingSet,
@@ -102,6 +113,12 @@ export function validateRankingSet(
 
   const entryFacts = entries ? validateEntries(entries, errors) : null;
   validateCapabilities(record.capabilities, entryFacts, errors);
+  validateTierSemantics(
+    record.tierSemantics,
+    entryFacts,
+    record.capabilities,
+    errors,
+  );
 
   return errors.length === 0
     ? { ok: true, rankingSet }
@@ -163,6 +180,7 @@ type EntryFacts = {
   adpRanks: Array<number | null>;
   tiersByPosition: Map<Position, number[]>;
   representedPositions: Set<Position>;
+  entriesByPlayerId: Map<string, { overallRank: number }>;
   allTeamsValid: boolean;
   allAdpRanksValid: boolean;
 };
@@ -178,6 +196,10 @@ function validateEntries(
   const adpRanks: Array<number | null> = [];
   const tiersByPosition = new Map<Position, number[]>();
   const representedPositions = new Set<Position>();
+  const entriesByPlayerId = new Map<
+    string,
+    { overallRank: number }
+  >();
   let allTeamsValid = true;
   let allAdpRanksValid = true;
 
@@ -264,6 +286,19 @@ function validateEntries(
       }
     }
 
+    const overallRank = entry?.overallRank;
+
+    if (
+      isNonEmptyString(playerId) &&
+      positionValid &&
+      Number.isInteger(overallRank) &&
+      overallRank === index + 1
+    ) {
+      entriesByPlayerId.set(playerId, {
+        overallRank: overallRank as number,
+      });
+    }
+
     const adpRank = entry?.adpRank;
     const adpRankValid =
       adpRank === null ||
@@ -312,6 +347,7 @@ function validateEntries(
     adpRanks,
     tiersByPosition,
     representedPositions,
+    entriesByPlayerId,
     allTeamsValid,
     allAdpRanksValid,
   };
@@ -435,6 +471,290 @@ function validateCapabilities(
     });
 }
 
+function validateTierSemantics(
+  value: unknown,
+  facts: EntryFacts | null,
+  capabilitiesValue: unknown,
+  errors: RankingSetValidationError[],
+): void {
+  if (value === undefined) {
+    return;
+  }
+
+  const tierSemantics = asRecord(value);
+
+  if (!tierSemantics) {
+    errors.push({
+      code: "invalid-capability",
+      path: "tierSemantics",
+      message: "Tier semantics must be an object when present.",
+    });
+    return;
+  }
+
+  const sourceKind = validateSourceTierSemantics(
+    tierSemantics.source,
+    facts,
+    errors,
+  );
+  validateRecommendationTierSemantics(
+    tierSemantics.recommendation,
+    sourceKind,
+    facts,
+    capabilitiesValue,
+    errors,
+  );
+}
+
+function validateSourceTierSemantics(
+  value: unknown,
+  facts: EntryFacts | null,
+  errors: RankingSetValidationError[],
+): RankingSourceTierSemantics | null {
+  const source = asRecord(value);
+
+  if (!source) {
+    errors.push({
+      code: "invalid-capability",
+      path: "tierSemantics.source",
+      message: "Source tier semantics must be an object.",
+    });
+    return null;
+  }
+
+  const kind = source.kind;
+  const kindValid = SOURCE_TIER_SEMANTIC_VALUES.includes(
+    kind as RankingSourceTierSemantics,
+  );
+
+  if (!kindValid) {
+    errors.push({
+      code: "invalid-capability",
+      path: "tierSemantics.source.kind",
+      message: "Source tier semantics kind is unsupported.",
+    });
+  }
+
+  const values = source.values;
+
+  if (values === undefined) {
+    return kindValid ? (kind as RankingSourceTierSemantics) : null;
+  }
+
+  if (!Array.isArray(values)) {
+    errors.push({
+      code: "invalid-capability",
+      path: "tierSemantics.source.values",
+      message: "Source tier values must be an array when present.",
+    });
+    return kindValid ? (kind as RankingSourceTierSemantics) : null;
+  }
+
+  if (kind === "none" && values.length > 0) {
+    errors.push({
+      code: "invalid-capability",
+      path: "tierSemantics.source.values",
+      message: "Source tier values must be absent when source tier kind is none.",
+    });
+  }
+
+  const references = new Set<string>();
+
+  values.forEach((valueItem, index) => {
+    const path = `tierSemantics.source.values[${index}]`;
+    const sourceValue = asRecord(valueItem);
+
+    if (!sourceValue) {
+      errors.push({
+        code: "invalid-capability",
+        path,
+        message: "Source tier value must be an object.",
+      });
+      return;
+    }
+
+    const playerId = sourceValue.playerId;
+    const overallRank = sourceValue.overallRank;
+    const tier = sourceValue.tier;
+    const playerIdValid = isNonEmptyString(playerId);
+    const overallRankValid = isPositiveInteger(overallRank);
+
+    if (!playerIdValid) {
+      errors.push({
+        code: "invalid-capability",
+        path: `${path}.playerId`,
+        message: "Source tier player ID must be a non-empty string.",
+      });
+    }
+
+    if (!overallRankValid) {
+      errors.push({
+        code: "invalid-capability",
+        path: `${path}.overallRank`,
+        message: "Source tier overall rank must be a positive integer.",
+      });
+    }
+
+    if (!isPositiveInteger(tier)) {
+      errors.push({
+        code: "invalid-tier",
+        path: `${path}.tier`,
+        message: "Source tier must be a positive integer.",
+      });
+    }
+
+    if (!playerIdValid || !overallRankValid) {
+      return;
+    }
+
+    const referenceKey = `${playerId}\u0000${overallRank}`;
+
+    if (references.has(referenceKey)) {
+      errors.push({
+        code: "invalid-capability",
+        path,
+        message: "Source tier value references the same canonical entry more than once.",
+      });
+      return;
+    }
+
+    references.add(referenceKey);
+
+    const entry = facts?.entriesByPlayerId.get(playerId);
+
+    if (!entry) {
+      errors.push({
+        code: "invalid-capability",
+        path: `${path}.playerId`,
+        message: `Source tier player ID ${playerId} does not match a canonical entry.`,
+      });
+      return;
+    }
+
+    if (entry.overallRank !== overallRank) {
+      errors.push({
+        code: "invalid-capability",
+        path: `${path}.overallRank`,
+        message: `Source tier overall rank must match canonical entry rank ${entry.overallRank}.`,
+      });
+    }
+  });
+
+  return kindValid ? (kind as RankingSourceTierSemantics) : null;
+}
+
+function validateRecommendationTierSemantics(
+  value: unknown,
+  sourceKind: RankingSourceTierSemantics | null,
+  facts: EntryFacts | null,
+  capabilitiesValue: unknown,
+  errors: RankingSetValidationError[],
+): void {
+  const recommendation = asRecord(value);
+
+  if (!recommendation) {
+    errors.push({
+      code: "invalid-capability",
+      path: "tierSemantics.recommendation",
+      message: "Recommendation tier semantics must be an object.",
+    });
+    return;
+  }
+
+  const capabilities = asRecord(capabilitiesValue);
+  const tierCapabilities = asRecord(capabilities?.tiers);
+
+  POSITIONS.forEach((position) => {
+    const represented = facts?.representedPositions.has(position) ?? false;
+    const semantic = recommendation[position];
+    const path = `tierSemantics.recommendation.${position}`;
+
+    if (!represented) {
+      if (semantic !== undefined) {
+        errors.push({
+          code: "invalid-capability",
+          path,
+          message: `${position} recommendation tier semantics must be absent when the position is absent.`,
+        });
+      }
+      return;
+    }
+
+    if (
+      !RECOMMENDATION_TIER_SEMANTIC_VALUES.includes(
+        semantic as RankingRecommendationTierSemantics,
+      )
+    ) {
+      errors.push({
+        code: "invalid-capability",
+        path,
+        message: `${position} recommendation tier semantics are unsupported.`,
+      });
+      return;
+    }
+
+    if (
+      sourceKind === "legacy-ambiguous" &&
+      semantic === "recommendation-position"
+    ) {
+      errors.push({
+        code: "invalid-capability",
+        path,
+        message: `${position} legacy ambiguous tiers are not recommendation-eligible by default.`,
+      });
+    }
+
+    if (semantic === "neutral") {
+      const tiers = facts?.tiersByPosition.get(position) ?? [];
+      const hasNonNeutralTier = tiers.some((tier) => tier !== NEUTRAL_TIER);
+
+      if (hasNonNeutralTier) {
+        errors.push({
+          code: "invalid-tier",
+          path,
+          message: `${position} neutral recommendation tiers must all equal ${NEUTRAL_TIER}.`,
+        });
+      }
+    }
+
+    validateRecommendationCapabilityAlignment(
+      semantic as RankingRecommendationTierSemantics,
+      tierCapabilities?.[position],
+      position,
+      errors,
+    );
+  });
+
+  Object.keys(recommendation)
+    .filter((key) => !POSITIONS.includes(key as Position))
+    .sort()
+    .forEach((key) => {
+      errors.push({
+        code: "invalid-capability",
+        path: `tierSemantics.recommendation.${key}`,
+        message: `Recommendation tier semantics position ${key} is unsupported.`,
+      });
+    });
+}
+
+function validateRecommendationCapabilityAlignment(
+  semantic: RankingRecommendationTierSemantics,
+  capability: unknown,
+  position: Position,
+  errors: RankingSetValidationError[],
+): void {
+  const expected =
+    semantic === "neutral" ? "defaulted-neutral" : "source";
+
+  if (capability !== expected) {
+    errors.push({
+      code: "invalid-capability",
+      path: `capabilities.tiers.${position}`,
+      message: `${position} tier capability must be ${expected} for ${semantic} recommendation tiers.`,
+    });
+  }
+}
+
 function validateNonEmptyString(
   value: unknown,
   path: string,
@@ -525,6 +845,10 @@ function isPosition(value: unknown): value is Position {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) > 0;
 }
 
 function isValidDate(value: unknown): value is Date {

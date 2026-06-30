@@ -25,6 +25,29 @@ export type RankingPlayerIdentityCapability =
 export type RankingOverallOrderCapability = "explicit" | "row-derived";
 export type RankingPositionRankCapability = "derived";
 export type RankingTierCapability = "source" | "defaulted-neutral";
+export type RankingSourceTierSemantics =
+  | "none"
+  | "source-overall"
+  | "legacy-ambiguous";
+export type RankingRecommendationTierSemantics =
+  | "neutral"
+  | "recommendation-position";
+
+export type RankingSourceTierValue = Readonly<{
+  playerId: string;
+  overallRank: number;
+  tier: number;
+}>;
+
+export type RankingTierSemantics = Readonly<{
+  source: Readonly<{
+    kind: RankingSourceTierSemantics;
+    values?: readonly RankingSourceTierValue[];
+  }>;
+  recommendation: Readonly<
+    Partial<Record<Position, RankingRecommendationTierSemantics>>
+  >;
+}>;
 
 export type RankingSetCapabilities = Readonly<{
   team: RankingDataAvailability;
@@ -40,6 +63,7 @@ export type RankingSet = Readonly<{
   name: string;
   source: RankingSetSource;
   capabilities: RankingSetCapabilities;
+  tierSemantics?: RankingTierSemantics;
   entries: readonly RankingEntry[];
   createdAt: Date;
   updatedAt: Date;
@@ -58,6 +82,7 @@ export type RankingSetSummary = Readonly<{
 export type RankingSnapshot = Readonly<{
   rankings: readonly RankingEntry[];
   capabilities?: RankingSetCapabilities;
+  tierSemantics?: RankingTierSemantics;
   sourceRankingSetId?: string;
   sourceRankingSetName?: string;
   capturedAt?: Date;

@@ -162,7 +162,7 @@ Revise import-stage and export-stage contracts so tier-bearing data carries expl
 
 ## Task 4 - Add Domain Tier Semantics and Validation
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -464,14 +464,19 @@ Confirm the patch has corrected tier semantics without broadening scope or regre
 
 ## Testing Status
 
-The tier-semantics design, documentation-alignment, and import/export contract tasks are complete.
+The tier-semantics design, documentation-alignment, import/export contract, and domain-validation tasks are complete.
 
 Task 3 validation passed:
 
 - `npm test -- src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/canonicalRankingJsonExporter.test.ts`
 - `npx tsc --noEmit`
 
-The next task is Task 4, add domain tier semantics and validation, unless the user chooses to revise the design or contract surface before implementation planning.
+Task 4 validation passed:
+
+- `npm test -- src/lib/rankingSetValidation.test.ts`
+- `npx tsc --noEmit`
+
+The next task is Task 5, correct FantasyPros tier normalization and domain conversion, unless the user chooses to revise the domain semantics before implementation planning.
 
 ---
 

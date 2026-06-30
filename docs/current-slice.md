@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Implementation has not begun.
+Complete. Domain tier semantics, validation, focused tests, and type checking passed.
 
 ## Source Context
 
