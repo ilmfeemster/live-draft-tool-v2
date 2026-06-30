@@ -18,6 +18,16 @@ type RankingSetEditorPanelProps = {
   onReorder: (
     input: Readonly<{ playerId: string; toOverallRank: number }>,
   ) => void;
+  onCorrectPlayer: (
+    input: Readonly<{
+      playerId: string;
+      changes: Readonly<{
+        name: string;
+        team: string;
+        adpRank: number | null;
+      }>;
+    }>,
+  ) => void;
   onClose: () => void;
 };
 
@@ -27,6 +37,7 @@ export function RankingSetEditorPanel({
   errors,
   onRename,
   onReorder,
+  onCorrectPlayer,
   onClose,
 }: RankingSetEditorPanelProps) {
   const [name, setName] = useState(rankingSet.name);
@@ -37,6 +48,25 @@ export function RankingSetEditorPanel({
     () => orderEntries(rankingSet.entries)[0]?.player.id ?? "",
   );
   const [targetOverallRank, setTargetOverallRank] = useState("1");
+  const [correctionPlayerId, setCorrectionPlayerId] = useState(
+    () => orderEntries(rankingSet.entries)[0]?.player.id ?? "",
+  );
+  const selectedCorrectionEntry = useMemo(() => {
+    return (
+      orderedEntries.find((entry) => entry.player.id === correctionPlayerId) ??
+      orderedEntries[0] ??
+      null
+    );
+  }, [correctionPlayerId, orderedEntries]);
+  const [correctionName, setCorrectionName] = useState(
+    () => selectedCorrectionEntry?.player.name ?? "",
+  );
+  const [correctionTeam, setCorrectionTeam] = useState(
+    () => selectedCorrectionEntry?.player.team ?? "",
+  );
+  const [correctionAdpRank, setCorrectionAdpRank] = useState(
+    () => formatAdpInput(selectedCorrectionEntry?.adpRank ?? null),
+  );
 
   useEffect(() => {
     // A newly loaded ranking set resets the local rename draft.
@@ -50,6 +80,28 @@ export function RankingSetEditorPanel({
     setReorderPlayerId(orderedEntries[0]?.player.id ?? "");
     setTargetOverallRank("1");
   }, [rankingSet.id, orderedEntries]);
+
+  useEffect(() => {
+    // Keep the correction target anchored to a real row after saved edits reload.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCorrectionPlayerId((currentPlayerId) => {
+      const currentEntryExists = orderedEntries.some((entry) => {
+        return entry.player.id === currentPlayerId;
+      });
+
+      return currentEntryExists
+        ? currentPlayerId
+        : orderedEntries[0]?.player.id ?? "";
+    });
+  }, [rankingSet.id, orderedEntries]);
+
+  useEffect(() => {
+    // Selecting a player or receiving a saved aggregate refreshes the edit draft.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCorrectionName(selectedCorrectionEntry?.player.name ?? "");
+    setCorrectionTeam(selectedCorrectionEntry?.player.team ?? "");
+    setCorrectionAdpRank(formatAdpInput(selectedCorrectionEntry?.adpRank ?? null));
+  }, [selectedCorrectionEntry]);
 
   function submitRename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -66,6 +118,23 @@ export function RankingSetEditorPanel({
     onReorder({
       playerId: reorderPlayerId,
       toOverallRank: Number(targetOverallRank),
+    });
+  }
+
+  function submitPlayerCorrection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!correctionPlayerId) {
+      return;
+    }
+
+    onCorrectPlayer({
+      playerId: correctionPlayerId,
+      changes: {
+        name: correctionName,
+        team: correctionTeam,
+        adpRank: correctionAdpRank === "" ? null : Number(correctionAdpRank),
+      },
     });
   }
 
@@ -172,6 +241,80 @@ export function RankingSetEditorPanel({
         </button>
       </form>
 
+      <form
+        className="mt-4 grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(10rem,14rem)_minmax(8rem,10rem)_8rem_auto]"
+        onSubmit={submitPlayerCorrection}
+      >
+        <label className="flex min-w-0 flex-col gap-1 text-sm font-medium text-zinc-700">
+          Player to Correct
+          <select
+            className="h-10 rounded border border-zinc-300 bg-white px-3 text-sm font-normal text-zinc-950"
+            value={correctionPlayerId}
+            onChange={(event) => {
+              setCorrectionPlayerId(event.target.value);
+            }}
+          >
+            {orderedEntries.map((entry) => (
+              <option key={entry.player.id} value={entry.player.id}>
+                {formatCorrectionOption(entry)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex min-w-0 flex-col gap-1 text-sm font-medium text-zinc-700">
+          Player Name
+          <input
+            className="h-10 rounded border border-zinc-300 px-3 text-sm font-normal text-zinc-950"
+            type="text"
+            value={correctionName}
+            onChange={(event) => {
+              setCorrectionName(event.target.value);
+            }}
+          />
+        </label>
+
+        <label className="flex min-w-0 flex-col gap-1 text-sm font-medium text-zinc-700">
+          Team
+          <input
+            className="h-10 rounded border border-zinc-300 px-3 text-sm font-normal text-zinc-950"
+            type="text"
+            value={correctionTeam}
+            onChange={(event) => {
+              setCorrectionTeam(event.target.value);
+            }}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
+          ADP Rank
+          <input
+            className="h-10 rounded border border-zinc-300 px-3 text-sm font-normal text-zinc-950"
+            inputMode="decimal"
+            type="number"
+            value={correctionAdpRank}
+            onChange={(event) => {
+              setCorrectionAdpRank(event.target.value);
+            }}
+          />
+        </label>
+
+        <button
+          type="submit"
+          className="h-10 self-end rounded bg-emerald-700 px-4 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+          disabled={isSaving}
+        >
+          {isSaving ? "Saving..." : "Save Player Facts"}
+        </button>
+
+        {selectedCorrectionEntry ? (
+          <div className="text-xs text-zinc-500 lg:col-span-5">
+            ID: {selectedCorrectionEntry.player.id} / Position:{" "}
+            {selectedCorrectionEntry.player.position}
+          </div>
+        ) : null}
+      </form>
+
       {errors.length > 0 ? <EditorErrorList errors={errors} /> : null}
 
       <div className="mt-4 overflow-x-auto">
@@ -253,6 +396,10 @@ function RankingEntryRow({ entry }: { entry: RankingEntry }) {
 
 function formatReorderOption(entry: RankingEntry): string {
   return `#${entry.overallRank} - ${entry.player.name} (${entry.player.position})`;
+}
+
+function formatCorrectionOption(entry: RankingEntry): string {
+  return `#${entry.overallRank} - ${entry.player.name} (${entry.player.position}, ${entry.player.team})`;
 }
 
 function EditorErrorList({
@@ -347,4 +494,8 @@ function formatDateTime(date: Date): string {
 
 function formatAdp(adpRank: number | null): string {
   return adpRank === null ? "None" : String(adpRank);
+}
+
+function formatAdpInput(adpRank: number | null): string {
+  return adpRank === null ? "" : String(adpRank);
 }

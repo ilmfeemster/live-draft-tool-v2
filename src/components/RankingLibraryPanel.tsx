@@ -333,6 +333,62 @@ export function RankingLibraryPanel({
     }
   }
 
+  async function correctLoadedPlayer(
+    input: Readonly<{
+      playerId: string;
+      changes: Readonly<{
+        name: string;
+        team: string;
+        adpRank: number | null;
+      }>;
+    }>,
+  ) {
+    if (!loadedRankingSet || isSavingEditor) {
+      return;
+    }
+
+    setIsSavingEditor(true);
+    setMessage(null);
+    setEditorErrors([]);
+
+    try {
+      const result = await editRankingLibrarySetAction({
+        id: loadedRankingSet.id,
+        intent: {
+          type: "correct-player",
+          playerId: input.playerId,
+          changes: input.changes,
+        },
+      });
+
+      if (!result.ok) {
+        setEditorErrors(result.errors);
+        setMessage({
+          kind: "error",
+          text: "Ranking player correction failed. The loaded set was not changed.",
+        });
+        return;
+      }
+
+      setLoadedRankingSet(result.value);
+      setEditorErrors([]);
+      setManagementErrors([]);
+      setMessage({
+        kind: "success",
+        text: "Ranking player facts saved.",
+      });
+      await refreshSummaries();
+    } catch (error) {
+      console.error("Ranking player correction failed.", error);
+      setMessage({
+        kind: "error",
+        text: "Ranking player correction failed unexpectedly.",
+      });
+    } finally {
+      setIsSavingEditor(false);
+    }
+  }
+
   async function deleteSummary(summary: RankingSetSummary) {
     if (busySetId) {
       return;
@@ -523,6 +579,9 @@ export function RankingLibraryPanel({
           onClose={() => {
             setLoadedRankingSet(null);
             setEditorErrors([]);
+          }}
+          onCorrectPlayer={(input) => {
+            void correctLoadedPlayer(input);
           }}
           onRename={(name) => {
             void renameLoadedSet(name);

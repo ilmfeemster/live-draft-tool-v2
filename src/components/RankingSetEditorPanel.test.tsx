@@ -19,6 +19,7 @@ describe("RankingSetEditorPanel", () => {
         isSaving={false}
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
+        onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
       />,
@@ -47,6 +48,7 @@ describe("RankingSetEditorPanel", () => {
           ],
         })}
         onClose={vi.fn()}
+        onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
       />,
@@ -77,6 +79,7 @@ describe("RankingSetEditorPanel", () => {
         isSaving={false}
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
+        onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
       />,
@@ -100,6 +103,7 @@ describe("RankingSetEditorPanel", () => {
         isSaving={false}
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
+        onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
       />,
@@ -123,6 +127,7 @@ describe("RankingSetEditorPanel", () => {
           ],
         })}
         onClose={vi.fn()}
+        onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
       />,
@@ -155,6 +160,7 @@ describe("RankingSetEditorPanel", () => {
         isSaving={false}
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
+        onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
       />,
@@ -163,6 +169,108 @@ describe("RankingSetEditorPanel", () => {
     expect(markup).toContain("Ranking Edit Errors");
     expect(markup).toContain(
       "invalid-edit: Ranking reorder target must be from 1 through 3. (intent.toOverallRank)",
+    );
+  });
+
+  it("renders player correction controls from canonical order", () => {
+    const markup = renderToStaticMarkup(
+      <RankingSetEditorPanel
+        errors={[]}
+        isSaving={false}
+        rankingSet={createRankingSet({
+          entries: [
+            createEntry("wr-1", "Wideout One", "WR", 3, 1, 2, 26),
+            createEntry("qb-1", "Quarterback One", "QB", 1, 1, 1, 8.5),
+            createEntry("rb-1", "Runner One", "RB", 2, 1, 1, null),
+          ],
+        })}
+        onClose={vi.fn()}
+        onCorrectPlayer={vi.fn()}
+        onRename={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Player to Correct");
+    expect(markup).toContain("Player Name");
+    expect(markup).toContain("Team");
+    expect(markup).toContain("ADP Rank");
+    expect(markup).toContain("Save Player Facts");
+    expect(markup).toContain("ID: qb-1");
+    expect(markup).toContain("Position: QB");
+
+    const qbOption = markup.indexOf("#1 - Quarterback One (QB, TST)");
+    const rbOption = markup.indexOf("#2 - Runner One (RB, TST)");
+    const wrOption = markup.indexOf("#3 - Wideout One (WR, TST)");
+
+    expect(qbOption).toBeGreaterThanOrEqual(0);
+    expect(rbOption).toBeGreaterThan(qbOption);
+    expect(wrOption).toBeGreaterThan(rbOption);
+  });
+
+  it("prefills selected player correction fields", () => {
+    const markup = renderToStaticMarkup(
+      <RankingSetEditorPanel
+        errors={[]}
+        isSaving={false}
+        rankingSet={createRankingSet()}
+        onClose={vi.fn()}
+        onCorrectPlayer={vi.fn()}
+        onRename={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(markup).toMatch(/<input[^>]*type="text"[^>]*value="Quarterback One"/);
+    expect(markup).toMatch(/<input[^>]*type="text"[^>]*value="TST"/);
+    expect(markup).toMatch(/<input[^>]*type="number"[^>]*value="8.5"/);
+  });
+
+  it("renders null selected player ADP as an empty correction input", () => {
+    const markup = renderToStaticMarkup(
+      <RankingSetEditorPanel
+        errors={[]}
+        isSaving={false}
+        rankingSet={createRankingSet({
+          entries: [
+            createEntry("rb-1", "Runner One", "RB", 1, 1, 1, null),
+            createEntry("qb-1", "Quarterback One", "QB", 2, 1, 1, 8.5),
+          ],
+        })}
+        onClose={vi.fn()}
+        onCorrectPlayer={vi.fn()}
+        onRename={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("#1 - Runner One (RB, TST)");
+    expect(markup).toMatch(/<input[^>]*type="number"[^>]*value=""/);
+    expect(markup).toContain("None");
+  });
+
+  it("renders correction errors through the structured error list", () => {
+    const markup = renderToStaticMarkup(
+      <RankingSetEditorPanel
+        errors={[
+          {
+            code: "invalid-edit",
+            message: "Player correction name is invalid.",
+            path: "intent.changes.name",
+          },
+        ]}
+        isSaving={false}
+        rankingSet={createRankingSet()}
+        onClose={vi.fn()}
+        onCorrectPlayer={vi.fn()}
+        onRename={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Ranking Edit Errors");
+    expect(markup).toContain(
+      "invalid-edit: Player correction name is invalid. (intent.changes.name)",
     );
   });
 
