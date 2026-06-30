@@ -194,7 +194,7 @@ Examples include:
 - Ranking score calculation
 - Roster need modifiers
 - Positional scarcity modifiers
-- Tier-drop modifiers
+- Tier-drop modifiers, only with explicitly recommendation-eligible tier data
 - Recommendation ordering
 - Recommendation explanation generation
 
@@ -426,6 +426,7 @@ Add:
 - Scenario tests
 - Regression tests
 - Explanation tests
+- Tier-semantics tests proving source-only, neutral, absent, and legacy ambiguous tiers do not create tier-drop pressure
 
 Each meaningful recommendation rule should usually have tests for:
 
@@ -433,6 +434,8 @@ Each meaningful recommendation rule should usually have tests for:
 - when it does not apply
 - how it affects ordering
 - what reason or warning it produces
+
+Tier-drop tests should distinguish source tiers from recommendation tiers. FantasyPros source tiers should not be treated as position-tier recommendation pressure unless a future approved design introduces explicit recommendation-tier eligibility.
 
 ## Strategy / Insight Stage
 

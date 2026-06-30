@@ -14,7 +14,7 @@ Phase 1 established the manual Draft State Engine, Phase 2 added durable draft p
 
 Build a single-user fantasy football draft assistant that recommends players based on draft context rather than static rankings alone.
 
-The tool helps users make better draft decisions by combining rankings, roster context, positional scarcity, tier information, and current draft state during a live draft.
+The tool helps users make better draft decisions by combining rankings, roster context, positional scarcity, recommendation-eligible tier pressure when available, and current draft state during a live draft.
 
 The app is a companion decision engine, not a fantasy platform or replacement draft room.
 
@@ -26,7 +26,7 @@ For Phase 5, ranking data should be able to evolve independently of application 
 
 The Phase 5 user is a single user or developer who wants control over the ranking data that anchors recommendations.
 
-They need to maintain multiple ranking sets, understand validation failures, organize players into tiers, choose the appropriate set for a draft, and reproduce past recommendation behavior from a stable snapshot. Phase 5 supports deliberate data management; it is not an automated fantasy-news or projection service.
+They need to maintain multiple ranking sets, understand validation failures, inspect source tier data, manage only supported recommendation-tier data, choose the appropriate set for a draft, and reproduce past recommendation behavior from a stable snapshot. Phase 5 supports deliberate data management; it is not an automated fantasy-news, projection, or value-over-replacement service.
 
 ---
 
@@ -37,9 +37,9 @@ Phase 5 should deliver:
 - Ranking sets that are managed as first-class data rather than compiled application code.
 - Import of supported custom ranking sources through a deterministic parser and validation boundary.
 - Export of ranking sets in a documented, portable format.
-- Clear validation for malformed records, missing required data, duplicate players, invalid ranks, and invalid tier assignments.
+- Clear validation for malformed records, missing required data, duplicate players, invalid ranks, and invalid tier semantics.
 - Multiple named ranking sets that can coexist and be selected without changing code.
-- Tier management that allows valid ranking entries to be grouped and updated while preserving deterministic ordering.
+- Tier management that preserves imported source tiers separately from recommendation-eligible tiers while preserving deterministic ordering.
 - Stable ranking snapshots that preserve the exact recommendation inputs used by a draft or replay.
 - Compatibility with the existing Draft State Engine, Recommendation Engine, persistence, and scenario workflows.
 - Focused automated and manual validation of ranking transformations and their effect on user-facing draft workflows.
@@ -56,10 +56,10 @@ The phase is successful only if ranking data can change without an application c
 - Create, name, list, select, update, and remove multiple ranking sets within the single-user product.
 - Import at least one documented ranking format suitable for custom ranking data.
 - Parse imported data into the existing domain-facing ranking shape without exposing parser or storage details to the engines.
-- Validate required player identity, supported positions, ranking order, duplicate records, numeric fields, and tier assignments before accepting imported or edited data.
+- Validate required player identity, supported positions, ranking order, duplicate records, numeric fields, and tier semantics before accepting imported or edited data.
 - Report actionable validation failures without partially replacing a valid ranking set.
 - Export a ranking set in a documented format that can be imported again without losing domain-relevant ranking information.
-- Assign and update tiers while maintaining an unambiguous overall ranking order.
+- Preserve and update supported tier data while maintaining an unambiguous overall ranking order and avoiding false recommendation-tier pressure.
 - Choose a ranking set when creating or configuring a supported draft or scenario.
 - Create an immutable ranking snapshot for a draft so later edits to the source ranking set do not alter that draft's recommendation inputs.
 - Continue loading existing persisted draft snapshots through typed repository boundaries.
@@ -124,8 +124,8 @@ Ranking sets and snapshots should remain compatible with the dynamic league sett
 
 ### Manage Ranking Data
 
-- Review the ordered ranking entries and their tier assignments.
-- Make supported corrections or tier changes without editing application code.
+- Review the ordered ranking entries, source tier data, and any recommendation-tier capability state.
+- Make supported corrections or tier-semantic changes without editing application code.
 - Export a portable copy when needed.
 - Keep other ranking sets unchanged.
 
@@ -148,7 +148,7 @@ Ranking sets and snapshots should remain compatible with the dynamic league sett
 
 ### Milestone 1 - Ranking Domain and Validation Boundary
 
-Establish the project-level contract for named ranking sets, ordered entries, optional supported metadata, tiers, validation results, and stable identity.
+Establish the project-level contract for named ranking sets, ordered entries, optional supported metadata, source tiers, recommendation-tier eligibility, validation results, and stable identity.
 
 The contract should keep imported records, persistence models, and UI state outside the Draft State Engine and Recommendation Engine while remaining compatible with their typed ranking input.
 
@@ -164,11 +164,11 @@ Allow multiple named ranking sets to be stored, listed, selected, updated, and r
 
 The existing built-in rankings should remain available through an explicit seed or migration path rather than continuing as the only code-owned runtime source.
 
-### Milestone 4 - Tier Management
+### Milestone 4 - Tier Semantics Management
 
-Allow ranking entries to be assigned to valid tiers and allow tier information to evolve without making overall ranking order ambiguous.
+Preserve source tier information and allow only supported recommendation-tier information to evolve without making overall ranking order or recommendation eligibility ambiguous.
 
-Tier updates should flow through the same domain validation and persistence boundaries as other ranking changes.
+Tier-semantic updates should flow through the same domain validation and persistence boundaries as other ranking changes. FantasyPros `TIERS` are treated as source tiers for the current supported CSV profile, not as position-local recommendation-tier input.
 
 ### Milestone 5 - Snapshot and Draft Integration
 
@@ -178,7 +178,7 @@ Scenario and replay workflows should consume captured ranking context without be
 
 ### Milestone 6 - Workflow Confidence
 
-Validate import/export round trips, invalid input handling, multiple-set isolation, tier updates, snapshot immutability, persisted-draft compatibility, and deterministic recommendation behavior.
+Validate import/export round trips, invalid input handling, multiple-set isolation, tier-semantic updates, snapshot immutability, persisted-draft compatibility, and deterministic recommendation behavior.
 
 Complete focused manual QA of the ranking-management-to-draft workflow without broadening into Phase 6 strategy or Phase 7 live integrations.
 
@@ -217,7 +217,7 @@ Important boundaries:
 - A mutable ranking set and an immutable draft ranking snapshot are different lifecycle concepts.
 - Snapshot creation should copy the domain-relevant ranking values needed for deterministic recommendations and replay.
 - Player and ranking-set identity should be explicit enough to prevent silent duplicates or accidental cross-set updates.
-- Overall rank remains the deterministic ordering anchor; tiers add grouping information without replacing that order.
+- Overall rank remains the deterministic ordering anchor. Source tiers may be preserved for inspection and export, but recommendation tier pressure requires explicit recommendation-tier eligibility and must not be inferred from source tiers.
 - Recommendation output remains derived and is not stored as part of ranking data.
 - The solution should remain inside the monolith-first Next.js application and existing PostgreSQL/Prisma deployment model.
 - Automated feeds, background refresh jobs, external provider adapters, and generalized source plugins remain deferred.
@@ -240,15 +240,15 @@ Phase 5 is successful when a user or developer can:
 1. Import a supported custom ranking source and create a valid named ranking set without changing or rebuilding application code.
 2. Receive clear, record-level validation feedback for malformed, duplicated, unsupported, or inconsistent ranking data before any valid existing set is replaced.
 3. Maintain at least two ranking sets independently and explicitly select which one will anchor a new supported draft.
-4. Export a valid ranking set, import it again, and preserve its domain-relevant player order, supported metadata, and tiers.
-5. Assign or update tiers while retaining deterministic overall rank ordering and valid Recommendation Engine input.
+4. Export a valid ranking set, import it again, and preserve its domain-relevant player order, supported metadata, source tier data, and recommendation-tier eligibility state.
+5. Preserve or update supported tier data while retaining deterministic overall rank ordering and valid Recommendation Engine input.
 6. Start a draft from a selected ranking set and capture an immutable snapshot containing the ranking information required by draft and recommendation behavior.
 7. Edit or remove the source ranking set without changing the snapshot or recommendations of an existing draft.
 8. Load an existing persisted draft and continue using its saved ranking snapshot without requiring the source ranking set to exist.
 9. Replay the same draft or scenario from the same state and ranking snapshot and receive the same recommendation ordering and score-backed reasons.
 10. Use built-in seed rankings through the new ranking-data workflow without losing the existing manual, persisted, replay, or recommendation workflows.
-11. Confirm through automated tests that parsing, validation, import/export round trips, set isolation, tier changes, and snapshot creation produce exact deterministic outputs.
-12. Complete focused manual QA of importing rankings, managing tiers, selecting a set, starting and saving a draft, changing the source set, and reloading the unchanged draft snapshot.
+11. Confirm through automated tests that parsing, validation, import/export round trips, set isolation, tier-semantic changes, and snapshot creation produce exact deterministic outputs.
+12. Complete focused manual QA of importing rankings, reviewing tier semantics, selecting a set, starting and saving a draft, changing the source set, and reloading the unchanged draft snapshot.
 
 Rankings should feel like durable, inspectable product data rather than a fixture embedded in the codebase.
 
@@ -260,6 +260,7 @@ Rankings should feel like durable, inspectable product data rather than a fixtur
 - Validate complete candidate data before changing stored rankings.
 - Keep ranking transport, persistence, and UI representations behind typed domain boundaries.
 - Preserve deterministic overall ordering and recommendation behavior.
+- Preserve source tiers separately from recommendation-tier pressure; do not derive position tiers from rank-only or ADP-only data.
 - Support a small number of documented formats before generalizing source adapters.
 - Keep the Recommendation Engine pure, derived, and unaware of ranking origin.
 - Preserve existing manual, persisted, replay, and scenario workflows.

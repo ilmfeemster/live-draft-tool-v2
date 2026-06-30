@@ -80,7 +80,7 @@ Create a design document that defines tier meanings, data ownership, compatibili
 
 ## Task 2 - Align Documentation and Decisions
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -464,9 +464,9 @@ Confirm the patch has corrected tier semantics without broadening scope or regre
 
 ## Testing Status
 
-The tier-semantics design task is complete. Implementation and regression coverage have not begun.
+The tier-semantics design and documentation-alignment tasks are complete. Runtime implementation and regression coverage have not begun.
 
-The next task is Task 2, documentation and decision alignment, unless the user chooses to revise the design before implementation planning.
+Task 2, documentation and decision alignment, is complete. The next task is Task 3, update tier import and portable-format contracts, unless the user chooses to revise the design or documentation before implementation planning.
 
 ---
 

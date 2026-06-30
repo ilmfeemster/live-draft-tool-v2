@@ -434,6 +434,27 @@ Tradeoffs:
 
 ---
 
+## 2026-06-30
+
+### Tier Semantics Correction
+
+Decision:
+
+Treat FantasyPros `TIERS` from the current supported CSV profile as source tiers, not position tiers or recommendation-tier-pressure input. Preserve source tier information separately from engine-facing recommendation tiers. Recommendation tier pressure requires explicit recommendation-tier eligibility, and rank-only or ADP-only data should not be used to derive position tiers. Legacy ambiguous `tier` values should remain loadable where practical but should be neutralized for recommendation pressure by default.
+
+Reason:
+
+The app does not currently own projections, value-over-replacement data, or similar value-based inputs needed to establish high-quality position tiers. Treating imported source tiers as position-local tier cliffs creates false recommendation urgency and misleading explanations.
+
+Tradeoffs:
+
+- Imported FantasyPros tier information remains inspectable and portable but may not enrich recommendation scoring until a valid recommendation-tier source exists.
+- Some previous recommendation outputs may intentionally change once invalid tier pressure is neutralized.
+- Compatibility readers need to distinguish loadability from recommendation eligibility.
+- Future position-tier support is deferred until value-based data becomes active scope.
+
+---
+
 ## Template
 
 ### YYYY-MM-DD

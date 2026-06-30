@@ -31,7 +31,7 @@ The Recommendation Engine should support:
 
 - Scoring available players from the current draft state.
 - Ranking players with deterministic, bounded scoring.
-- Balancing best-player-available value with roster need, positional scarcity, tier pressure, and value opportunities.
+- Balancing best-player-available value with roster need, positional scarcity, recommendation-eligible tier pressure, and value opportunities.
 - Producing reasons directly from scoring inputs.
 - Supporting dynamic league settings and roster configurations.
 - Returning stable output for the same draft state and ranking snapshot.
@@ -41,7 +41,7 @@ The Recommendation Engine should support:
 Good MVP recommendation behavior means:
 
 - Elite players remain obvious recommendations when their value gap is large.
-- Context can reorder similarly ranked players when roster construction or tier pressure justifies it.
+- Context can reorder similarly ranked players when roster construction or recommendation-eligible tier pressure justifies it.
 - The engine does not chase need so hard that it recommends poor values too early.
 - The engine does not blindly recommend best player available when a team is clearly imbalanced.
 - Single-starter and late-round positions are handled with draft-phase discipline.
@@ -128,7 +128,7 @@ The MVP engine should optimize for the best current pick according to:
 1. Player value from the active ranking snapshot.
 2. Current roster construction.
 3. Remaining positional quality.
-4. Current tier pressure.
+4. Current recommendation-eligible tier pressure.
 5. Value relative to draft position.
 
 The engine is not trying to predict all future picks. It is trying to make the current choice better by using the draft state that is already known.
@@ -145,7 +145,7 @@ Early in a draft:
 Middle rounds:
 
 - Open starter slots should matter more.
-- Tier cliffs should meaningfully affect ordering among similarly ranked players.
+- Recommendation-eligible tier cliffs should meaningfully affect ordering among similarly ranked players.
 - Positional runs should create urgency only when the user's roster still benefits from the position.
 - Falling value should remain visible even if the position is not the biggest need.
 
@@ -168,7 +168,7 @@ base player value
 + bounded context modifiers
 ```
 
-The base score should anchor recommendations. Context modifiers should move players within a plausible range, especially within nearby ranking bands or tiers.
+The base score should anchor recommendations. Context modifiers should move players within a plausible range, especially within nearby ranking bands or explicitly recommendation-eligible tiers.
 
 ### Base Player Value
 
@@ -197,7 +197,7 @@ Each modifier returns a numeric delta and optional reason metadata.
 | --- | ---: | --- | --- |
 | Roster fit and timing | -20 to +14 | Positive or negative | Rewards open roster needs and de-emphasizes saturated or poorly timed positions. |
 | Positional scarcity and run pressure | 0 to +10 | Positive only | Rewards positions where available quality is thinning or recent picks show pressure. |
-| Tier-drop risk | 0 to +12 | Positive only | Rewards players near a meaningful cliff within their position. |
+| Tier-drop risk | 0 to +12 | Positive only | Rewards players near a meaningful recommendation-eligible cliff within their position. |
 | Value opportunity | -6 to +8 | Positive or negative | Rewards players who have fallen relative to current pick and lightly penalizes clear reaches. |
 
 Recommended group guardrails:
@@ -279,20 +279,22 @@ Run pressure should be based on observed picks, such as the last user-pick inter
 
 ### Tier-Drop Risk
 
-Tier-drop risk should reward players who are among the last useful options in a meaningful tier.
+Tier-drop risk should reward players who are among the last useful options in a meaningful recommendation-eligible tier.
+
+Tier-drop risk must not consume source-only, neutral, absent, or legacy ambiguous tiers. FantasyPros `TIERS` from the current supported CSV profile are source tiers and should no-op for this modifier unless a future approved design provides explicit recommendation-tier eligibility.
 
 Inputs:
 
-- Candidate ranking tier.
-- Available players at the same position and tier.
-- Next available tier at the same position.
+- Candidate recommendation tier.
+- Available players at the same position and recommendation tier.
+- Next available recommendation tier at the same position.
 - Distance to the user's next pick.
 - Roster need for the candidate position.
 
 Expected behavior:
 
-- A player in the last few remaining options of a strong tier should rise.
-- A tier cliff matters more when the position fills a real roster need.
+- A player in the last few remaining options of a strong recommendation tier should rise.
+- A recommendation-tier cliff matters more when the position fills a real roster need.
 - Tier-drop risk should not stack unchecked with scarcity.
 - Tier-drop reasons should explain the specific tier pressure.
 
@@ -333,7 +335,7 @@ Suggested starting values:
 
 Best player available is the baseline.
 
-The base score should make elite player value obvious. Context should only overcome base value when the ranking gap is close enough that roster construction, scarcity, tier pressure, or value timing reasonably changes the pick.
+The base score should make elite player value obvious. Context should only overcome base value when the ranking gap is close enough that roster construction, scarcity, recommendation-eligible tier pressure, or value timing reasonably changes the pick.
 
 ### Team Needs
 
@@ -367,19 +369,20 @@ The engine can look at recent picks and detect that a position is being drafted 
 
 Expected run behavior:
 
-- If the user needs the position and the tier is thinning, run pressure can move the position up.
+- If the user needs the position and a recommendation-eligible tier is thinning, run pressure can move the position up.
 - If the user does not need the position, run pressure should usually be ignored or minimal.
 - If better values exist at other positions, the run should not force a bad pick.
 
 ### Tier Cliffs
 
-Tier cliffs should be one of the strongest contextual signals because tiers represent meaningful drops in expected quality.
+Tier cliffs should be one of the strongest contextual signals only when the active ranking snapshot contains explicitly recommendation-eligible tier data. Source tiers, including FantasyPros `TIERS` from the current supported CSV profile, are not sufficient evidence of a position-local draft-decision cliff.
 
 Expected tier behavior:
 
-- Last-player-in-tier situations can move a candidate above similarly ranked alternatives.
-- A tier cliff at a filled or low-value position should have less impact.
-- Tier pressure should be visible in explanations because it is one of the most useful draft-room signals.
+- Last-player-in-recommendation-tier situations can move a candidate above similarly ranked alternatives.
+- A recommendation-tier cliff at a filled or low-value position should have less impact.
+- Recommendation-tier pressure should be visible in explanations only when it materially affected scoring.
+- Source-only, neutral, absent, and legacy ambiguous tiers should produce no tier-cliff score component or reason.
 
 ### Value Opportunities
 
@@ -411,7 +414,7 @@ Early draft behavior:
 Middle draft behavior:
 
 - Roster construction matters more.
-- Starter slots, tier cliffs, and scarcity can reorder similarly ranked players.
+- Starter slots, recommendation-eligible tier cliffs, and scarcity can reorder similarly ranked players.
 - Positional runs become useful context when tied to need.
 
 Late draft behavior:
@@ -427,7 +430,7 @@ Elite players should remain obvious recommendations through the base score curve
 
 Recommended behavior:
 
-- A top-tier available player should stay near the top unless the roster position is saturated or phase timing is truly poor.
+- A top-ranked or recommendation-tiered available player should stay near the top unless the roster position is saturated or phase timing is truly poor.
 - Context can move a close peer above an elite player, but should not let a much lower-ranked player jump only because of one modifier.
 - If an elite player is pushed down, the reason components should make the penalty inspectable.
 
@@ -468,7 +471,7 @@ Explanations should come from:
 - Saturated position penalty when relevant.
 - Positional scarcity.
 - Recent positional run pressure.
-- Tier-drop risk.
+- Tier-drop risk from explicitly recommendation-eligible tiers.
 - DEF/K late-round timing.
 
 Explanations should not come from:
@@ -490,7 +493,7 @@ The UI may choose to display fewer, but the engine should not generate a long li
 Recommended priority:
 
 1. Include the strongest positive context reason when one exists.
-2. Include tier-cliff or scarcity pressure when it materially affected score.
+2. Include tier-cliff or scarcity pressure when it materially affected score and, for tier cliffs, came from recommendation-eligible tier data.
 3. Include high base value or value opportunity when the player is a strong ranking value.
 4. Include one negative caveat only when the player remains recommended despite a meaningful penalty.
 
@@ -507,7 +510,7 @@ Explanations must remain directly tied to scoring inputs.
 Good:
 
 - "Fills an open WR starter slot."
-- "One of the last RBs left in this tier."
+- "One of the last RBs left in this recommendation tier."
 - "Strong value relative to the current pick."
 - "Recent TE run and few comparable options remain."
 
@@ -573,7 +576,7 @@ Setup:
 
 - User has no QB after early or middle picks.
 - RB/WR values are still available.
-- A QB in a strong tier is available.
+- A QB in a strong recommendation-eligible tier is available.
 
 Expected behavior:
 
@@ -587,7 +590,7 @@ Setup:
 
 - Several recent picks at one position have occurred.
 - The user's roster still benefits from that position.
-- The remaining tier at that position is thinning.
+- The remaining recommendation-eligible tier at that position is thinning.
 
 Expected behavior:
 
@@ -599,13 +602,13 @@ Expected behavior:
 
 Setup:
 
-- One or two players remain in a useful tier at a needed position.
-- Similar base values exist at other positions with deeper remaining tiers.
+- One or two players remain in a useful recommendation tier at a needed position.
+- Similar base values exist at other positions with deeper recommendation-eligible tiers.
 
 Expected behavior:
 
-- The last useful tier player rises above similar alternatives.
-- The recommendation reason mentions tier pressure.
+- The last useful recommendation-tier player rises above similar alternatives.
+- The recommendation reason mentions tier pressure only when eligible tier data affected score.
 - The tier modifier does not let a much lower base value jump an elite player.
 
 #### Starter Positions Filled

@@ -99,11 +99,13 @@ domain conversion
 ranking set repository
 ```
 
-Format adapters own source syntax and documented aliases. Shared domain validation owns ranking identity, ordering, position-rank, tier, and numeric invariants. New formats map into the same source-neutral candidate rather than introducing source fields into the engines.
+Format adapters own source syntax and documented aliases. Shared domain validation owns ranking identity, ordering, position-rank, tier semantics, and numeric invariants. Source tier values, such as FantasyPros `TIERS`, may be preserved as source metadata, but recommendation-tier pressure requires explicit recommendation-tier eligibility. New formats map into the same source-neutral candidate rather than introducing source fields into the engines.
 
 Mutable ranking sets should use first-class entry persistence behind a dedicated repository. Immutable draft ranking snapshots should remain whole serialized values because they are written once and loaded as complete engine inputs. The existing draft repository remains responsible for atomic draft-and-snapshot persistence.
 
 The Draft State Engine and Recommendation Engine continue to consume canonical `RankingEntry[]` values. They must not parse files, query ranking repositories, depend on mutable ranking-set identity, or know the source format.
+
+Tier-like values must cross an explicit semantic boundary before they affect recommendations. Source tiers are preserved for display, export, provenance, and compatibility. Engine-facing recommendation tiers are neutral unless validated as position-local, complete, and recommendation-eligible. Legacy ambiguous tier values remain loadable but should not silently produce tier-drop pressure.
 
 The detailed boundary and lifecycle design is defined in `docs/design/rankings-data.md`.
 
@@ -174,9 +176,11 @@ The base player value should anchor recommendations. Context modifiers should mo
 Architecture guardrails:
 
 - Base value should come from the active ranking snapshot.
+- Tier-drop risk should run only from recommendation-eligible tier data in the active ranking snapshot.
 - Context modifiers should be bounded.
 - Total context impact should be capped.
 - Scarcity and tier pressure should avoid double-counting the same urgency.
+- Source-only, neutral, absent, or legacy ambiguous tiers should no-op for tier pressure.
 - Tie breaking should be deterministic.
 - Recommendation output should be derived, not persisted.
 - Roster need should be derived from league settings and roster configuration rather than MVP constants.
