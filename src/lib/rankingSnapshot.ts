@@ -1,6 +1,29 @@
 import type { Position, RankingEntry } from "@/types/draft";
+import { validateRankingSet } from "@/lib/rankingSetValidation";
+import type {
+  RankingSet,
+  RankingSetCapabilities,
+  RankingSnapshot,
+} from "@/types/rankings";
 
 export type RankingSnapshotJson = RankingSnapshotJsonValue[];
+
+export type CreateRankingSnapshotOptions = Readonly<{
+  capturedAt?: Date;
+}>;
+
+export type RankingSnapshotCreationError = Readonly<{
+  code: "invalid-ranking-set";
+  path: string;
+  message: string;
+}>;
+
+export type CreateRankingSnapshotResult =
+  | Readonly<{ ok: true; snapshot: RankingSnapshot }>
+  | Readonly<{
+      ok: false;
+      errors: readonly RankingSnapshotCreationError[];
+    }>;
 
 type RankingSnapshotJsonValue =
   | string
@@ -12,21 +35,39 @@ type RankingSnapshotJsonValue =
 
 const validPositions: Position[] = ["QB", "RB", "WR", "TE", "DST", "K"];
 
-export function serializeRankingSnapshot(
-  rankings: RankingEntry[],
-): RankingSnapshotJson {
-  return rankings.map((ranking) => ({
-    player: {
-      id: ranking.player.id,
-      name: ranking.player.name,
-      team: ranking.player.team,
-      position: ranking.player.position,
+export function createRankingSnapshotFromRankingSet(
+  rankingSet: RankingSet,
+  options: CreateRankingSnapshotOptions = {},
+): CreateRankingSnapshotResult {
+  const validation = validateRankingSet(rankingSet);
+
+  if (!validation.ok) {
+    return {
+      ok: false,
+      errors: validation.errors.map((error) => ({
+        code: "invalid-ranking-set",
+        path: error.path,
+        message: error.message,
+      })),
+    };
+  }
+
+  return {
+    ok: true,
+    snapshot: {
+      rankings: copyRankingEntries(validation.rankingSet.entries),
+      capabilities: copyRankingSetCapabilities(validation.rankingSet.capabilities),
+      sourceRankingSetId: validation.rankingSet.id,
+      sourceRankingSetName: validation.rankingSet.name,
+      capturedAt: copyDate(options.capturedAt ?? new Date()),
     },
-    overallRank: ranking.overallRank,
-    adpRank: ranking.adpRank,
-    positionRank: ranking.positionRank,
-    tier: ranking.tier,
-  }));
+  };
+}
+
+export function serializeRankingSnapshot(
+  rankings: readonly RankingEntry[],
+): RankingSnapshotJson {
+  return copyRankingEntries(rankings);
 }
 
 export function parseRankingSnapshotJson(snapshot: unknown): RankingEntry[] {
@@ -97,4 +138,38 @@ function expectPosition(value: unknown, path: string): Position {
   }
 
   return value as Position;
+}
+
+export function copyRankingEntries(
+  rankings: readonly RankingEntry[],
+): RankingEntry[] {
+  return rankings.map((ranking) => ({
+    player: {
+      id: ranking.player.id,
+      name: ranking.player.name,
+      team: ranking.player.team,
+      position: ranking.player.position,
+    },
+    overallRank: ranking.overallRank,
+    adpRank: ranking.adpRank,
+    positionRank: ranking.positionRank,
+    tier: ranking.tier,
+  }));
+}
+
+function copyRankingSetCapabilities(
+  capabilities: RankingSetCapabilities,
+): RankingSetCapabilities {
+  return {
+    team: capabilities.team,
+    playerIdentity: capabilities.playerIdentity,
+    overallOrder: capabilities.overallOrder,
+    positionRank: capabilities.positionRank,
+    adp: capabilities.adp,
+    tiers: { ...capabilities.tiers },
+  };
+}
+
+function copyDate(date: Date): Date {
+  return new Date(date.getTime());
 }

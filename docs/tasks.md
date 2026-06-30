@@ -698,7 +698,7 @@ Expose repository-backed list, load, edit, delete, and canonical export operatio
 
 ## Task 15 - Formalize Immutable Snapshot Creation from Managed Rankings
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

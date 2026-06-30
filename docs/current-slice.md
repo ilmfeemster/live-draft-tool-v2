@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. This slice promotes Phase 5 Task 15. Implementation has not started.
+Complete. The immutable snapshot creation boundary is implemented as a pure managed-ranking-set-to-snapshot helper over canonical ranking-set validation and deep-copied ranking entries, capability metadata, source-set provenance, and capture timestamps. Legacy Phase 2 bare-array snapshot serialization/parsing remains unchanged, Scenario V1 continues to use embedded `RankingEntry[]` values, and draft/recommendation engine inputs remain canonical ranking entries only. Focused snapshot tests pass 12 tests; focused scenario/draft compatibility tests pass 79 tests; focused ranking-set validation tests pass 24 tests; TypeScript no-emit passes; focused lint passes; the full Vitest suite passes 40 files and 557 tests with one expected skip; repository-wide lint passes. Phase 5 Task 15 is complete.
 
 ## Source Context
 
