@@ -516,7 +516,7 @@ Add a dedicated repository boundary for creating, loading, and listing first-cla
 
 ## Task 11 - Replace and Delete Ranking Sets Atomically
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
