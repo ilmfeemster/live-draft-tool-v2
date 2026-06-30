@@ -65,7 +65,11 @@ const defaultRepository: RankingManagementWorkflowRepository = {
 export async function listManagedRankingSets(
   repository = defaultRepository,
 ): Promise<RankingManagementResult<readonly RankingSetSummary[]>> {
-  return { ok: true, value: await repository.listRankingSetSummaries() };
+  try {
+    return { ok: true, value: await repository.listRankingSetSummaries() };
+  } catch (error) {
+    return failure([mapUnexpectedRepositoryError(toRepositoryError(error))]);
+  }
 }
 
 export async function loadManagedRankingSet(
@@ -291,6 +295,18 @@ function mapUnexpectedRepositoryError(error: {
     message: error.message,
     path: error.path,
   };
+}
+
+function toRepositoryError(error: unknown): { message: string; path?: string } {
+  if (error instanceof Error) {
+    return { message: error.message };
+  }
+
+  if (typeof error === "string") {
+    return { message: error };
+  }
+
+  return { message: "Ranking persistence operation failed." };
 }
 
 function notFoundError(): RankingManagementError {

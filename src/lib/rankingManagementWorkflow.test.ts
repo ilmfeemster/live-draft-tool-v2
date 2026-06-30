@@ -41,6 +41,27 @@ describe("ranking management workflow", () => {
     expect(fake.loadCount).toBe(0);
   });
 
+  it("maps list persistence failures to structured errors", async () => {
+    const fake = createFakeRepository([]);
+    fake.listError = new TypeError(
+      "Cannot read properties of undefined (reading 'findMany')",
+    );
+
+    const result = await listManagedRankingSets(fake.repository);
+
+    expect(result).toEqual({
+      ok: false,
+      errors: [
+        {
+          code: "persistence-rejected",
+          message: "Cannot read properties of undefined (reading 'findMany')",
+          path: undefined,
+        },
+      ],
+    });
+    expect(fake.listCount).toBe(1);
+  });
+
   it("loads a complete ranking set and maps missing or blank ids", async () => {
     const source = createCompleteSet();
     const fake = createFakeRepository([source]);
@@ -437,11 +458,17 @@ function createFakeRepository(initialRecords: readonly RankingSet[]) {
     replaceCount: 0,
     deleteCount: 0,
     replaceResult: undefined as ReplaceRankingSetResult | undefined,
+    listError: undefined as Error | undefined,
   };
 
   const repository: RankingManagementWorkflowRepository = {
     async listRankingSetSummaries() {
       state.listCount += 1;
+
+      if (state.listError) {
+        throw state.listError;
+      }
+
       return state.records.map(createSummary);
     },
 
@@ -542,6 +569,9 @@ function createFakeRepository(initialRecords: readonly RankingSet[]) {
     },
     set replaceResult(value: ReplaceRankingSetResult | undefined) {
       state.replaceResult = value;
+    },
+    set listError(value: Error | undefined) {
+      state.listError = value;
     },
   };
 }
