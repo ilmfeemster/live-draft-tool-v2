@@ -16,9 +16,11 @@ import {
 
 vi.mock("@/app/actions/rankingActions", () => ({
   deleteRankingLibrarySetAction: vi.fn(),
+  editRankingLibrarySetAction: vi.fn(),
   exportRankingLibrarySetJsonAction: vi.fn(),
   importRankingLibraryFileAction: vi.fn(),
   listRankingLibraryAction: vi.fn(),
+  loadRankingLibrarySetAction: vi.fn(),
 }));
 
 describe("RankingLibraryPanel", () => {
@@ -49,6 +51,7 @@ describe("RankingLibraryPanel", () => {
     expect(markup).toContain("ADP: partial");
     expect(markup).toContain("source tiers: QB, RB");
     expect(markup).toContain("neutralized tiers: WR");
+    expect(markup).toContain("Review/Edit");
     expect(markup).toContain("Export JSON");
     expect(markup).toContain("Delete Set");
   });

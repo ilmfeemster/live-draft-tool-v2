@@ -3,16 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   deleteRankingLibrarySetAction,
+  editRankingLibrarySetAction,
   exportRankingLibrarySetJsonAction,
   importRankingLibraryFileAction,
   listRankingLibraryAction,
+  loadRankingLibrarySetAction,
 } from "@/app/actions/rankingActions";
+import { RankingSetEditorPanel } from "@/components/RankingSetEditorPanel";
 import type { RankingManagementError } from "@/lib/rankingManagementWorkflow";
 import type {
   RankingImportDiagnostic,
   RankingImportFormatId,
 } from "@/types/rankingImport";
 import type {
+  RankingSet,
   RankingSetCapabilities,
   RankingSetSummary,
 } from "@/types/rankings";
@@ -47,7 +51,11 @@ export function RankingLibraryPanel({
   const [rankingName, setRankingName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [isSavingEditor, setIsSavingEditor] = useState(false);
   const [busySetId, setBusySetId] = useState<string | null>(null);
+  const [loadedRankingSet, setLoadedRankingSet] = useState<RankingSet | null>(
+    null,
+  );
   const [message, setMessage] = useState<OperationMessage | null>(null);
   const [errors, setErrors] =
     useState<readonly RankingImportDiagnostic[]>([]);
@@ -55,6 +63,8 @@ export function RankingLibraryPanel({
     useState<readonly RankingImportDiagnostic[]>([]);
   const [managementErrors, setManagementErrors] =
     useState<readonly RankingManagementError[]>(initialErrors);
+  const [editorErrors, setEditorErrors] =
+    useState<readonly RankingManagementError[]>([]);
 
   useEffect(() => {
     // Server refreshes provide the authoritative replacement for the local list.
@@ -188,6 +198,92 @@ export function RankingLibraryPanel({
     }
   }
 
+  async function loadSummary(summary: RankingSetSummary) {
+    if (busySetId) {
+      return;
+    }
+
+    setBusySetId(summary.id);
+    setMessage(null);
+    setEditorErrors([]);
+
+    try {
+      const result = await loadRankingLibrarySetAction(summary.id);
+
+      if (!result.ok) {
+        if (loadedRankingSet) {
+          setEditorErrors(result.errors);
+        } else {
+          setManagementErrors(result.errors);
+        }
+        setMessage({
+          kind: "error",
+          text: "Ranking set could not be loaded.",
+        });
+        return;
+      }
+
+      setLoadedRankingSet(result.value);
+      setManagementErrors([]);
+      setEditorErrors([]);
+      setMessage({
+        kind: "success",
+        text: `Loaded "${result.value.name}" for review.`,
+      });
+    } catch (error) {
+      console.error("Ranking load failed.", error);
+      setMessage({
+        kind: "error",
+        text: "Ranking load failed unexpectedly.",
+      });
+    } finally {
+      setBusySetId(null);
+    }
+  }
+
+  async function renameLoadedSet(name: string) {
+    if (!loadedRankingSet || isSavingEditor) {
+      return;
+    }
+
+    setIsSavingEditor(true);
+    setMessage(null);
+    setEditorErrors([]);
+
+    try {
+      const result = await editRankingLibrarySetAction({
+        id: loadedRankingSet.id,
+        intent: { type: "rename", name },
+      });
+
+      if (!result.ok) {
+        setEditorErrors(result.errors);
+        setMessage({
+          kind: "error",
+          text: "Ranking rename failed. The loaded set was not changed.",
+        });
+        return;
+      }
+
+      setLoadedRankingSet(result.value);
+      setEditorErrors([]);
+      setManagementErrors([]);
+      setMessage({
+        kind: "success",
+        text: `Renamed ranking set to "${result.value.name}".`,
+      });
+      await refreshSummaries();
+    } catch (error) {
+      console.error("Ranking rename failed.", error);
+      setMessage({
+        kind: "error",
+        text: "Ranking rename failed unexpectedly.",
+      });
+    } finally {
+      setIsSavingEditor(false);
+    }
+  }
+
   async function deleteSummary(summary: RankingSetSummary) {
     if (busySetId) {
       return;
@@ -224,6 +320,10 @@ export function RankingLibraryPanel({
       setVisibleSummaries((current) =>
         current.filter((candidate) => candidate.id !== result.value.id),
       );
+      if (loadedRankingSet?.id === result.value.id) {
+        setLoadedRankingSet(null);
+        setEditorErrors([]);
+      }
       setManagementErrors([]);
       setMessage({
         kind: "success",
@@ -284,6 +384,7 @@ export function RankingLibraryPanel({
                   summary={summary}
                   onDelete={deleteSummary}
                   onExport={exportSummary}
+                  onReview={loadSummary}
                 />
               ))}
             </div>
@@ -365,6 +466,20 @@ export function RankingLibraryPanel({
       {warnings.length > 0 ? (
         <ImportDiagnosticList diagnostics={warnings} title="Import Warnings" />
       ) : null}
+      {loadedRankingSet ? (
+        <RankingSetEditorPanel
+          errors={editorErrors}
+          isSaving={isSavingEditor}
+          rankingSet={loadedRankingSet}
+          onClose={() => {
+            setLoadedRankingSet(null);
+            setEditorErrors([]);
+          }}
+          onRename={(name) => {
+            void renameLoadedSet(name);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -374,11 +489,13 @@ function RankingSummaryCard({
   summary,
   onDelete,
   onExport,
+  onReview,
 }: {
   busySetId: string | null;
   summary: RankingSetSummary;
   onDelete: (summary: RankingSetSummary) => void;
   onExport: (summary: RankingSetSummary) => void;
+  onReview: (summary: RankingSetSummary) => void;
 }) {
   const isBusy = busySetId === summary.id;
   const isDisabled = Boolean(busySetId);
@@ -409,7 +526,17 @@ function RankingSummaryCard({
         {formatCapabilitySummary(summary.capabilities)}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <button
+          type="button"
+          className="h-9 rounded border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-zinc-400"
+          disabled={isDisabled}
+          onClick={() => {
+            onReview(summary);
+          }}
+        >
+          {isBusy ? "Working..." : "Review/Edit"}
+        </button>
         <button
           type="button"
           className="h-9 rounded border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-zinc-400"

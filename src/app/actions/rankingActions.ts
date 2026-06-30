@@ -6,13 +6,16 @@ import {
 } from "@/lib/rankingImportWorkflow";
 import {
   deleteManagedRankingSet,
+  editManagedRankingSet,
   exportManagedRankingSetJson,
   listManagedRankingSets,
+  loadManagedRankingSet,
   type RankingManagementResult,
 } from "@/lib/rankingManagementWorkflow";
 import type { CanonicalRankingJsonExportValue } from "@/lib/canonicalRankingJsonExporter";
+import type { RankingSetEditIntent } from "@/lib/rankingSetEditing";
 import type { RankingImportFormatId } from "@/types/rankingImport";
-import type { RankingSetSummary } from "@/types/rankings";
+import type { RankingSet, RankingSetSummary } from "@/types/rankings";
 
 export async function listRankingLibraryAction(): Promise<
   RankingManagementResult<readonly RankingSetSummary[]>
@@ -43,6 +46,25 @@ export async function deleteRankingLibrarySetAction(
   id: string,
 ): Promise<RankingManagementResult<{ id: string }>> {
   return deleteManagedRankingSet(id);
+}
+
+export async function loadRankingLibrarySetAction(
+  id: string,
+): Promise<RankingManagementResult<RankingSet>> {
+  return loadManagedRankingSet(id);
+}
+
+export async function editRankingLibrarySetAction(
+  input: Readonly<{
+    id: string;
+    intent: RankingSetEditIntent;
+  }>,
+): Promise<RankingManagementResult<RankingSet>> {
+  return editManagedRankingSet({
+    id: input.id,
+    intent: input.intent,
+    updatedAt: new Date(),
+  });
 }
 
 export async function exportRankingLibrarySetJsonAction(

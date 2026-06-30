@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. This slice promotes the first implementation increment of Phase 5 Task 18. Implementation has not started.
+Implemented and validated. This slice completed the first implementation increment of Phase 5 Task 18; Task 18 remains open for follow-up edit modes.
 
 ## Source Context
 
