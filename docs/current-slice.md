@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Phase 5 Task 12 is complete; this slice promotes Phase 5 Task 13 only. Stop after implementing and validating this slice; do not begin ranking management/export workflows, snapshot creation, draft ranking-set selection, ranking library UI, editing UI, or Phase 5 regression work.
+Complete. The application ranking import workflow is implemented as a thin orchestrator over the existing preflight, parser, normalizer, candidate validation, conversion, and ranking-set repository boundaries. It supports create and explicit replace intents, preserves replacement identity and `createdAt`, accumulates warnings, maps expected repository outcomes to persist-stage diagnostics, and proves failure isolation before repository writes. Focused workflow tests pass 10 tests; underlying import-stage and repository tests pass 143 tests with one expected database-gated skip; TypeScript no-emit passes; focused lint passes; the full Vitest suite passes 39 files and 542 tests with one expected database-gated skip; repository-wide lint passes. Phase 5 Task 13 is complete.
 
 ## Source Context
 

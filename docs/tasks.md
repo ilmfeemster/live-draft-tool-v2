@@ -606,7 +606,7 @@ Make the existing seed rankings available through the Phase 5 domain and reposit
 
 ## Task 13 - Add the Application Import Workflow
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
