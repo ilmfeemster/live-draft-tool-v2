@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Do not implement until this slice is approved or explicitly requested.
+Blocked pending manual QA environment. Automated validation passed, but the interactive browser/manual QA checklist could not be completed in this run.
 
 ## Source Context
 
@@ -60,11 +60,11 @@ Complete Phase 5 regression and exit validation by running the automated validat
    Run targeted tests covering Phase 5 and Phase 4 regression boundaries:
 
    ```text
-   npm test -- src/lib/rankingSetDomain.test.ts src/lib/rankingImportContracts.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalization.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/rankingSetSerialization.test.ts
-   npm test -- src/lib/rankingSetOperations.test.ts src/lib/rankingSetRepository.test.ts src/lib/managedSeedRankingSet.test.ts src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
+   npm test -- src/lib/rankingSetValidation.test.ts src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/canonicalRankingJsonExporter.test.ts src/lib/rankingImportWorkflow.test.ts
+   npm test -- src/lib/rankingSetEditing.test.ts src/lib/rankingSetRepository.test.ts src/lib/managedSeedRankingSet.test.ts src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
    npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftCreationWorkflow.test.ts src/app/actions/draftActions.test.ts src/lib/draftWorkspaceLoader.test.ts
    npm test -- src/components/RankingLibraryPanel.test.tsx src/components/RankingSetEditorPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx
-   npm test -- src/lib/recommendations.test.ts src/lib/recommendationScenarios.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts
+   npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts
    ```
 
    If a named test file does not exist, stop and update the slice rather than substituting a broader command silently.
@@ -142,11 +142,11 @@ Complete Phase 5 regression and exit validation by running the automated validat
 Run from the repository root:
 
 ```text
-npm test -- src/lib/rankingSetDomain.test.ts src/lib/rankingImportContracts.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalization.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/rankingSetSerialization.test.ts
-npm test -- src/lib/rankingSetOperations.test.ts src/lib/rankingSetRepository.test.ts src/lib/managedSeedRankingSet.test.ts src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
+npm test -- src/lib/rankingSetValidation.test.ts src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/canonicalRankingJsonExporter.test.ts src/lib/rankingImportWorkflow.test.ts
+npm test -- src/lib/rankingSetEditing.test.ts src/lib/rankingSetRepository.test.ts src/lib/managedSeedRankingSet.test.ts src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
 npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftCreationWorkflow.test.ts src/app/actions/draftActions.test.ts src/lib/draftWorkspaceLoader.test.ts
 npm test -- src/components/RankingLibraryPanel.test.tsx src/components/RankingSetEditorPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx
-npm test -- src/lib/recommendations.test.ts src/lib/recommendationScenarios.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts
+npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts
 npx tsc --noEmit
 npm test
 npm run lint
