@@ -284,6 +284,55 @@ export function RankingLibraryPanel({
     }
   }
 
+  async function reorderLoadedSet(
+    input: Readonly<{ playerId: string; toOverallRank: number }>,
+  ) {
+    if (!loadedRankingSet || isSavingEditor) {
+      return;
+    }
+
+    setIsSavingEditor(true);
+    setMessage(null);
+    setEditorErrors([]);
+
+    try {
+      const result = await editRankingLibrarySetAction({
+        id: loadedRankingSet.id,
+        intent: {
+          type: "reorder-player",
+          playerId: input.playerId,
+          toOverallRank: input.toOverallRank,
+        },
+      });
+
+      if (!result.ok) {
+        setEditorErrors(result.errors);
+        setMessage({
+          kind: "error",
+          text: "Ranking reorder failed. The loaded set was not changed.",
+        });
+        return;
+      }
+
+      setLoadedRankingSet(result.value);
+      setEditorErrors([]);
+      setManagementErrors([]);
+      setMessage({
+        kind: "success",
+        text: "Ranking order saved.",
+      });
+      await refreshSummaries();
+    } catch (error) {
+      console.error("Ranking reorder failed.", error);
+      setMessage({
+        kind: "error",
+        text: "Ranking reorder failed unexpectedly.",
+      });
+    } finally {
+      setIsSavingEditor(false);
+    }
+  }
+
   async function deleteSummary(summary: RankingSetSummary) {
     if (busySetId) {
       return;
@@ -477,6 +526,9 @@ export function RankingLibraryPanel({
           }}
           onRename={(name) => {
             void renameLoadedSet(name);
+          }}
+          onReorder={(input) => {
+            void reorderLoadedSet(input);
           }}
         />
       ) : null}

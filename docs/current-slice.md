@@ -1,44 +1,49 @@
-# Current Slice: Ranking Reorder Editor
+# Current Slice: Ranking Player Facts Correction Editor
 
 ## Completion Status
 
-Planned. This slice promotes the second implementation increment of Phase 5 Task 18. Implementation has not started.
+Planned and ready for implementation.
+
+This slice is the next focused implementation increment of Phase 5 Task 18. Task 18 remains open after this slice because tier editing is still required.
 
 ## Source Context
 
-- Phase 5 Task 17 is complete. `RankingLibraryPanel` lists managed ranking sets and supports import, export, delete, diagnostics, refresh, and opening a set for review.
+- Phase 5 Task 17 is complete. The ranking library can list, import, export, delete, and open managed ranking sets.
 - The first Task 18 increment is complete. `RankingSetEditorPanel` can load one complete ranking set, display canonical entries and provenance, and persist a rename through `editRankingLibrarySetAction`.
-- Phase 5 Task 18 remains incomplete. Player correction, reorder, and tier editing are still open.
+- The second Task 18 increment is complete. The editor can submit a `reorder-player` intent and refresh from the returned canonical aggregate.
+- Phase 5 Task 18 still requires supported player-field correction and tier editing UI.
 - `src/app/actions/rankingActions.ts` already exposes `editRankingLibrarySetAction({ id, intent })`, which accepts any `RankingSetEditIntent` and adds an action-owned timestamp.
-- `src/lib/rankingSetEditing.ts` already supports the pure `reorder-player` intent and derives canonical overall and position ranks after reorder.
-- `src/components/RankingSetEditorPanel.tsx` currently renders the canonical entry table but has no controls for reorder, player correction, or tier editing.
+- `src/lib/rankingSetEditing.ts` already supports the pure `correct-player` intent.
+- `correct-player` can update player identity, name, team, position, ADP, and tier in the domain layer, but position, identity, and tier edits have more complicated capability and invariant behavior.
 - Existing tests use Vitest, `vi.mock`, and `renderToStaticMarkup`; do not add testing dependencies.
 
 ## Goal
 
-Allow a user to move a player to a new overall rank from the ranking detail editor and persist the reorder through the existing application edit workflow.
+Allow a user to correct basic player facts for one loaded mutable ranking set from the ranking detail editor and persist those corrections through the existing application edit workflow.
 
-This proves the Task 18 reorder path end to end while keeping player correction and tier editing for later slices.
+This proves the Task 18 player-correction path end to end while keeping player identity changes, position changes, and tier editing for later slices.
 
 ## Scope
 
 ### Goals
 
-- Add a focused reorder form to `RankingSetEditorPanel`.
-- Let the user choose a player from the currently loaded ranking set and enter a target overall rank.
-- Submit a `reorder-player` intent through the existing `editRankingLibrarySetAction` path.
+- Add a focused player correction form to `RankingSetEditorPanel`.
+- Let the user choose a player from the currently loaded ranking set.
+- Let the user edit the selected player's display name, team, and ADP rank.
+- Submit a `correct-player` intent through the existing `editRankingLibrarySetAction` path.
 - Refresh the editor from the saved canonical aggregate after success.
-- Display reordered canonical overall ranks and derived position ranks from the returned aggregate.
+- Display corrected player facts and refreshed capability states from the returned aggregate.
 - Display structured validation, not-found, conflict, and persistence failures without replacing the current valid editor view.
 - Keep immutable draft snapshot behavior visibly distinct from mutable ranking sets.
-- Preserve existing import, export, delete, rename, Draft Room, draft setup, scenario, and recommendation behavior.
+- Preserve existing import, export, delete, rename, reorder, Draft Room, draft setup, scenario, and recommendation behavior.
 
 ### Non-Goals
 
-- Do not add player-field correction UI yet.
+- Do not add player ID editing yet.
+- Do not add player position editing yet.
 - Do not add tier assignment or tier update UI yet.
-- Do not add drag/drop reorder, animations, keyboard shortcuts, undo, history, bulk editing, merge, compare, or source-file editing.
-- Do not calculate ranks, validate reorder targets, validate tier progression, or derive capability states in UI.
+- Do not add bulk editing, spreadsheet controls, inline table editing, undo, history, merge, compare, or source-file editing.
+- Do not calculate ranks, validate player facts, validate tier progression, or derive capability states in UI.
 - Do not edit draft snapshots or existing drafts.
 - Do not add draft setup ranking-set selection. That remains Task 19.
 - Do not change parser, normalizer, validator, converter, repository schema, migrations, generated source, recommendation scoring, Scenario V1, or package dependencies.
@@ -56,43 +61,73 @@ type RankingSetEditorPanelProps = {
   errors: readonly RankingManagementError[];
   onRename: (name: string) => void;
   onReorder: (input: Readonly<{ playerId: string; toOverallRank: number }>) => void;
+  onCorrectPlayer: (
+    input: Readonly<{
+      playerId: string;
+      changes: Readonly<{
+        name: string;
+        team: string;
+        adpRank: number | null;
+      }>;
+    }>,
+  ) => void;
   onClose: () => void;
 };
 ```
 
-The editor may keep local form state for selected player ID and target overall rank text. It must not locally mutate entries or recalculate ranks.
+The editor may keep local form state for selected player ID, name text, team text, and ADP text. It must not locally mutate entries, recalculate ranks, validate player facts, or infer capability states.
 
-### Reorder UI
+### Player Correction UI
 
-Add a compact reorder form near the rename form:
+Add a compact player correction form near the existing rename and reorder controls:
 
 - player selector populated from the loaded ranking set in canonical `overallRank` order;
-- numeric target overall rank input;
-- submit button labeled clearly for reorder.
+- selected player label includes current overall rank, player name, position, and team;
+- editable text input for player name;
+- editable text input for team;
+- numeric input for ADP rank that can be blank;
+- submit button labeled clearly for saving the correction.
+
+When the selected player changes:
+
+- populate the form from the selected canonical entry;
+- display a blank ADP field when `player.adpRank` is `null`;
+- leave player ID and position visible only as context, not editable controls.
 
 On submit:
 
-- parse the target rank with `Number(...)`;
-- call `onReorder({ playerId, toOverallRank })`;
-- do not clamp, repair, or validate the value in UI beyond requiring a selected player and passing a number;
-- let domain/application workflow return structured validation for invalid ranks, missing players, and stale data.
+- require only that a player is selected;
+- map blank ADP text to `null`;
+- map nonblank ADP text with `Number(...)`;
+- call:
 
-The selected player label should include current overall rank, player name, and position so the user can make a useful choice.
+```ts
+onCorrectPlayer({
+  playerId,
+  changes: {
+    name,
+    team,
+    adpRank,
+  },
+});
+```
+
+Do not trim, clamp, repair, or reject values in the UI beyond the minimal ADP text-to-value mapping needed to call the typed action. Let the domain/application workflow return structured validation for invalid names, teams, ADP values, missing players, conflicts, and persistence failures.
 
 ### Ranking Library Integration
 
 Update `src/components/RankingLibraryPanel.tsx`:
 
-- Pass an `onReorder` handler to `RankingSetEditorPanel`.
+- Pass an `onCorrectPlayer` handler to `RankingSetEditorPanel`.
 - Submit:
 
 ```ts
 editRankingLibrarySetAction({
   id: loadedRankingSet.id,
   intent: {
-    type: "reorder-player",
+    type: "correct-player",
     playerId,
-    toOverallRank,
+    changes,
   },
 });
 ```
@@ -105,11 +140,11 @@ editRankingLibrarySetAction({
 - On failure:
   - show returned management errors in the editor;
   - keep the current loaded set unchanged.
-- Reuse the existing `isSavingEditor` state unless separating rename and reorder saving state is necessary for clarity.
+- Reuse the existing `isSavingEditor` state unless separating edit-specific saving state becomes necessary for clarity.
 
 ### Error Display
 
-Use the existing editor error display for reorder failures.
+Use the existing editor error display for correction failures.
 
 Management errors should preserve:
 
@@ -121,23 +156,25 @@ Do not add a new diagnostics abstraction unless the existing helper cannot be re
 
 ## Implementation Steps
 
-1. Update `src/components/RankingSetEditorPanel.tsx` to render the reorder form and accept an `onReorder` prop.
-2. Update `src/components/RankingSetEditorPanel.test.tsx` for:
-   - reorder form rendering;
-   - player selector labels include overall rank, name, and position;
-   - target rank numeric input and submit button render;
-   - canonical entry table still renders in returned aggregate order;
-   - structured reorder errors render through the existing error list.
-3. Update `src/components/RankingLibraryPanel.tsx` to handle reorder submissions through `editRankingLibrarySetAction`, refresh summaries after success, and preserve the current loaded view on failure.
-4. Update `src/components/RankingLibraryPanel.test.tsx` only if static markup expectations change.
-5. Add or update action tests only if action behavior changes. No new server action is expected.
-6. Run focused editor, library panel, ranking actions, and ranking management workflow tests.
-7. Run pure ranking-set editing tests to verify reorder domain behavior remains covered.
-8. Run Draft Room render regression tests.
-9. Run TypeScript no-emit and lint for touched files.
-10. Run the full test suite and repository-wide lint.
-11. After validation passes, update this slice completion status only. Do not mark Phase 5 Task 18 complete yet.
-12. Report results and stop. Do not begin player correction, tier editing, or Task 19.
+1. Update `src/components/RankingSetEditorPanel.tsx` to render the player correction form and accept an `onCorrectPlayer` prop.
+2. Update editor local state so changing the selected correction player repopulates name, team, and ADP fields from the current canonical entry.
+3. Update `src/components/RankingSetEditorPanel.test.tsx` for:
+   - correction form rendering;
+   - player selector labels include overall rank, name, position, and team;
+   - selected player values prefill name, team, and ADP fields;
+   - blank ADP is represented as an empty input;
+   - structured correction errors render through the existing error list;
+   - existing rename, reorder, provenance, and canonical table markup expectations still hold.
+4. Update `src/components/RankingLibraryPanel.tsx` to handle correction submissions through `editRankingLibrarySetAction`, refresh summaries after success, and preserve the current loaded view on failure.
+5. Update `src/components/RankingLibraryPanel.test.tsx` only if static markup expectations change.
+6. Add or update action tests only if action behavior changes. No new server action is expected.
+7. Run focused editor, library panel, ranking actions, and ranking management workflow tests.
+8. Run pure ranking-set editing tests to verify correction domain behavior remains covered.
+9. Run Draft Room render regression tests.
+10. Run TypeScript no-emit and lint for touched files.
+11. Run the full test suite and repository-wide lint.
+12. After validation passes, update this slice completion status only. Do not mark Phase 5 Task 18 complete yet.
+13. Report results and stop. Do not begin tier editing, position editing, identity editing, or Task 19.
 
 ## Expected Files
 
@@ -154,17 +191,18 @@ Avoid changes to Draft Room, draft setup, parser/normalizer/import/export intern
 
 Update editor component tests covering:
 
-- reorder form appears when a ranking set is loaded;
+- correction form appears when a ranking set is loaded;
 - player options are based on canonical overall order;
-- target overall rank input is present;
-- reorder submit button is present;
-- entry table continues to display overall rank and derived position rank from props;
-- reorder-related structured errors render with code, message, and path.
+- selected player facts are visible in editable fields;
+- blank ADP values render as empty ADP input values;
+- player ID and position are not editable in this slice;
+- entry table continues to display values from props;
+- correction-related structured errors render with code, message, and path.
 
 Update library panel or action tests as needed to cover:
 
-- existing review, rename, import, export, and delete markup expectations still hold;
-- reorder uses the existing edit action path where practical without adding browser interaction dependencies.
+- existing review, rename, reorder, import, export, and delete markup expectations still hold;
+- correction uses the existing edit action path where practical without adding browser interaction dependencies.
 
 Keep interaction-heavy load/save behavior to action tests and manual QA unless current test utilities already make it straightforward. Do not add testing dependencies.
 
@@ -197,50 +235,52 @@ Expected result:
 After automated validation, run the app locally only if practical and complete a small browser check:
 
 1. Open the home page and load one ranking set through `Review/Edit`.
-2. Move a player to a valid target overall rank and confirm the editor shows the returned overall and position ranks.
-3. Attempt an invalid target rank such as `0` or a value larger than the entry count and confirm a structured error appears while the prior valid view remains.
-4. Confirm rename still works after a reorder.
-5. Confirm import, export, delete, and Draft Room behavior still work as before.
+2. Correct a player's name, team, and ADP, then confirm the editor shows the returned values.
+3. Clear a player's ADP and confirm the saved aggregate displays ADP as unavailable/blank according to the existing table behavior.
+4. Attempt an invalid correction such as a blank player name or invalid ADP number and confirm a structured error appears while the prior valid view remains.
+5. Confirm rename and reorder still work after a correction.
+6. Confirm import, export, delete, and Draft Room behavior still work as before.
 
 If local persistence is unavailable, report manual QA as blocked by database setup rather than changing this slice.
 
 ## Acceptance Criteria
 
-- A user can submit a reorder for one loaded ranking set from the detail editor.
-- Successful reorder persists through the application edit workflow.
+- A user can submit a basic player facts correction for one loaded ranking set from the detail editor.
+- Supported corrections include player name, team, and ADP rank.
+- Successful corrections persist through the application edit workflow.
 - The editor refreshes from the returned canonical aggregate after success.
-- Reordered overall ranks and derived position ranks display from domain output, not UI calculation.
-- Invalid target ranks, stale/missing players, conflicts, and persistence errors show useful feedback and preserve the current valid editor view.
+- Corrected values and capability states display from domain output, not UI calculation.
+- Invalid player fact edits, stale/missing players, conflicts, and persistence errors show useful feedback and preserve the current valid editor view.
 - UI code performs no ranking normalization, validation, conversion, rank calculation, tier legality calculation, or direct persistence mapping.
-- Existing rename, import, export, delete, Draft Room, Draft History, developer workbench, draft setup, selected-ranking draft creation action, scenario import/export, and recommendation behavior remain unchanged.
-- No schema, migration, dependency, player correction, tier-editing, draft setup selection, Scenario V1, or recommendation-tuning change is introduced.
-- Phase 5 Task 18 remains incomplete after this slice; player correction and tier editing still need follow-up slices.
+- Existing rename, reorder, import, export, delete, Draft Room, Draft History, developer workbench, draft setup, selected-ranking draft creation action, scenario import/export, and recommendation behavior remain unchanged.
+- No schema, migration, dependency, player identity editing, position editing, tier-editing, draft setup selection, Scenario V1, or recommendation-tuning change is introduced.
+- Phase 5 Task 18 remains incomplete after this slice; tier editing still needs a follow-up slice.
 
 ## Failure Handling
 
-- If reorder fails, show returned management errors and keep the current loaded set unchanged.
-- If summary refresh fails after reorder, keep the updated editor view and show the refresh error.
+- If correction fails, show returned management errors and keep the current loaded set unchanged.
+- If summary refresh fails after correction, keep the updated editor view and show the refresh error.
 - If the loaded set is deleted, keep existing behavior and clear the editor.
 - If unexpected server-action errors throw, show a generic operation failure message and log the error.
-- If implementation appears to require player correction, tier editing, or draft setup selection, stop and report the Task 18/19 boundary.
+- If implementation appears to require player identity editing, position editing, tier editing, or draft setup selection, stop and report the Task 18/19 boundary.
 - If unrelated tests fail, report them separately and do not broaden this slice.
 
 ## Documentation Updates After Implementation
 
 - Update only this file's completion status after implementation validation passes.
-- Do not update `docs/tasks.md` to mark Task 18 complete until later slices implement player correction and tier editing.
+- Do not update `docs/tasks.md` to mark Task 18 complete until tier editing is implemented.
 - No `docs/architecture.md`, `docs/project.md`, or `docs/decisions.md` update is expected if the slice remains a thin UI layer over existing workflows.
 - The existing recommendation to establish a checked-in Prisma migration baseline and local/CI database setup remains outside this slice.
 
 ## Follow-Up Slice
 
-Continue Phase 5 Task 18 by adding supported player correction UI or tier assignment/update controls over the editor shell. Keep pure domain edit rules authoritative and immutable draft snapshots unchanged.
+Continue Phase 5 Task 18 by adding tier assignment/update controls over the editor shell. Keep pure domain edit rules authoritative and immutable draft snapshots unchanged.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It adds one remaining Task 18 edit mode without bundling correction or tier editing.
+- Smallest meaningful increment: yes. It adds one remaining Task 18 edit mode without bundling tier editing, identity editing, position editing, or draft setup selection.
 - Executable by a lower-reasoning pass: yes. Component behavior, integration path, tests, expected files, and validation commands are explicit.
-- Avoids unnecessary architecture changes: yes. It reuses the existing edit action and pure `reorder-player` intent.
+- Avoids unnecessary architecture changes: yes. It reuses the existing edit action and pure `correct-player` intent.
 - Blast radius reasonable: yes. Planned changes are limited to the editor, library integration, focused tests, and slice status.
-- Review/revert comfort: yes. The reorder UI can be removed without changing domain, repository, or draft behavior.
-- Observable/testable acceptance criteria: yes. Reorder success, derived rank display, invalid-rank failure, and unchanged draft behavior are directly observable.
+- Review/revert comfort: yes. The correction UI can be removed without changing domain, repository, or draft behavior.
+- Observable/testable acceptance criteria: yes. Correction success, returned value display, invalid edit failure, and unchanged draft behavior are directly observable.

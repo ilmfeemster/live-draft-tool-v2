@@ -15,6 +15,9 @@ type RankingSetEditorPanelProps = {
   isSaving: boolean;
   errors: readonly RankingManagementError[];
   onRename: (name: string) => void;
+  onReorder: (
+    input: Readonly<{ playerId: string; toOverallRank: number }>,
+  ) => void;
   onClose: () => void;
 };
 
@@ -23,14 +26,17 @@ export function RankingSetEditorPanel({
   isSaving,
   errors,
   onRename,
+  onReorder,
   onClose,
 }: RankingSetEditorPanelProps) {
   const [name, setName] = useState(rankingSet.name);
   const orderedEntries = useMemo(() => {
-    return [...rankingSet.entries].sort((left, right) => {
-      return left.overallRank - right.overallRank;
-    });
+    return orderEntries(rankingSet.entries);
   }, [rankingSet.entries]);
+  const [reorderPlayerId, setReorderPlayerId] = useState(
+    () => orderEntries(rankingSet.entries)[0]?.player.id ?? "",
+  );
+  const [targetOverallRank, setTargetOverallRank] = useState("1");
 
   useEffect(() => {
     // A newly loaded ranking set resets the local rename draft.
@@ -38,9 +44,29 @@ export function RankingSetEditorPanel({
     setName(rankingSet.name);
   }, [rankingSet.id, rankingSet.name]);
 
+  useEffect(() => {
+    // A saved reorder returns a fresh aggregate; reset the form to its new top row.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setReorderPlayerId(orderedEntries[0]?.player.id ?? "");
+    setTargetOverallRank("1");
+  }, [rankingSet.id, orderedEntries]);
+
   function submitRename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onRename(name);
+  }
+
+  function submitReorder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!reorderPlayerId) {
+      return;
+    }
+
+    onReorder({
+      playerId: reorderPlayerId,
+      toOverallRank: Number(targetOverallRank),
+    });
   }
 
   return (
@@ -103,6 +129,49 @@ export function RankingSetEditorPanel({
         </button>
       </form>
 
+      <form
+        className="mt-4 grid gap-2 lg:grid-cols-[minmax(0,1fr)_8rem_auto]"
+        onSubmit={submitReorder}
+      >
+        <label className="flex min-w-0 flex-col gap-1 text-sm font-medium text-zinc-700">
+          Player to Move
+          <select
+            className="h-10 rounded border border-zinc-300 bg-white px-3 text-sm font-normal text-zinc-950"
+            value={reorderPlayerId}
+            onChange={(event) => {
+              setReorderPlayerId(event.target.value);
+            }}
+          >
+            {orderedEntries.map((entry) => (
+              <option key={entry.player.id} value={entry.player.id}>
+                {formatReorderOption(entry)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
+          Target Rank
+          <input
+            className="h-10 rounded border border-zinc-300 px-3 text-sm font-normal text-zinc-950"
+            inputMode="numeric"
+            type="number"
+            value={targetOverallRank}
+            onChange={(event) => {
+              setTargetOverallRank(event.target.value);
+            }}
+          />
+        </label>
+
+        <button
+          type="submit"
+          className="h-10 self-end rounded bg-emerald-700 px-4 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+          disabled={isSaving}
+        >
+          {isSaving ? "Saving..." : "Move Player"}
+        </button>
+      </form>
+
       {errors.length > 0 ? <EditorErrorList errors={errors} /> : null}
 
       <div className="mt-4 overflow-x-auto">
@@ -128,6 +197,12 @@ export function RankingSetEditorPanel({
       </div>
     </section>
   );
+}
+
+function orderEntries(entries: readonly RankingEntry[]): RankingEntry[] {
+  return [...entries].sort((left, right) => {
+    return left.overallRank - right.overallRank;
+  });
 }
 
 function DetailMetric({
@@ -174,6 +249,10 @@ function RankingEntryRow({ entry }: { entry: RankingEntry }) {
       <TableCell>{formatAdp(entry.adpRank)}</TableCell>
     </tr>
   );
+}
+
+function formatReorderOption(entry: RankingEntry): string {
+  return `#${entry.overallRank} - ${entry.player.name} (${entry.player.position})`;
 }
 
 function EditorErrorList({

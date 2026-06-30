@@ -20,6 +20,7 @@ describe("RankingSetEditorPanel", () => {
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
         onRename={vi.fn()}
+        onReorder={vi.fn()}
       />,
     );
 
@@ -47,6 +48,7 @@ describe("RankingSetEditorPanel", () => {
         })}
         onClose={vi.fn()}
         onRename={vi.fn()}
+        onReorder={vi.fn()}
       />,
     );
 
@@ -76,6 +78,7 @@ describe("RankingSetEditorPanel", () => {
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
         onRename={vi.fn()}
+        onReorder={vi.fn()}
       />,
     );
 
@@ -98,12 +101,69 @@ describe("RankingSetEditorPanel", () => {
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
         onRename={vi.fn()}
+        onReorder={vi.fn()}
       />,
     );
 
     expect(markup).toContain("Ranking Set Name");
     expect(markup).toMatch(/<input[^>]*type="text"[^>]*value="Managed Rankings"/);
     expect(markup).toContain("Save Rename");
+  });
+
+  it("renders reorder controls from canonical order", () => {
+    const markup = renderToStaticMarkup(
+      <RankingSetEditorPanel
+        errors={[]}
+        isSaving={false}
+        rankingSet={createRankingSet({
+          entries: [
+            createEntry("wr-1", "Wideout One", "WR", 3, 1, 2, 26),
+            createEntry("qb-1", "Quarterback One", "QB", 1, 1, 1, 8.5),
+            createEntry("rb-1", "Runner One", "RB", 2, 1, 1, null),
+          ],
+        })}
+        onClose={vi.fn()}
+        onRename={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Player to Move");
+    expect(markup).toContain("Target Rank");
+    expect(markup).toMatch(/<input[^>]*type="number"[^>]*value="1"/);
+    expect(markup).toContain("Move Player");
+
+    const qbOption = markup.indexOf("#1 - Quarterback One (QB)");
+    const rbOption = markup.indexOf("#2 - Runner One (RB)");
+    const wrOption = markup.indexOf("#3 - Wideout One (WR)");
+
+    expect(qbOption).toBeGreaterThanOrEqual(0);
+    expect(rbOption).toBeGreaterThan(qbOption);
+    expect(wrOption).toBeGreaterThan(rbOption);
+  });
+
+  it("renders reorder errors through the structured error list", () => {
+    const markup = renderToStaticMarkup(
+      <RankingSetEditorPanel
+        errors={[
+          {
+            code: "invalid-edit",
+            message: "Ranking reorder target must be from 1 through 3.",
+            path: "intent.toOverallRank",
+          },
+        ]}
+        isSaving={false}
+        rankingSet={createRankingSet()}
+        onClose={vi.fn()}
+        onRename={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Ranking Edit Errors");
+    expect(markup).toContain(
+      "invalid-edit: Ranking reorder target must be from 1 through 3. (intent.toOverallRank)",
+    );
   });
 
   it("formats capability provenance and management errors", () => {
