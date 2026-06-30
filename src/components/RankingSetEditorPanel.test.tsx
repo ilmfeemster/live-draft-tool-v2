@@ -19,6 +19,7 @@ describe("RankingSetEditorPanel", () => {
         isSaving={false}
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
         onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
@@ -48,6 +49,7 @@ describe("RankingSetEditorPanel", () => {
           ],
         })}
         onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
         onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
@@ -79,6 +81,7 @@ describe("RankingSetEditorPanel", () => {
         isSaving={false}
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
         onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
@@ -103,6 +106,7 @@ describe("RankingSetEditorPanel", () => {
         isSaving={false}
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
         onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
@@ -127,6 +131,7 @@ describe("RankingSetEditorPanel", () => {
           ],
         })}
         onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
         onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
@@ -160,6 +165,7 @@ describe("RankingSetEditorPanel", () => {
         isSaving={false}
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
         onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
@@ -185,6 +191,7 @@ describe("RankingSetEditorPanel", () => {
           ],
         })}
         onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
         onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
@@ -215,6 +222,7 @@ describe("RankingSetEditorPanel", () => {
         isSaving={false}
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
         onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
@@ -238,6 +246,7 @@ describe("RankingSetEditorPanel", () => {
           ],
         })}
         onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
         onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
@@ -262,6 +271,7 @@ describe("RankingSetEditorPanel", () => {
         isSaving={false}
         rankingSet={createRankingSet()}
         onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
         onCorrectPlayer={vi.fn()}
         onRename={vi.fn()}
         onReorder={vi.fn()}
@@ -271,6 +281,128 @@ describe("RankingSetEditorPanel", () => {
     expect(markup).toContain("Ranking Edit Errors");
     expect(markup).toContain(
       "invalid-edit: Player correction name is invalid. (intent.changes.name)",
+    );
+  });
+
+  it("renders tier assignment controls from represented positions", () => {
+    const markup = renderToStaticMarkup(
+      <RankingSetEditorPanel
+        errors={[]}
+        isSaving={false}
+        rankingSet={createRankingSet({
+          entries: [
+            createEntry("wr-1", "Wideout One", "WR", 3, 1, 2, 26),
+            createEntry("qb-1", "Quarterback One", "QB", 1, 1, 1, 8.5),
+            createEntry("rb-1", "Runner One", "RB", 2, 1, 1, null),
+          ],
+        })}
+        onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
+        onCorrectPlayer={vi.fn()}
+        onRename={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Position Tiers");
+    expect(markup).toContain("Tier capability:");
+    expect(markup).toContain("source");
+    expect(markup).toContain("Save Position Tiers");
+
+    const qbOption = markup.indexOf(">QB</option>");
+    const rbOption = markup.indexOf(">RB</option>");
+    const wrOption = markup.indexOf(">WR</option>");
+
+    expect(qbOption).toBeGreaterThanOrEqual(0);
+    expect(rbOption).toBeGreaterThan(qbOption);
+    expect(wrOption).toBeGreaterThan(rbOption);
+  });
+
+  it("renders selected-position tier inputs in canonical order", () => {
+    const markup = renderToStaticMarkup(
+      <RankingSetEditorPanel
+        errors={[]}
+        isSaving={false}
+        rankingSet={createRankingSet({
+          entries: [
+            createEntry("qb-2", "Quarterback Two", "QB", 3, 2, 4, 31),
+            createEntry("rb-1", "Runner One", "RB", 2, 1, 1, null),
+            createEntry("qb-1", "Quarterback One", "QB", 1, 1, 1, 8.5),
+          ],
+        })}
+        onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
+        onCorrectPlayer={vi.fn()}
+        onRename={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    const qbOneRow = markup.indexOf("#1 - Quarterback One (qb-1)");
+    const qbTwoRow = markup.indexOf("#3 - Quarterback Two (qb-2)");
+
+    expect(qbOneRow).toBeGreaterThanOrEqual(0);
+    expect(qbTwoRow).toBeGreaterThan(qbOneRow);
+    expect(markup).toContain("Current tier: 1");
+    expect(markup).toContain("Current tier: 4");
+    expect(markup).toMatch(/<input[^>]*type="number"[^>]*value="1"/);
+    expect(markup).toMatch(/<input[^>]*type="number"[^>]*value="4"/);
+  });
+
+  it("renders defaulted-neutral tier capability as editable through assignment", () => {
+    const markup = renderToStaticMarkup(
+      <RankingSetEditorPanel
+        errors={[]}
+        isSaving={false}
+        rankingSet={createRankingSet({
+          capabilities: createCapabilities({
+            tiers: {
+              WR: "defaulted-neutral",
+              QB: "source",
+            },
+          }),
+          entries: [
+            createEntry("wr-1", "Wideout One", "WR", 1, 1, 1, 26),
+            createEntry("qb-1", "Quarterback One", "QB", 2, 1, 1, 8.5),
+          ],
+        })}
+        onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
+        onCorrectPlayer={vi.fn()}
+        onRename={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Tier capability:");
+    expect(markup).toContain("defaulted-neutral");
+    expect(markup).toContain("#1 - Wideout One (wr-1)");
+    expect(markup).toContain("Save Position Tiers");
+  });
+
+  it("renders tier assignment errors through the structured error list", () => {
+    const markup = renderToStaticMarkup(
+      <RankingSetEditorPanel
+        errors={[
+          {
+            code: "invalid-edit",
+            message: "Assigned tiers must not decrease within QB.",
+            path: "intent.assignments",
+          },
+        ]}
+        isSaving={false}
+        rankingSet={createRankingSet()}
+        onClose={vi.fn()}
+        onAssignPositionTiers={vi.fn()}
+        onCorrectPlayer={vi.fn()}
+        onRename={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Ranking Edit Errors");
+    expect(markup).toContain(
+      "invalid-edit: Assigned tiers must not decrease within QB. (intent.assignments)",
     );
   });
 

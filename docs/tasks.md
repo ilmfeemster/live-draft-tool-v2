@@ -838,7 +838,7 @@ Allow a user to view managed ranking sets, import supported files, export a set,
 
 ## Task 18 - Add Ranking and Tier Editing UI
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
