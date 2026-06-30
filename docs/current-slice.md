@@ -1,191 +1,209 @@
-# Current Slice: Formalize Immutable Snapshot Creation from Managed Rankings
+# Current Slice: Integrate Ranking Set Selection into Draft Creation
 
 ## Completion Status
 
-Complete. The immutable snapshot creation boundary is implemented as a pure managed-ranking-set-to-snapshot helper over canonical ranking-set validation and deep-copied ranking entries, capability metadata, source-set provenance, and capture timestamps. Legacy Phase 2 bare-array snapshot serialization/parsing remains unchanged, Scenario V1 continues to use embedded `RankingEntry[]` values, and draft/recommendation engine inputs remain canonical ranking entries only. Focused snapshot tests pass 12 tests; focused scenario/draft compatibility tests pass 79 tests; focused ranking-set validation tests pass 24 tests; TypeScript no-emit passes; focused lint passes; the full Vitest suite passes 40 files and 557 tests with one expected skip; repository-wide lint passes. Phase 5 Task 15 is complete.
+Planned. This slice promotes Phase 5 Task 16. Implementation has not started.
 
 ## Source Context
 
-- `src/types/rankings.ts` already defines `RankingSet`, `RankingSetCapabilities`, `RankingSetSummary`, and a `RankingSnapshot` value type with copied rankings, optional capabilities, optional source ranking-set provenance, and optional capture time.
-- `src/lib/rankingSnapshot.ts` currently serializes and parses the legacy Phase 2 snapshot representation as a bare `RankingEntry[]`. It deep-copies player and ranking fields but does not yet expose a managed-ranking snapshot creation boundary or metadata-aware snapshot value helpers.
-- `src/lib/draftRepository.ts` and `src/lib/draftRepositoryMapping.ts` persist and hydrate ranking snapshots through `serializeRankingSnapshot` and `parseRankingSnapshotJson`.
-- `src/lib/scenarioValidation.ts`, `src/lib/scenarioSerialization.ts`, and `src/lib/scenarioPortability.ts` continue to use Scenario V1 `rankingContext.rankings` as a complete embedded `RankingEntry[]` contract.
-- `src/lib/rankingSetValidation.ts` already validates canonical ranking-set invariants and field-capability consistency for managed ranking sets.
-- `docs/design/rankings-data.md` requires immutable snapshots to copy every domain-relevant entry value, optionally carry capability/provenance metadata outside engine input, preserve legacy Phase 2 snapshot arrays, and avoid any live dependency on source ranking sets.
+- Phase 5 Task 15 is complete. `src/lib/rankingSnapshot.ts` now exposes `createRankingSnapshotFromRankingSet` and `copyRankingEntries`, while legacy bare-array snapshot serialization/parsing remains compatible.
+- `src/app/actions/draftActions.ts` currently creates configured drafts from `LeagueSetupInput` and the code-owned `seedRankings` array.
+- `src/lib/draftRepository.ts` already persists a draft and its ranking snapshot atomically by accepting `rankings: RankingEntry[]` and serializing them through `serializeRankingSnapshot`.
+- `src/lib/draftRepositoryMapping.ts`, draft hydration, pick, undo, reset, delete, and recommendation flows already hydrate persisted snapshots back into the existing `DraftWorkspace` shape.
+- `src/lib/rankingSetRepository.ts` exposes `getRankingSetById`, which loads a complete managed `RankingSet` domain aggregate or `null`.
+- `buildLeagueSetup(input, rankingPlayerCount)` already performs league setup validation and ranking-capacity checks.
+- `DraftRoom.tsx` currently calls `createConfiguredDraftAction(input)` without ranking-set selection. Task 19 owns adding ranking-set selection UI, so this slice should expose the selected-ranking creation path without redesigning the setup UI.
 
 ## Goal
 
-Add a pure, reusable snapshot creation boundary for managed ranking sets while preserving existing snapshot loading, Scenario V1 replay, and Recommendation Engine input behavior.
+Create an application-level draft creation workflow that starts a new draft from an explicitly selected managed ranking set, captures an immutable snapshot through the Task 15 boundary, and preserves existing draft persistence, hydration, and recommendation behavior.
 
 ## Scope
 
 ### Goals
 
-- Add or formalize snapshot creation from a valid managed `RankingSet`.
-- Return a complete immutable value copy with fresh entry and player objects.
-- Copy field-capability metadata for inspection without making capabilities an engine input.
-- Copy source ranking-set ID, source ranking-set name, and capture timestamp as optional non-authoritative provenance.
-- Preserve existing `serializeRankingSnapshot(rankings: RankingEntry[])` and `parseRankingSnapshotJson(snapshot)` legacy behavior.
-- Keep persisted draft hydration returning the existing `DraftWorkspace` shape with `rankings: RankingEntry[]`.
-- Keep Scenario V1 serialization, validation, import, export, and replay compatible with embedded `RankingEntry[]` values.
-- Reuse canonical ranking-set validation when creating snapshots from managed sets.
-- Prove that editing or deleting a source set after snapshot creation cannot change the snapshot value.
+- Add a focused application workflow for configured draft creation from a selected ranking-set ID.
+- Validate a non-empty selected ranking-set ID before creating a draft.
+- Load the selected managed ranking set through the ranking-set repository.
+- Return a structured not-found result when the selected ranking set is missing.
+- Validate league setup and draft capacity using the selected set's entry count.
+- Create an immutable snapshot with `createRankingSnapshotFromRankingSet`.
+- Persist the new draft through the existing draft repository using only `snapshot.rankings`.
+- Return the existing `DraftWorkspace` shape.
+- Prove that two different selected ranking sets create drafts with distinct captured snapshots.
+- Prove that later source-set edit or deletion cannot change the created draft workspace or reloaded snapshot.
+- Add a server action entry point for the selected-ranking creation workflow so Task 19 UI can call it.
 
 ### Non-Goals
 
-- Do not change draft setup or require a ranking-set ID during draft creation. That is Task 16.
-- Do not migrate, rewrite, or version existing persisted snapshot records.
-- Do not change Scenario V1 schema or add capability metadata to scenario documents.
-- Do not expose snapshot update, refresh, relink, merge, or restore behavior.
-- Do not query or mutate ranking-set persistence from snapshot helpers.
-- Do not change recommendation scoring, draft state behavior, scenario replay semantics, UI, Prisma schema, migrations, generated client, or dependencies.
+- Do not add ranking-set selection UI, controls, default-selection UI behavior, or Draft Room redesign.
+- Do not remove or redesign the existing Draft Room setup flow in this slice.
+- Do not migrate, rewrite, or version persisted draft ranking snapshots.
+- Do not persist source ranking-set dependency as engine input.
+- Do not allow switching ranking sets on an existing draft.
+- Do not change pick, undo, reset, delete, refresh, resume, recommendation, scenario, import, export, ranking edit, Prisma schema, migrations, generated client, or dependencies.
+- Do not introduce ranking merge, fallback, repair, or seed bootstrap behavior beyond loading an already-managed ranking set.
 
 ## Implementation Design
 
-### Public API
+### Public Workflow
 
-Update `src/lib/rankingSnapshot.ts` to keep the existing legacy array functions and add explicit value helpers. Use exact names where practical:
+Add `src/lib/draftCreationWorkflow.ts` with a small injectable workflow. Use exact names where practical:
 
 ```ts
-export type CreateRankingSnapshotOptions = Readonly<{
+export type CreateConfiguredDraftFromRankingSetInput = Readonly<{
+  leagueSetup: LeagueSetupInput;
+  rankingSetId: string;
+  name?: string;
   capturedAt?: Date;
 }>;
 
-export type CreateRankingSnapshotResult =
-  | Readonly<{ ok: true; snapshot: RankingSnapshot }>
+export type CreateConfiguredDraftFromRankingSetError = Readonly<{
+  code:
+    | "invalid-request"
+    | "ranking-set-not-found"
+    | "invalid-league-setup"
+    | "invalid-ranking-set";
+  message: string;
+  path?: string;
+}>;
+
+export type CreateConfiguredDraftFromRankingSetResult =
+  | Readonly<{ ok: true; workspace: DraftWorkspace }>
   | Readonly<{
       ok: false;
-      errors: readonly RankingSnapshotCreationError[];
+      errors: readonly CreateConfiguredDraftFromRankingSetError[];
     }>;
 
-export function createRankingSnapshotFromRankingSet(
-  rankingSet: RankingSet,
-  options?: CreateRankingSnapshotOptions,
-): CreateRankingSnapshotResult;
-
-export function copyRankingEntries(
-  rankings: readonly RankingEntry[],
-): RankingEntry[];
+export async function createConfiguredDraftFromRankingSet(
+  input: CreateConfiguredDraftFromRankingSetInput,
+  dependencies?: DraftCreationWorkflowDependencies,
+): Promise<CreateConfiguredDraftFromRankingSetResult>;
 ```
 
-The implementation may choose a more specific internal helper name, but the public boundary must make source-set-to-snapshot creation explicit and must not require repository access.
+Use structural dependencies for:
 
-### Snapshot Creation Flow
+- `getRankingSetById(id)`
+- `createDraftWorkspace(input)`
 
-`createRankingSnapshotFromRankingSet` must:
+Default dependencies should point to the existing repository exports.
 
-1. Validate the input with `validateRankingSet`.
-2. Return structured creation errors if validation fails.
-3. Copy `rankingSet.entries` into new `RankingEntry` and `Player` objects.
-4. Copy `rankingSet.capabilities` into a new capability object, including a new `tiers` object.
-5. Copy `rankingSet.id` to `sourceRankingSetId`.
-6. Copy `rankingSet.name` to `sourceRankingSetName`.
-7. Use `options.capturedAt` when provided, otherwise create a valid `Date`.
-8. Return a `RankingSnapshot` value whose `rankings` are the only values intended for Draft State Engine and Recommendation Engine input.
+### Workflow Flow
 
-Do not mutate, freeze, sort, renumber, or otherwise repair the source ranking set. Invalid ranking sets should fail rather than being normalized into snapshots.
+`createConfiguredDraftFromRankingSet` must:
 
-### Legacy Snapshot Serialization
+1. Trim and validate `rankingSetId`.
+2. Return `invalid-request` with `path: "rankingSetId"` for a blank ID.
+3. Load the selected ranking set by ID.
+4. Return `ranking-set-not-found` with `path: "rankingSetId"` when missing.
+5. Run `buildLeagueSetup(input.leagueSetup, rankingSet.entries.length)`.
+6. Map setup failures to `invalid-league-setup`, preserving the setup field as `path` and message.
+7. Call `createRankingSnapshotFromRankingSet(rankingSet, { capturedAt })`.
+8. Map snapshot failures to `invalid-ranking-set`, preserving path and message.
+9. Call `createDraftWorkspace` with:
+   - `name`;
+   - validated `leagueSettings`;
+   - a fresh copy of `snapshot.rankings`;
+   - validated `userTeamId`.
+10. Return the repository-owned `DraftWorkspace`.
 
-Keep `serializeRankingSnapshot(rankings)` and `parseRankingSnapshotJson(snapshot)` compatible with the existing bare-array representation:
+Do not pass `RankingSet`, capabilities, source-set ID, source-set name, or repository records into the draft repository or engines. Snapshot metadata remains outside the current draft repository persistence contract for this slice.
 
-- `serializeRankingSnapshot` should continue accepting `RankingEntry[]` and returning `RankingSnapshotJson`.
-- `parseRankingSnapshotJson` should continue accepting only the legacy array and returning `RankingEntry[]`.
-- Existing error messages for malformed legacy arrays should remain stable unless TypeScript requires a tiny wording change.
-- If helper reuse is added, it must not change JSON shape or Scenario V1 output.
+Unexpected repository or infrastructure errors should still throw. Do not catch and reword database failures.
 
-This slice should not introduce a new persisted snapshot JSON object format. Metadata-aware persistence belongs to a later slice only if draft creation and repository contracts require it.
+### Server Action Boundary
 
-### Scenario Compatibility
-
-Scenario V1 must remain a complete embedded ranking-entry contract:
-
-- `serializeScenarioV1` should still write `rankingContext.rankings` as a serialized legacy ranking array.
-- `parseScenarioV1Json` should still validate and return `rankingContext.rankings` as `RankingEntry[]`.
-- Scenario import and replay should not require a source ranking-set record or capability metadata.
-- Neutral tiers and nullable ADP must continue to be materialized in the ranking entries so replay behavior does not depend on capability metadata.
-
-Prefer adding regression tests around the existing scenario modules over changing scenario production code.
-
-### Error Mapping
-
-Add snapshot creation errors only for expected managed-set validation failures:
+Update `src/app/actions/draftActions.ts` to export a new action, named where practical:
 
 ```ts
-type RankingSnapshotCreationError = Readonly<{
-  code: "invalid-ranking-set";
-  path: string;
-  message: string;
-}>;
+export async function createConfiguredDraftFromRankingSetAction(
+  input: Readonly<{
+    leagueSetup: LeagueSetupInput;
+    rankingSetId: string;
+  }>,
+): Promise<CreateConfiguredDraftFromRankingSetResult>;
 ```
 
-Map `validateRankingSet` errors to `invalid-ranking-set` while preserving path and message. Unexpected thrown failures should still throw.
+The action should:
+
+1. Generate the automatic draft name with `formatAutomaticDraftName()`.
+2. Delegate to `createConfiguredDraftFromRankingSet`.
+3. Return the workflow result unchanged.
+
+Keep the current `createConfiguredDraftAction(input)` compatibility path in place for the existing Draft Room UI until Task 19 wires ranking-set selection. Do not expand that legacy path. Tests should make clear that the new selected-ranking action is the authoritative Task 16 path.
+
+### Draft Repository Boundary
+
+Prefer leaving `src/lib/draftRepository.ts` unchanged. It already owns atomic draft-plus-snapshot persistence once it receives `RankingEntry[]`.
+
+Only make a tiny type adjustment if TypeScript requires accepting readonly rankings. Do not persist ranking-set ID or capability metadata in this slice.
 
 ## Tests
 
-Expand `src/lib/rankingSnapshot.test.ts` to cover:
+Add `src/lib/draftCreationWorkflow.test.ts` with focused fake repositories. Cover:
 
-- `createRankingSnapshotFromRankingSet` copies all ranking entry and player fields.
-- Snapshot creation returns fresh entry, player, capabilities, tiers, and `Date` objects.
-- Mutating the source ranking set after snapshot creation does not change snapshot rankings, capabilities, source provenance, or captured time.
-- Source ranking-set ID and name are copied only as optional provenance outside snapshot rankings.
-- Invalid managed ranking sets return structured `invalid-ranking-set` errors and do not produce a snapshot.
-- `copyRankingEntries` or the equivalent shared helper preserves null ADP, neutral tiers, rank fields, player identity, team, position, and order.
-- Existing legacy `serializeRankingSnapshot` and `parseRankingSnapshotJson` behavior remains unchanged, including malformed input failures.
+- Blank ranking-set ID returns `invalid-request` and does not call either repository.
+- Missing ranking set returns `ranking-set-not-found` and does not create a draft.
+- Invalid league setup or insufficient selected-set capacity returns `invalid-league-setup` and does not create a draft.
+- Valid creation loads the selected set, creates a snapshot, persists only copied ranking entries, and returns the draft repository result.
+- Two different selected ranking sets create drafts with different snapshot rankings.
+- Mutating the source ranking set after creation does not change the captured rankings passed to the draft repository or returned workspace.
+- Deleting the fake source ranking set after creation does not prevent loading the created draft from the fake draft repository.
+- Snapshot validation failures map to `invalid-ranking-set`.
+- Degraded/defaulted-neutral entries are persisted as materialized ranking values and do not require capability metadata for recommendation input.
+- The workflow does not call list, replace, delete, ranking management workflow, scenario, recommendation, or UI code.
 
-Add focused regressions in existing scenario tests only if needed:
+Update `src/app/actions/draftActions.test.ts` to cover:
 
-- Scenario V1 serialization still emits `rankingContext.rankings` as the legacy array, without snapshot capabilities or source ranking-set provenance.
-- Scenario V1 validation and replay still work from embedded ranking entries with neutral tiers and nullable ADP.
-- Scenario parsing returns fresh ranking values and does not depend on a managed ranking set.
+- `createConfiguredDraftFromRankingSetAction` delegates to the selected-ranking workflow with an automatic name.
+- Workflow errors are returned unchanged.
+- Unexpected workflow/repository failures reject.
+- Existing legacy create, delete, draft, undo, and reset action tests continue to pass.
 
-Keep tests behavior-focused and avoid asserting private implementation details.
+Add or extend repository/loader tests only if implementation touches those files. Prefer focused workflow tests over broad repository assertions because the draft repository already tests snapshot persistence and hydration.
 
 ## Implementation Steps
 
-1. Update `src/lib/rankingSnapshot.ts` with pure copy helpers, managed ranking-set snapshot creation, validation-error mapping, and unchanged legacy parse/serialize contracts.
-2. Update `src/lib/rankingSnapshot.test.ts` with managed snapshot creation, deep-copy isolation, validation failure, and legacy compatibility coverage.
-3. Add focused scenario serialization/validation/replay regression coverage only if existing tests do not already prove the Task 15 compatibility criteria.
-4. Keep draft repository, ranking-set repository, ranking management workflow, recommendation engine, scenario schema, UI, Prisma schema, generated client, and dependencies unchanged unless TypeScript requires a tiny type-only import adjustment.
-5. Run focused snapshot tests.
-6. Run focused scenario validation, serialization, portability/replay, draft repository mapping, and draft repository tests.
-7. Run focused ranking-set validation tests.
+1. Add `src/lib/draftCreationWorkflow.ts` with request/result types, injected repository dependencies, validation/error mapping helpers, and the selected-ranking draft creation function.
+2. Add `src/lib/draftCreationWorkflow.test.ts` with fake ranking-set and draft repositories covering success, missing/blank selected set, insufficient capacity, snapshot failure, source edit/delete isolation, and distinct selected-set snapshots.
+3. Update `src/app/actions/draftActions.ts` with `createConfiguredDraftFromRankingSetAction` delegating to the new workflow and automatic draft naming.
+4. Update `src/app/actions/draftActions.test.ts` for the new action while preserving existing legacy action behavior for the current UI.
+5. Keep `src/lib/draftRepository.ts`, `src/lib/draftRepositoryMapping.ts`, `src/lib/draftWorkspaceLoader.ts`, `src/components/DraftRoom.tsx`, ranking-set repository, recommendation engine, Scenario V1 files, Prisma schema, generated client, and dependencies unchanged unless TypeScript requires a tiny type-only adjustment.
+6. Run focused workflow and action tests.
+7. Run focused draft repository, draft repository mapping, draft workspace loader, ranking snapshot, and ranking-set repository tests.
 8. Run TypeScript no-emit and focused lint for touched files.
 9. Run the full test suite and repository-wide lint.
-10. After validation passes, mark only Phase 5 Task 15 complete in `docs/tasks.md` and update this slice completion status.
-11. Report results and stop. Do not begin Task 16.
+10. After validation passes, mark only Phase 5 Task 16 complete in `docs/tasks.md` and update this slice completion status.
+11. Report results and stop. Do not begin Task 17 or Task 19.
 
 ## Expected Files
 
-- `src/lib/rankingSnapshot.ts`
-- `src/lib/rankingSnapshot.test.ts`
-- `src/lib/scenarioSerialization.test.ts`, only if a focused Scenario V1 serialization regression is needed
-- `src/lib/scenarioValidation.test.ts`, only if a focused Scenario V1 parse/replay regression is needed
-- `src/lib/scenarioPortability.test.ts`, only if replay/source-independence coverage is missing and this file already owns that behavior
+- `src/lib/draftCreationWorkflow.ts`
+- `src/lib/draftCreationWorkflow.test.ts`
+- `src/app/actions/draftActions.ts`
+- `src/app/actions/draftActions.test.ts`
 - `docs/tasks.md`, after implementation validation only
 - `docs/current-slice.md`, for completion status after implementation
 
-Avoid changes to draft setup, draft actions, draft repository persistence shape, ranking-set repository, ranking management workflow, recommendation engine, Scenario V1 schema/types, Prisma schema, migrations, generated source, dependencies, and UI files.
+Avoid changes to `src/components/DraftRoom.tsx`, `src/lib/draftWorkspaceLoader.ts`, `src/lib/draftRepository.ts`, `src/lib/draftRepositoryMapping.ts`, ranking-set repository, ranking-management workflow, recommendation engine, Scenario V1 files, Prisma schema, migrations, generated source, dependencies, and UI files unless the implementation hits a direct TypeScript-only need.
 
 ## Automated Validation
 
 Run from the repository root:
 
 ```text
-npm test -- src/lib/rankingSnapshot.test.ts
-npm test -- src/lib/scenarioValidation.test.ts src/lib/scenarioSerialization.test.ts src/lib/scenarioPortability.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/draftRepository.test.ts
-npm test -- src/lib/rankingSetValidation.test.ts
+npm test -- src/lib/draftCreationWorkflow.test.ts src/app/actions/draftActions.test.ts
+npm test -- src/lib/draftRepository.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/draftWorkspaceLoader.test.ts src/lib/rankingSnapshot.test.ts src/lib/rankingSetRepository.test.ts
 npx tsc --noEmit
-npm run lint -- src/lib/rankingSnapshot.ts src/lib/rankingSnapshot.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioSerialization.test.ts src/lib/scenarioPortability.test.ts
+npm run lint -- src/lib/draftCreationWorkflow.ts src/lib/draftCreationWorkflow.test.ts src/app/actions/draftActions.ts src/app/actions/draftActions.test.ts
 npm test
 npm run lint
 ```
 
 Expected result:
 
-- focused snapshot tests pass for managed snapshot creation, deep-copy isolation, validation failure mapping, and legacy array compatibility;
-- scenario validation, serialization, portability/replay, and draft repository mapping tests continue to pass;
-- ranking-set validation tests continue to pass;
+- focused selected-ranking creation workflow and action tests pass;
+- draft repository, mapping, loader, snapshot, and ranking-set repository tests continue to pass;
 - TypeScript no-emit passes;
 - focused lint passes without warnings;
 - the full Vitest suite passes, with database-gated tests skipped unless explicitly enabled;
@@ -193,43 +211,45 @@ Expected result:
 
 ## Acceptance Criteria
 
-- Snapshot creation from a managed ranking set returns a complete `RankingSnapshot` value with copied ranking entries.
-- Snapshot entries and players share no mutable object references with the source ranking set.
-- Snapshot capabilities and tier metadata are copied for inspection and share no mutable object references with the source ranking set.
-- Snapshot provenance may include source ranking-set ID and name, but engine input remains only `snapshot.rankings`.
-- Invalid managed ranking sets fail with structured snapshot creation errors.
-- Changing or deleting a source ranking set after snapshot creation cannot alter the snapshot value.
-- Existing Phase 2 bare-array ranking snapshots still serialize, parse, hydrate, and reject malformed values as before.
-- Scenario V1 files continue to serialize, validate, import, and replay with embedded `RankingEntry[]` values and without source ranking-set records.
-- Neutral tiers and nullable ADP remain materialized in snapshot and scenario ranking entries, so recommendation behavior does not depend on capability metadata.
-- Draft State Engine and Recommendation Engine code paths continue receiving only canonical `RankingEntry[]` values.
-- No schema, migration, dependency, UI, draft-setup, ranking-selection, recommendation-tuning, snapshot-update, or Scenario V1 schema change is introduced.
-- Only Phase 5 Task 15 is checked complete after validation passes.
+- A selected-ranking draft creation workflow accepts an explicit ranking-set ID and never uses `seedRankings` as its ranking source.
+- Missing or blank ranking-set IDs return structured errors without creating a draft.
+- League setup and capacity validation use the selected ranking set's entry count.
+- A valid selected ranking set is snapshotted through `createRankingSnapshotFromRankingSet` before persistence.
+- The draft repository receives only copied canonical `RankingEntry[]` values, not mutable ranking-set aggregates, source-set IDs, capabilities, or repository records.
+- Creating drafts from two different selected sets produces distinct persisted snapshot inputs and returned workspaces.
+- Later source-set edit or deletion does not change or block loading the created draft workspace.
+- Existing persisted draft hydration, pick, undo, reset, delete, and recommendation behavior remains unchanged.
+- Existing legacy Phase 2 snapshots continue to load.
+- Existing Draft Room UI behavior is not redesigned in this slice; UI selection is deferred to Task 19.
+- No schema, migration, dependency, recommendation-tuning, Scenario V1, import/export, ranking edit, or UI change is introduced.
+- Only Phase 5 Task 16 is checked complete after validation passes.
 
 ## Failure Handling
 
-- If `validateRankingSet` rejects the source set, return mapped snapshot creation errors and do not create a partial snapshot.
-- If existing legacy snapshot tests require changing the persisted JSON shape, stop and report the conflict.
-- If scenario compatibility appears to require adding capability metadata to Scenario V1, stop and report the conflict with the design guardrail.
-- If draft repository tests suggest changing draft creation or snapshot persistence shape, stop and report the issue rather than broadening into Task 16.
-- If recommendation behavior changes from metadata alone, stop and report the regression.
+- If ranking-set ID is blank, return `invalid-request`; do not call repositories.
+- If the selected ranking set is missing, return `ranking-set-not-found`; do not create a draft.
+- If `buildLeagueSetup` fails, return mapped `invalid-league-setup` errors; do not create a draft.
+- If snapshot creation fails, return mapped `invalid-ranking-set` errors; do not create a draft.
+- If draft repository creation throws unexpectedly, let it throw.
+- If implementing this slice appears to require Draft Room selection UI, stop and report the Task 16/Task 19 boundary.
+- If implementation appears to require changing draft snapshot persistence shape, stop and report the conflict.
 - If unrelated tests fail, report them separately and do not broaden this slice.
 
 ## Follow-Up Slice
 
-Promote Phase 5 Task 16: integrate explicit ranking-set selection into draft creation by loading a selected managed ranking set, checking league capacity, creating an immutable snapshot through this boundary, and persisting draft plus snapshot atomically.
+Promote Phase 5 Task 17 if following task order strictly: add the ranking library and import/export UI. Task 19 will later wire ranking-set selection into the Draft Room setup UI using the selected-ranking draft creation action from this slice.
 
 ## Documentation Recommendation
 
-After implementation, update only `docs/tasks.md` for Task 15 completion and this slice status unless implementation reveals a durable architecture or product decision. No architecture or decision update is expected if the slice remains a pure snapshot boundary over already documented mutable ranking-set and immutable snapshot separation.
+After implementation, update only `docs/tasks.md` for Task 16 completion and this slice status unless implementation reveals a durable architecture or product decision. No architecture or decision update is expected if the slice remains an application workflow over existing ranking-set repository, snapshot creation, league setup validation, and draft repository boundaries.
 
 The open recommendation to establish a checked-in Prisma migration baseline and document local/CI database setup remains outside this slice.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It formalizes pure snapshot creation and legacy compatibility without changing draft setup.
-- Executable by a lower-reasoning pass: yes. Inputs, helper behavior, error mapping, expected files, tests, and validation commands are explicit.
-- Avoids unnecessary architecture changes: yes. It reuses existing ranking-set validation and snapshot modules without schema, repository, UI, or engine changes.
-- Blast radius reasonable: yes. The expected production change is one module, with focused tests and optional scenario regressions.
-- Review/revert comfort: yes. The boundary is isolated and does not alter persisted JSON shape.
-- Observable/testable acceptance criteria: yes. Deep-copy behavior, provenance copying, validation failures, legacy parsing, scenario compatibility, and engine-input preservation are directly assertable.
+- Smallest meaningful increment: yes. It adds the selected-ranking draft creation boundary without the UI selection work.
+- Executable by a lower-reasoning pass: yes. Inputs, dependencies, flow, error mapping, expected files, tests, and validation commands are explicit.
+- Avoids unnecessary architecture changes: yes. It composes existing repositories, league setup validation, and snapshot creation without schema or engine changes.
+- Blast radius reasonable: yes. The expected production changes are one new workflow module plus one new server action.
+- Review/revert comfort: yes. The workflow is isolated and keeps the existing UI compatibility path untouched.
+- Observable/testable acceptance criteria: yes. Selected-set loading, capacity validation, snapshot capture, source isolation, action delegation, and regression behavior are directly assertable.
