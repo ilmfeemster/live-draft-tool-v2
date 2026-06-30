@@ -1,203 +1,187 @@
-# Current Slice: Complete Task 20 - Phase 5 Regression and Exit Validation
+# Current Slice: Tier Semantics Task 2 - Align Documentation and Decisions
 
 ## Completion Status
 
-Blocked pending manual QA environment. Automated validation passed, but the interactive browser/manual QA checklist could not be completed in this run.
+Planned. Implementation has not begun.
 
 ## Source Context
 
-- Phase 5 Tasks 1-19 are complete.
-- Task 20 is the Phase 5 exit gate: prove rankings and data management work end to end without adding new features.
-- Phase 5 introduced:
-  - canonical ranking-set domain invariants;
-  - FantasyPros CSV and Canonical Ranking Set JSON V1 import paths;
-  - normalization, validation, conversion, export, and edit workflows;
-  - first-class ranking-set persistence;
-  - managed seed bootstrap;
-  - immutable draft snapshots from selected ranking sets;
-  - ranking library, editor, and draft setup selection UI.
-- Phase 4 replay, scenario, persisted draft, and developer workbench behavior remains a regression constraint.
-- Task 20 must validate the completed phase only. It must not broaden scope into Phase 6 strategy, live-provider integrations, accounts, new formats, recommendation tuning, or schema changes.
+- Patch project: `docs/patches/tier-semantics-project.md`
+- Patch task plan: `docs/patches/tier-semantics-tasks.md`
+- Approved design: `docs/design/tier-semantics.md`
+- Existing Phase 5 docs:
+  - `docs/project.md`
+  - `docs/architecture.md`
+  - `docs/decisions.md`
+  - `docs/design/rankings-data.md`
+  - `docs/design/recommendation-engine.md`
+  - `docs/testing.md`
+
+The tier-semantics design is complete. The next implementation focus is documentation and decision alignment before code, import contracts, domain types, persistence compatibility, recommendation behavior, or UI copy are changed.
 
 ## Goal
 
-Complete Phase 5 regression and exit validation by running the automated validation gates, performing focused manual QA when local persistence is available, recording the result, and marking Phase 5 Task 20 complete only after validation passes or clearly reporting any blockers.
+Align project-level documentation with the approved tier-semantics design so future implementation work consistently distinguishes source tiers, position tiers, recommendation tiers, neutral recommendation tiers, and legacy ambiguous tiers.
 
 ## Scope
 
 ### Goals
 
-- Run focused automated tests across ranking import, validation, conversion, export, repository, management, snapshot, draft creation, draft setup, workspace loading, replay/scenario, and recommendation boundaries.
-- Run the full automated suite and project validation commands.
-- Confirm both supported import formats still pass positive and negative fixtures.
-- Confirm safely degraded ranking sets preserve explicit capability states and materialized fallback values without fabricating recommendation evidence.
-- Confirm import, replace, edit, delete, export, and draft creation failures do not partially corrupt stored data.
-- Confirm multiple ranking sets remain isolated through import, edit, selection, snapshot creation, source edit, source deletion, refresh, and resume.
-- Confirm legacy Phase 2 draft snapshots and existing persisted draft loading remain compatible.
-- Confirm Scenario V1 export/import/replay remains deterministic with captured ranking entries.
-- Confirm recommendation output remains deterministic for identical draft and snapshot inputs.
-- Complete focused manual QA from ranking import through selected draft creation and source mutation if local database setup is available.
-- Record manual QA results in a Phase 5 QA note.
-- After validation succeeds, update `docs/tasks.md` to mark Task 20 complete and update this slice status.
+- Update `docs/project.md` to correct Phase 5 tier-management language.
+- Update `docs/architecture.md` to clarify that source tiers and recommendation-tier inputs are separate concepts.
+- Update `docs/decisions.md` with a durable decision for preserving source tiers separately from recommendation-tier pressure.
+- Update `docs/design/rankings-data.md` to supersede assumptions that imported FantasyPros `TIERS` are position-local tiers.
+- Update `docs/design/recommendation-engine.md` to clarify that tier-drop risk requires explicit recommendation-tier eligibility.
+- Update `docs/testing.md` only if its strategy language needs to distinguish source tiers from recommendation tiers.
+- Keep `docs/patches/tier-semantics-project.md`, `docs/design/tier-semantics.md`, and `docs/patches/tier-semantics-tasks.md` consistent if wording drift appears while editing.
 
 ### Non-Goals
 
-- Do not add Phase 5 features during exit validation.
-- Do not weaken tests or change deterministic expected outputs merely to make validation pass.
-- Do not silently change recommendation scoring, tier semantics, import contracts, or snapshot behavior.
-- Do not add unsupported ranking formats, player reconciliation, feeds, provider integrations, accounts, persistence schema changes, or package dependencies.
-- Do not normalize or migrate historical draft snapshots.
-- Do not begin Phase 6 strategy or insight work.
+- Do not implement runtime behavior.
+- Do not update import parsers, normalizers, validators, repositories, snapshots, recommendation code, UI components, tests, or data files.
+- Do not update `docs/tasks.md` in this slice.
+- Do not mark any patch implementation task complete unless all acceptance criteria for this slice are satisfied.
+- Do not update package dependencies.
+- Do not derive position tiers from ADP-only or rank-only data.
+- Do not add projections, VORP, simulations, new recommendation factors, scoring tuning, live integrations, or new ranking source formats.
+- Do not update `docs/current-slice.md` again after implementation except to reflect completion status or blockers.
 
 ## Implementation Steps
 
-1. Inspect the current working tree and validation surface.
+1. Review the current wording in the target docs.
 
-   Use `git status --short` to identify pending changes and avoid reverting unrelated work. Confirm Task 19 changes are present and Task 20 is still unchecked in `docs/tasks.md`. Do not modify source code unless validation identifies a Task 20 regression that must be fixed inside Phase 5 scope.
+   Read only the files listed in Source Context that need editing. Focus on language around tiers, tier management, tier-drop risk, source capabilities, FantasyPros `TIERS`, neutral fallbacks, snapshots, scenarios, and recommendation explanations.
 
-2. Run focused automated regression tests.
+2. Update `docs/project.md`.
 
-   Run targeted tests covering Phase 5 and Phase 4 regression boundaries:
+   Correct Phase 5 language so it no longer implies that imported FantasyPros tiers are position-local recommendation-tier inputs. Preserve the broader Phase 5 goal of managed ranking data, deterministic snapshots, import/export, validation, and ranking-set selection.
 
-   ```text
-   npm test -- src/lib/rankingSetValidation.test.ts src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/canonicalRankingJsonExporter.test.ts src/lib/rankingImportWorkflow.test.ts
-   npm test -- src/lib/rankingSetEditing.test.ts src/lib/rankingSetRepository.test.ts src/lib/managedSeedRankingSet.test.ts src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
-   npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftCreationWorkflow.test.ts src/app/actions/draftActions.test.ts src/lib/draftWorkspaceLoader.test.ts
-   npm test -- src/components/RankingLibraryPanel.test.tsx src/components/RankingSetEditorPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx
-   npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts
-   ```
+3. Update `docs/architecture.md`.
 
-   If a named test file does not exist, stop and update the slice rather than substituting a broader command silently.
+   Clarify that ranking data may preserve source-tier metadata while the Recommendation Engine consumes only engine-facing recommendation-tier values that are explicitly eligible. Keep the existing monolith-first, repository, snapshot, and pure-engine boundaries unchanged.
 
-3. Run full automated validation.
+4. Update `docs/decisions.md`.
 
-   From the repository root, run:
+   Add a dated decision recording:
 
-   ```text
-   npx tsc --noEmit
-   npm test
-   npm run lint
-   npm run build
-   npm run prisma:validate
-   ```
+   - FantasyPros `TIERS` are source tiers for the current supported CSV profile.
+   - Recommendation tier pressure requires explicit recommendation-tier eligibility.
+   - Rank-only and ADP-only data should not be used to derive position tiers.
+   - Legacy ambiguous tier values should remain loadable but neutralized for recommendation pressure by default.
 
-   Expected result:
+5. Update `docs/design/rankings-data.md`.
 
-   - TypeScript no-emit passes.
-   - Full Vitest suite passes, with database-gated tests skipped unless the local environment explicitly enables them.
-   - ESLint passes.
-   - Production build passes.
-   - Prisma schema validation passes.
+   Replace or amend sections that describe tiers as position-local imported values. The document should now describe source tiers, recommendation tiers, neutral recommendation tiers, and legacy ambiguous tiers in terms consistent with `docs/design/tier-semantics.md`.
 
-4. Complete focused manual QA if local persistence is available.
+6. Update `docs/design/recommendation-engine.md`.
 
-   Run the app locally only if practical and a local database/persistence environment is available:
+   Clarify that tier-drop risk is still a valid recommendation category only when the active ranking snapshot contains explicitly recommendation-eligible tier data. Source-only, neutral, absent, and legacy ambiguous tiers should no-op for tier pressure.
 
-   1. Confirm the managed seed ranking set is present after startup/bootstrap.
-   2. Import a valid FantasyPros CSV ranking set and confirm it appears in the ranking library.
-   3. Import or re-import a valid Canonical Ranking Set JSON V1 file and confirm it creates an independent set.
-   4. Try an invalid CSV or JSON import and confirm actionable errors appear with no stored-data change.
-   5. Edit a ranking set name, reorder one player, correct supported player metadata, and update a position tier assignment; confirm saved values reload.
-   6. Export a ranking set, re-import it as a separate set, and confirm domain-relevant order, metadata, and tiers are preserved.
-   7. Create one draft from the managed seed set and one draft from an alternate set; confirm each draft uses the selected set's recommendations.
-   8. Edit and then delete the source ranking set for one created draft; refresh/resume that draft and confirm its captured snapshot still loads.
-   9. Exercise missing/deleted selected set and oversized league-capacity failures in draft setup, confirming no partial draft is created.
-   10. Export a scenario from a draft, import it into the developer workbench, adjust replay target, reset/restart as appropriate, and confirm deterministic replay behavior.
-   11. Confirm cancel behavior, pending state, in-progress draft confirmation, transient-session confirmation, draft history, ranking library, current draft, scenario import/export, and replay still behave.
+7. Review `docs/testing.md`.
 
-   If local persistence is unavailable, record manual QA as blocked by database setup. Do not change app behavior to avoid the blocker.
+   Update only if existing strategy text would mislead future testing work into treating FantasyPros source tiers as position-tier recommendation pressure. Keep changes strategy-level, not implementation-task-level.
 
-5. Record validation results.
+8. Keep patch docs consistent if needed.
 
-   Create or update `docs/qa/manual-phase-5-qa.md` with:
+   If the edited documentation introduces a clearer term or a necessary wording correction, mirror that wording only where needed in:
 
-   - date of validation;
-   - automated commands run and outcomes;
-   - manual QA environment;
-   - manual QA checklist outcomes;
-   - skipped database-gated tests or blocked manual steps, if any;
-   - any defects found and whether they were fixed in this slice or left as blockers.
+   - `docs/patches/tier-semantics-project.md`
+   - `docs/design/tier-semantics.md`
+   - `docs/patches/tier-semantics-tasks.md`
 
-6. Handle failures conservatively.
+   Do not expand patch scope while doing this.
 
-   If validation fails because of a clear Phase 5 regression, fix only the narrow cause and rerun the affected focused tests plus full validation needed for confidence. If the failure appears unrelated, environment-specific, or requires scope outside Task 20, stop and report the blocker without broadening the slice.
+9. Perform a documentation consistency review.
 
-7. Finalize documentation after successful validation.
+   Search or directly inspect the edited files for misleading phrases such as:
 
-   Only after required automated validation passes and manual QA is either passed or explicitly recorded as blocked:
+   - imported tiers as position tiers;
+   - FantasyPros `TIERS` as recommendation-tier input;
+   - tier cliffs from source-only tiers;
+   - neutral fallback values described as real tier evidence.
 
-   - update `docs/tasks.md` to mark Task 20 complete;
-   - update this file's Completion Status to completed;
-   - do not plan or begin any post-Phase 5 work.
+   Update only documentation touched by this slice.
+
+10. Finalize the slice.
+
+   If all acceptance criteria are satisfied:
+
+   - update this file's Completion Status to complete;
+   - update `docs/patches/tier-semantics-tasks.md` to mark Task 2 complete.
+
+   Do not update `docs/tasks.md`.
 
 ## Expected Files
 
-- `docs/current-slice.md`, for completion status after validation.
-- `docs/tasks.md`, after validation, to mark Phase 5 Task 20 complete.
-- `docs/qa/manual-phase-5-qa.md`, to record Phase 5 exit validation and manual QA outcomes.
-- Source or test files only if validation exposes a narrow Phase 5 regression that must be fixed to satisfy Task 20.
+- `docs/project.md`
+- `docs/architecture.md`
+- `docs/decisions.md`
+- `docs/design/rankings-data.md`
+- `docs/design/recommendation-engine.md`
+- `docs/testing.md`, only if needed
+- `docs/patches/tier-semantics-project.md`, only if wording consistency requires it
+- `docs/design/tier-semantics.md`, only if wording consistency requires it
+- `docs/patches/tier-semantics-tasks.md`, to mark Task 2 complete after acceptance criteria are met
+- `docs/current-slice.md`, to record completion status
 
 ## Tests
 
-Run from the repository root:
+No automated tests are required for this documentation-only slice.
+
+Recommended validation:
 
 ```text
-npm test -- src/lib/rankingSetValidation.test.ts src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/canonicalRankingJsonExporter.test.ts src/lib/rankingImportWorkflow.test.ts
-npm test -- src/lib/rankingSetEditing.test.ts src/lib/rankingSetRepository.test.ts src/lib/managedSeedRankingSet.test.ts src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
-npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftCreationWorkflow.test.ts src/app/actions/draftActions.test.ts src/lib/draftWorkspaceLoader.test.ts
-npm test -- src/components/RankingLibraryPanel.test.tsx src/components/RankingSetEditorPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx
-npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts
-npx tsc --noEmit
-npm test
-npm run lint
-npm run build
-npm run prisma:validate
+git diff --check
 ```
 
-Expected result:
+Optional validation if already convenient:
 
-- focused Phase 5 tests pass;
-- Phase 4 replay/scenario/workbench regressions pass;
-- full Vitest suite passes, with database-gated tests skipped unless explicitly enabled;
-- TypeScript, lint, production build, and Prisma validation pass.
+```text
+npm run lint
+```
+
+Do not add or modify automated tests in this slice.
 
 ## Manual QA
 
-Complete the checklist in Implementation Step 4 when local persistence is available.
+No app manual QA is required for this documentation-only slice.
 
-If local persistence is unavailable, document the blocker in `docs/qa/manual-phase-5-qa.md` and report that manual QA could not be completed. Do not mark Task 20 complete unless the recorded blocker is acceptable to the user.
+Manual review should confirm the edited docs consistently use:
+
+- source tier for FantasyPros `TIERS`;
+- recommendation tier for engine-facing tier pressure;
+- neutral recommendation tier for unavailable tier pressure;
+- legacy ambiguous tier for pre-patch values with untrusted semantics;
+- future/deferred language for position tiers that need value-based inputs.
 
 ## Acceptance Criteria
 
-- Every Phase 5 task acceptance criterion is satisfied or any exception is reported as a blocker.
-- Both supported import profiles pass exact positive and negative automated coverage.
-- Permitted missing-column imports succeed with exact warnings, capability states, and canonical fallback values; malformed supplied values fail.
-- Canonical export/import round trips preserve domain-relevant ranking values.
-- At least two managed ranking sets remain isolated through import, edit, selection, draft snapshot creation, source edit, and source deletion.
-- Existing draft snapshots and Scenario V1 replay remain usable after source ranking sets change or are deleted.
-- Manual, persisted, and replay workflows continue producing deterministic recommendations.
-- Full automated validation passes.
-- Focused manual QA passes or is explicitly documented as blocked by environment setup.
-- No Phase 5 non-goals are introduced.
-- After validation, Phase 5 Task 20 is marked complete in `docs/tasks.md`.
+- `docs/project.md` no longer implies FantasyPros `TIERS` are position-local recommendation-tier input.
+- `docs/architecture.md` documents the separation between source-tier preservation and recommendation-tier eligibility.
+- `docs/decisions.md` records the source-tier versus recommendation-tier decision and its tradeoffs.
+- `docs/design/rankings-data.md` no longer treats imported FantasyPros tiers as position-local recommendation tiers.
+- `docs/design/recommendation-engine.md` states that tier-drop risk requires explicit recommendation-tier eligibility.
+- `docs/testing.md` is either already compatible with the corrected terminology or has been updated at strategy level.
+- Future position-tier support remains deferred until value-based inputs such as projections or VORP are active scope.
+- No runtime code, tests, dependencies, data files, `docs/tasks.md`, or unrelated documentation are changed.
+- `docs/patches/tier-semantics-tasks.md` marks Task 2 complete only after the documentation updates satisfy this slice.
 
 ## Failure Handling
 
-- If a focused test file listed in this slice does not exist, stop and revise the slice rather than silently replacing it.
-- If automated validation fails because of this slice or a Phase 5 regression, fix the smallest local cause and rerun relevant validation.
-- If automated validation fails for an unrelated reason, report it separately and do not broaden the slice.
-- If manual QA requires unavailable database setup, record the blocker instead of changing product code.
-- If validation appears to require new features, schema changes, recommendation tuning, additional ranking formats, or live integrations, stop and report the Task 20 boundary.
+- If an existing document conflicts with the approved tier-semantics design, follow the design and document the alignment in the relevant file.
+- If the documentation reveals a product or architecture question not answered by `docs/design/tier-semantics.md`, stop and report the unresolved question instead of inventing new scope.
+- If implementation appears necessary to make the docs truthful, stop after documentation alignment and leave code work for the next slice.
+- If unrelated worktree changes appear in target files, preserve them and edit around them rather than reverting them.
 
 ## Follow-Up
 
-After Task 20 is complete, Phase 5 should be ready for review or for planning the next approved project phase. Do not begin post-Phase 5 planning automatically.
+After this slice is complete, the next slice should implement Task 3 from `docs/patches/tier-semantics-tasks.md`: update tier import and portable-format contracts.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. This slice is limited to Phase 5 exit validation and documentation of results.
-- Executable by a lower-reasoning pass: yes. Commands, manual QA steps, failure handling, and documentation updates are explicit.
-- Avoids unnecessary architecture changes: yes. It is validation-first and permits source changes only for narrow regressions found during validation.
-- Blast radius reasonable: yes. Expected documentation changes are limited to the slice, Task 20 status, and a QA record; source changes are conditional on validation defects.
-- Review/revert comfort: yes. Validation documentation and any narrow regression fix can be reviewed independently.
-- Observable/testable acceptance criteria: yes. Automated command outcomes, QA checklist results, and Task 20 status are directly observable.
+- Smallest meaningful increment: yes. This slice aligns documentation and decisions before code changes.
+- Executable by a lower-reasoning pass: yes. Target files, wording goals, and acceptance criteria are explicit.
+- Avoids unnecessary architecture changes: yes. It records the approved design without changing runtime architecture.
+- Blast radius reasonable: yes. Expected changes are documentation-only and limited to tier-semantics references.
+- Review/revert comfort: yes. Documentation alignment can be reviewed independently from implementation.
+- Observable/testable acceptance criteria: yes. The edited docs can be inspected for the corrected terminology and decision record.
