@@ -16,6 +16,10 @@ import {
   resetDraftWorkspace,
   undoLastPickInWorkspace,
 } from "@/lib/draftRepository";
+import {
+  createConfiguredDraftFromRankingSet,
+  type CreateConfiguredDraftFromRankingSetResult,
+} from "@/lib/draftCreationWorkflow";
 
 export type CreateConfiguredDraftActionResult =
   | {
@@ -41,6 +45,19 @@ export async function createConfiguredDraftAction(
   input: LeagueSetupInput,
 ): Promise<CreateConfiguredDraftActionResult> {
   return createDraftFromSetup(input);
+}
+
+export async function createConfiguredDraftFromRankingSetAction(
+  input: Readonly<{
+    leagueSetup: LeagueSetupInput;
+    rankingSetId: string;
+  }>,
+): Promise<CreateConfiguredDraftFromRankingSetResult> {
+  return createConfiguredDraftFromRankingSet({
+    leagueSetup: input.leagueSetup,
+    rankingSetId: input.rankingSetId,
+    name: formatAutomaticDraftName(),
+  });
 }
 
 export async function deleteDraftAction(draftId: string): Promise<boolean> {

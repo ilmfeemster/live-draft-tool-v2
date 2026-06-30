@@ -745,7 +745,7 @@ Create a pure snapshot boundary that copies canonical ranking entries and preser
 
 ## Task 16 - Integrate Ranking Set Selection into Draft Creation
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

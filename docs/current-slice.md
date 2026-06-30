@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. This slice promotes Phase 5 Task 16. Implementation has not started.
+Complete. The selected-ranking draft creation workflow is implemented as an application boundary that validates a ranking-set ID, loads the managed set, validates league setup and capacity against the selected set's entries, snapshots the set through `createRankingSnapshotFromRankingSet`, and persists a new draft using only copied canonical `RankingEntry[]` values. A new server action delegates to this workflow with automatic draft naming, while the existing Draft Room compatibility action remains unchanged for the current UI. Focused workflow and action tests pass 30 tests; focused draft repository, mapping, loader, snapshot, and ranking-set repository tests pass 71 tests with one expected database-gated skip; TypeScript no-emit passes; focused lint passes; the full Vitest suite passes 41 files and 569 tests with one expected skip; repository-wide lint passes. Phase 5 Task 16 is complete.
 
 ## Source Context
 

@@ -13,15 +13,21 @@ import {
   resetDraftWorkspace,
   undoLastPickInWorkspace,
 } from "@/lib/draftRepository";
+import { createConfiguredDraftFromRankingSet } from "@/lib/draftCreationWorkflow";
 import type { DraftWorkspace } from "@/types/draft";
 import {
   createConfiguredDraftAction,
+  createConfiguredDraftFromRankingSetAction,
   createNewDraftAction,
   deleteDraftAction,
   draftPlayerAction,
   resetDraftAction,
   undoLastPickAction,
 } from "./draftActions";
+
+vi.mock("@/lib/draftCreationWorkflow", () => ({
+  createConfiguredDraftFromRankingSet: vi.fn(),
+}));
 
 vi.mock("@/lib/draftRepository", () => ({
   createDraftWorkspace: vi.fn(),
@@ -38,6 +44,9 @@ const deleteDraftWorkspaceMock = vi.mocked(deleteDraftWorkspace);
 const draftPlayerInWorkspaceMock = vi.mocked(draftPlayerInWorkspace);
 const resetDraftWorkspaceMock = vi.mocked(resetDraftWorkspace);
 const undoLastPickInWorkspaceMock = vi.mocked(undoLastPickInWorkspace);
+const createConfiguredDraftFromRankingSetMock = vi.mocked(
+  createConfiguredDraftFromRankingSet,
+);
 
 describe("draft mutation server actions", () => {
   beforeEach(() => {
@@ -136,6 +145,63 @@ describe("draft mutation server actions", () => {
       ],
     });
     expect(createDraftWorkspaceRepositoryMock).not.toHaveBeenCalled();
+  });
+
+  it("delegates selected-ranking configured draft creation with an automatic name", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 26, 17, 42));
+
+    const workspace = createDraftWorkspace();
+    const input = createConfiguredInput();
+    createConfiguredDraftFromRankingSetMock.mockResolvedValue({
+      ok: true,
+      workspace,
+    });
+
+    const result = await createConfiguredDraftFromRankingSetAction({
+      leagueSetup: input,
+      rankingSetId: "rankings-1",
+    });
+
+    expect(createConfiguredDraftFromRankingSetMock).toHaveBeenCalledWith({
+      leagueSetup: input,
+      rankingSetId: "rankings-1",
+      name: "Draft - Jun 26, 2026, 5:42 PM",
+    });
+    expect(result).toEqual({ ok: true, workspace });
+  });
+
+  it("returns selected-ranking workflow errors unchanged", async () => {
+    const errors = [
+      {
+        code: "ranking-set-not-found" as const,
+        path: "rankingSetId",
+        message: "Ranking set was not found.",
+      },
+    ];
+    createConfiguredDraftFromRankingSetMock.mockResolvedValue({
+      ok: false,
+      errors,
+    });
+
+    const result = await createConfiguredDraftFromRankingSetAction({
+      leagueSetup: createConfiguredInput(),
+      rankingSetId: "missing-rankings",
+    });
+
+    expect(result).toEqual({ ok: false, errors });
+  });
+
+  it("keeps selected-ranking workflow failures rejected", async () => {
+    const workflowError = new Error("database unavailable");
+    createConfiguredDraftFromRankingSetMock.mockRejectedValue(workflowError);
+
+    await expect(
+      createConfiguredDraftFromRankingSetAction({
+        leagueSetup: createConfiguredInput(),
+        rankingSetId: "rankings-1",
+      }),
+    ).rejects.toBe(workflowError);
   });
 
   it("keeps repository failures as rejected configured-creation errors", async () => {
