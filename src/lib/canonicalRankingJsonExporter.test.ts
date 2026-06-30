@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   exportCanonicalRankingSetJson,
+  type CanonicalRankingJsonExplicitTierDocument,
   type CanonicalRankingJsonExportResult,
 } from "@/lib/canonicalRankingJsonExporter";
 import { parseCanonicalRankingJson } from "@/lib/canonicalRankingJsonParser";
@@ -13,7 +14,10 @@ import { validateNormalizedRankingCandidate } from "@/lib/rankingCandidateValida
 import { normalizeRankingSource } from "@/lib/rankingNormalizer";
 import { convertValidatedRankingCandidate } from "@/lib/rankingSetConversion";
 import type { Position, RankingEntry } from "@/types/draft";
-import type { CanonicalRankingSetDocumentV1 } from "@/types/rankingImport";
+import type {
+  CanonicalRankingSetDocumentV1,
+  CanonicalRankingSetDocumentV2,
+} from "@/types/rankingImport";
 import {
   NEUTRAL_TIER,
   UNKNOWN_TEAM,
@@ -24,6 +28,53 @@ import {
 const exportedAt = new Date("2026-06-28T15:00:00.000Z");
 
 describe("exportCanonicalRankingSetJson", () => {
+  it("exposes an explicit tier-semantics export contract for future V2 mapping", () => {
+    const document: CanonicalRankingSetDocumentV2 = {
+      schemaVersion: 2,
+      metadata: {
+        name: "Explicit Tier Rankings",
+        exportedAt: exportedAt.toISOString(),
+      },
+      tierSemantics: {
+        sourceTier: {
+          kind: "source-only",
+          sourceScope: "overall",
+          recommendationEligible: false,
+        },
+        recommendationTier: {
+          kind: "recommendation-eligible",
+          sourceScope: "position",
+          recommendationEligible: true,
+        },
+      },
+      capabilities: createCapabilities({
+        tiers: { QB: "defaulted-neutral" },
+      }),
+      entries: [
+        {
+          player: {
+            id: "qb-1",
+            name: "Player qb-1",
+            team: "SEA",
+            position: "QB",
+          },
+          overallRank: 1,
+          positionRank: 1,
+          sourceTier: 4,
+          recommendationTier: NEUTRAL_TIER,
+          adpRank: 1.5,
+        },
+      ],
+    };
+
+    expectTypeOf(document).toMatchTypeOf<CanonicalRankingJsonExplicitTierDocument>();
+    expect(document.tierSemantics.sourceTier.kind).toBe("source-only");
+    expect(document.tierSemantics.recommendationTier.kind).toBe(
+      "recommendation-eligible",
+    );
+    expect(document.entries[0]).not.toHaveProperty("tier");
+  });
+
   it("produces exact compact V1 JSON in frozen property order", () => {
     const rankingSet = createCompleteSet();
     const result = exportCanonicalRankingSetJson(rankingSet, {

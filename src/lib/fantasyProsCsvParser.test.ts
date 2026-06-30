@@ -61,6 +61,11 @@ describe("parseFantasyProsCsv", () => {
         adpDelta: 10,
       },
     });
+    expect(result.value.tierSemantics).toEqual({
+      kind: "source-only",
+      sourceScope: "overall",
+      recommendationEligible: false,
+    });
     expect(rawFields(result.value.records[0])).toEqual({
       overallOrder: "1",
       tier: "1",
@@ -84,10 +89,16 @@ describe("parseFantasyProsCsv", () => {
 
     expectSuccess(result);
     expect(result.warnings).toEqual([]);
+    expect(result.value.tierSemantics).toEqual({
+      kind: "source-only",
+      sourceScope: "overall",
+      recommendationEligible: false,
+    });
     expect(rawFields(result.value.records[0])).toEqual({
       playerName: "  Mixed Case  ",
       position: " wr1 ",
     });
+    expect(result.value.records[0]?.fields).not.toHaveProperty("tier");
     expect(result.value.records[0]?.fields.playerName?.location).toEqual({
       row: 2,
       column: 1,
@@ -104,6 +115,22 @@ describe("parseFantasyProsCsv", () => {
       position: "QB1",
       overallOrder: "1",
       tier: "1",
+    });
+  });
+
+  it("preserves malformed tier-like values for later semantic validation", () => {
+    const result = parseText("PLAYER NAME,POS,TIERS\nAlpha,QB1,not-a-tier");
+
+    expectSuccess(result);
+    expect(result.value.tierSemantics).toEqual({
+      kind: "source-only",
+      sourceScope: "overall",
+      recommendationEligible: false,
+    });
+    expect(rawFields(result.value.records[0])).toEqual({
+      playerName: "Alpha",
+      position: "QB1",
+      tier: "not-a-tier",
     });
   });
 

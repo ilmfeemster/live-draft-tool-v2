@@ -4,6 +4,7 @@ import {
   CANONICAL_RANKING_JSON_V1_PROFILE,
   FANTASYPROS_CSV_V1_FORMAT,
   FANTASYPROS_CSV_V1_PROFILE,
+  FANTASYPROS_CSV_V1_TIER_SEMANTICS,
   RANKING_IMPORT_LIMITS,
   isRankingImportFormatId,
   preflightRankingImport,
@@ -11,8 +12,10 @@ import {
 } from "@/lib/rankingImportPreflight";
 import type {
   CanonicalRankingSetDocumentV1,
+  CanonicalRankingSetDocumentV2,
   RankingImportStageResult,
   PreflightRankingDocument,
+  RankingTierSemanticContract,
 } from "@/types/rankingImport";
 import { UNKNOWN_TEAM } from "@/types/rankings";
 
@@ -66,7 +69,15 @@ describe("ranking import format profiles", () => {
     ]);
     expect(FANTASYPROS_CSV_V1_PROFILE.headers).toEqual({
       overallOrder: { aliases: ["RK", "RANK"], required: false },
-      tier: { aliases: ["TIERS", "TIER"], required: false },
+      tier: {
+        aliases: ["TIERS", "TIER"],
+        required: false,
+        tierSemantics: {
+          kind: "source-only",
+          sourceScope: "overall",
+          recommendationEligible: false,
+        },
+      },
       playerName: { aliases: ["PLAYER NAME", "PLAYER"], required: true },
       team: { aliases: ["TEAM"], required: false },
       position: { aliases: ["POS", "POSITION"], required: true },
@@ -95,6 +106,42 @@ describe("ranking import format profiles", () => {
     expect(FANTASYPROS_CSV_V1_PROFILE.hasPlayerIdColumn).toBe(false);
   });
 
+  it("defines the tier semantic vocabulary required by the patch design", () => {
+    const contracts: readonly RankingTierSemanticContract[] = [
+      {
+        kind: "source-only",
+        sourceScope: "overall",
+        recommendationEligible: false,
+      },
+      {
+        kind: "recommendation-eligible",
+        sourceScope: "position",
+        recommendationEligible: true,
+      },
+      { kind: "unsupported", recommendationEligible: false },
+      { kind: "absent", recommendationEligible: false },
+      {
+        kind: "neutral",
+        sourceScope: "position",
+        recommendationEligible: false,
+      },
+      {
+        kind: "legacy-ambiguous",
+        sourceScope: "unknown",
+        recommendationEligible: false,
+      },
+    ];
+
+    expect(contracts.map((contract) => contract.kind)).toEqual([
+      "source-only",
+      "recommendation-eligible",
+      "unsupported",
+      "absent",
+      "neutral",
+      "legacy-ambiguous",
+    ]);
+  });
+
   it("defines position, tier, and ADP-delta source semantics", () => {
     const positionPattern = FANTASYPROS_CSV_V1_PROFILE.positionValuePattern;
     const adpPattern = FANTASYPROS_CSV_V1_PROFILE.adpDeltaValuePattern;
@@ -104,6 +151,9 @@ describe("ranking import format profiles", () => {
     expect(["+2", "-97", "0", "-"].every((value) => adpPattern.test(value))).toBe(true);
     expect(["+0", "--1", "1.5", ""].some((value) => adpPattern.test(value))).toBe(false);
     expect(FANTASYPROS_CSV_V1_PROFILE.adpDeltaNullMarker).toBe("-");
+    expect(FANTASYPROS_CSV_V1_PROFILE.headers.tier.tierSemantics).toBe(
+      FANTASYPROS_CSV_V1_TIER_SEMANTICS,
+    );
   });
 
   it("defines the canonical JSON V1 envelope contract", () => {
@@ -118,6 +168,11 @@ describe("ranking import format profiles", () => {
         "capabilities",
         "entries",
       ],
+      tierSemantics: {
+        kind: "legacy-ambiguous",
+        sourceScope: "unknown",
+        recommendationEligible: false,
+      },
     });
 
     const document: CanonicalRankingSetDocumentV1 = {
@@ -152,6 +207,62 @@ describe("ranking import format profiles", () => {
 
     expect(document).not.toHaveProperty("draft");
     expect(document).not.toHaveProperty("recommendations");
+  });
+
+  it("defines the explicit canonical JSON tier-semantics document shape", () => {
+    const document: CanonicalRankingSetDocumentV2 = {
+      schemaVersion: 2,
+      metadata: {
+        name: "Portable Rankings",
+        exportedAt: "2026-06-28T12:00:00.000Z",
+      },
+      tierSemantics: {
+        sourceTier: {
+          kind: "source-only",
+          sourceScope: "overall",
+          recommendationEligible: false,
+        },
+        recommendationTier: {
+          kind: "recommendation-eligible",
+          sourceScope: "position",
+          recommendationEligible: true,
+        },
+        legacyTier: {
+          kind: "legacy-ambiguous",
+          sourceScope: "unknown",
+          recommendationEligible: false,
+        },
+      },
+      capabilities: {
+        team: "none",
+        playerIdentity: "generated",
+        overallOrder: "row-derived",
+        positionRank: "derived",
+        adp: "none",
+        tiers: { QB: "defaulted-neutral" },
+      },
+      entries: [
+        {
+          player: {
+            id: "generated-qb",
+            name: "Generated QB",
+            team: UNKNOWN_TEAM,
+            position: "QB",
+          },
+          overallRank: 1,
+          adpRank: null,
+          positionRank: 1,
+          sourceTier: null,
+          recommendationTier: 1,
+        },
+      ],
+    };
+
+    expect(document.tierSemantics.sourceTier.kind).toBe("source-only");
+    expect(document.tierSemantics.recommendationTier.kind).toBe(
+      "recommendation-eligible",
+    );
+    expect(document.entries[0]).not.toHaveProperty("tier");
   });
 });
 

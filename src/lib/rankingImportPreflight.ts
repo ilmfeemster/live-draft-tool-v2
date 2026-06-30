@@ -3,6 +3,7 @@ import type {
   RankingImportFormatId,
   RankingImportFormatRef,
   RankingImportStageResult,
+  RankingTierSemanticContract,
 } from "@/types/rankingImport";
 
 export const RANKING_IMPORT_LIMITS = {
@@ -19,6 +20,18 @@ export const CANONICAL_RANKING_JSON_V1_FORMAT = {
   id: "canonical-ranking-json",
   version: 1,
 } as const satisfies RankingImportFormatRef;
+
+export const FANTASYPROS_CSV_V1_TIER_SEMANTICS = {
+  kind: "source-only",
+  sourceScope: "overall",
+  recommendationEligible: false,
+} as const satisfies RankingTierSemanticContract;
+
+export const CANONICAL_RANKING_JSON_V1_TIER_SEMANTICS = {
+  kind: "legacy-ambiguous",
+  sourceScope: "unknown",
+  recommendationEligible: false,
+} as const satisfies RankingTierSemanticContract;
 
 export const FANTASYPROS_CSV_V1_PROFILE = {
   format: FANTASYPROS_CSV_V1_FORMAT,
@@ -39,7 +52,11 @@ export const FANTASYPROS_CSV_V1_PROFILE = {
   ],
   headers: {
     overallOrder: { aliases: ["RK", "RANK"], required: false },
-    tier: { aliases: ["TIERS", "TIER"], required: false },
+    tier: {
+      aliases: ["TIERS", "TIER"],
+      required: false,
+      tierSemantics: FANTASYPROS_CSV_V1_TIER_SEMANTICS,
+    },
     playerName: { aliases: ["PLAYER NAME", "PLAYER"], required: true },
     team: { aliases: ["TEAM"], required: false },
     position: { aliases: ["POS", "POSITION"], required: true },
@@ -58,6 +75,7 @@ export const CANONICAL_RANKING_JSON_V1_PROFILE = {
   maxBytes: RANKING_IMPORT_LIMITS.maxBytes,
   maxEntries: RANKING_IMPORT_LIMITS.maxEntries,
   requiredRootFields: ["schemaVersion", "metadata", "capabilities", "entries"],
+  tierSemantics: CANONICAL_RANKING_JSON_V1_TIER_SEMANTICS,
 } as const;
 
 export type RankingImportPreflightErrorCode =

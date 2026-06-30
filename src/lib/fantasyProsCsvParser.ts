@@ -212,6 +212,7 @@ export function parseFantasyProsCsv(
     value: {
       format: FANTASYPROS_CSV_V1_FORMAT,
       metadata,
+      tierSemantics: FANTASYPROS_CSV_V1_PROFILE.headers.tier.tierSemantics,
       records: parsedRecords,
     },
     warnings,

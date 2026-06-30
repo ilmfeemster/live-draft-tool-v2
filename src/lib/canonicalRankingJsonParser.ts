@@ -189,6 +189,7 @@ export function parseCanonicalRankingJson(
     value: {
       format: document.format,
       metadata,
+      tierSemantics: CANONICAL_RANKING_JSON_V1_PROFILE.tierSemantics,
       records: (entries as JsonObject[]).map(mapEntry),
     },
     warnings: [],

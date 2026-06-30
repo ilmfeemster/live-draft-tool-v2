@@ -31,6 +31,11 @@ describe("parseCanonicalRankingJson", () => {
         documentMetadata: located({}, "metadata", "metadata"),
         capabilities: located({}, "capabilities", "capabilities"),
       },
+      tierSemantics: {
+        kind: "legacy-ambiguous",
+        sourceScope: "unknown",
+        recommendationEligible: false,
+      },
       records: [],
     });
     expect(result.value).not.toHaveProperty("id");
@@ -85,6 +90,11 @@ describe("parseCanonicalRankingJson", () => {
       schemaVersion: located(1, "schemaVersion", "schemaVersion"),
       documentMetadata: located(documentMetadata, "metadata", "metadata"),
       capabilities: located(capabilities, "capabilities", "capabilities"),
+    });
+    expect(result.value.tierSemantics).toEqual({
+      kind: "legacy-ambiguous",
+      sourceScope: "unknown",
+      recommendationEligible: false,
     });
     expect(result.value.records).toEqual([
       {

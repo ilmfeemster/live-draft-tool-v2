@@ -119,7 +119,7 @@ Update project-level documentation so future work uses the corrected tier vocabu
 
 ## Task 3 - Update Tier Import and Portable-Format Contracts
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -464,9 +464,14 @@ Confirm the patch has corrected tier semantics without broadening scope or regre
 
 ## Testing Status
 
-The tier-semantics design and documentation-alignment tasks are complete. Runtime implementation and regression coverage have not begun.
+The tier-semantics design, documentation-alignment, and import/export contract tasks are complete.
 
-Task 2, documentation and decision alignment, is complete. The next task is Task 3, update tier import and portable-format contracts, unless the user chooses to revise the design or documentation before implementation planning.
+Task 3 validation passed:
+
+- `npm test -- src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/canonicalRankingJsonExporter.test.ts`
+- `npx tsc --noEmit`
+
+The next task is Task 4, add domain tier semantics and validation, unless the user chooses to revise the design or contract surface before implementation planning.
 
 ---
 

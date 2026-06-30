@@ -6,9 +6,13 @@ import { validateRankingSet } from "@/lib/rankingSetValidation";
 import type { Position } from "@/types/draft";
 import type {
   CanonicalRankingSetDocumentV1,
+  CanonicalRankingSetDocumentV2,
   CanonicalRankingSetSourceV1,
 } from "@/types/rankingImport";
 import type { RankingSet, RankingSetCapabilities } from "@/types/rankings";
+
+export type CanonicalRankingJsonExplicitTierDocument =
+  CanonicalRankingSetDocumentV2;
 
 export type CanonicalRankingJsonExportRequest = Readonly<{
   exportedAt: Date;

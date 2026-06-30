@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Implementation has not begun.
+Complete. Implementation and focused validation passed.
 
 ## Source Context
 
@@ -183,6 +183,11 @@ Expected result:
 - Canonical JSON V1 remains readable as legacy ambiguous tier data.
 - New explicit tier-semantics portable contract has fixture coverage.
 - TypeScript compiles without leaking parser/source records into domain or engine consumers.
+
+Validation completed:
+
+- `npm test -- src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/canonicalRankingJsonExporter.test.ts`
+- `npx tsc --noEmit`
 
 ## Manual QA
 
