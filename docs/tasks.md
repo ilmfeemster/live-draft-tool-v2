@@ -789,7 +789,7 @@ Create new drafts from an explicitly selected managed ranking set while preservi
 
 ## Task 17 - Add Ranking Library and Import/Export UI
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

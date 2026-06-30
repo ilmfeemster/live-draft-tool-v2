@@ -1,6 +1,8 @@
 import { DraftRoom } from "@/components/DraftRoom";
 import { DraftHistoryList } from "@/components/DraftHistoryList";
+import { RankingLibraryPanel } from "@/components/RankingLibraryPanel";
 import { loadDraftWorkspace } from "@/lib/draftWorkspaceLoader";
+import { listManagedRankingSets } from "@/lib/rankingManagementWorkflow";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +15,17 @@ export default async function Home({ searchParams }: HomeProps) {
   const requestedDraftId = getSingleSearchParam(
     resolvedSearchParams?.draftId,
   );
-  const {
-    workspace,
-    summaries,
-    requestedDraftMissing,
-  } = await loadDraftWorkspace(requestedDraftId);
+  const [draftWorkspaceResult, rankingLibraryResult] = await Promise.all([
+    loadDraftWorkspace(requestedDraftId),
+    listManagedRankingSets(),
+  ]);
+  const { workspace, summaries, requestedDraftMissing } = draftWorkspaceResult;
+  const rankingSummaries = rankingLibraryResult.ok
+    ? rankingLibraryResult.value
+    : [];
+  const rankingErrors = rankingLibraryResult.ok
+    ? []
+    : rankingLibraryResult.errors;
 
   return (
     <main className="flex min-h-screen flex-col bg-zinc-100 text-zinc-950">
@@ -64,6 +72,11 @@ export default async function Home({ searchParams }: HomeProps) {
             instead.
           </div>
         ) : null}
+
+        <RankingLibraryPanel
+          initialErrors={rankingErrors}
+          initialSummaries={rankingSummaries}
+        />
 
         <DraftHistoryList
           activeDraftId={workspace.draft.id}
