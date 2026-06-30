@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Phase 5 Task 11 is complete; this slice promotes Phase 5 Task 12 only. Stop after implementing and validating this slice; do not begin the application import workflow, ranking management workflow, snapshot formalization, draft-selection integration, or UI.
+Complete. The existing seed rankings are now bootstrappable as one managed ranking set with stable seed identity, seed provenance, exact entry preservation, derived capability metadata, idempotent create/load behavior, stale-set replacement, explicit bootstrap failures, and recommendation parity against the legacy seed array. Focused managed-seed tests pass, existing ranking-set repository tests pass with the expected database-gated skip, TypeScript no-emit passes, focused lint passes, the full Vitest suite passes 38 files and 532 tests with one expected database-gated skip, and repository-wide lint passes. Phase 5 Task 12 is complete.
 
 ## Source Context
 

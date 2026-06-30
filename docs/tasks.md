@@ -562,7 +562,7 @@ Complete the mutable ranking-set repository lifecycle while preserving set-wide 
 
 ## Task 12 - Bootstrap Seed Rankings as a Managed Set
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
