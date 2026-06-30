@@ -653,7 +653,7 @@ Orchestrate preflight, format parsing, normalization, validation, domain convers
 
 ## Task 14 - Add Application Ranking Management and Export Workflows
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

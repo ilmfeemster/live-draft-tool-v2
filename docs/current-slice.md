@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Phase 5 Task 13 is complete; this slice promotes Phase 5 Task 14 only. Stop after implementing and validating this slice; do not begin snapshot formalization, draft ranking-set selection, ranking library UI, editing UI, or Phase 5 regression work.
+Complete. The application ranking management and export workflow is implemented as a thin boundary over repository list/load/replace/delete, pure ranking-set editing, and canonical JSON export. It returns structured application results for list, load, edit, delete, and export; maps expected not-found, edit, conflict, validation, delete, and export failures; preserves mutation isolation; and performs no snapshot, draft, scenario, recommendation, UI, schema, or import-workflow changes. Focused management workflow tests pass 10 tests; focused editing/exporter/repository tests pass 75 tests with one expected database-gated skip; TypeScript no-emit passes; focused lint passes; the full Vitest suite passes 40 files and 552 tests with one expected database-gated skip; repository-wide lint passes. Phase 5 Task 14 is complete.
 
 ## Source Context
 
