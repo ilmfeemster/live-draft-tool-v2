@@ -1,234 +1,265 @@
-# Current Slice: Tier Semantics Task 3 - Update Tier Import and Portable-Format Contracts
+# Current Slice: Tier Semantics Task 4 - Add Domain Tier Semantics and Validation
 
 ## Completion Status
 
-Complete. Implementation and focused validation passed.
+Planned. Implementation has not begun.
 
 ## Source Context
 
 - Patch project: `docs/patches/tier-semantics-project.md`
 - Patch task plan: `docs/patches/tier-semantics-tasks.md`
 - Approved design: `docs/design/tier-semantics.md`
-- Relevant existing contracts and implementation boundaries:
-  - `src/types/rankingImport.ts`
+- Completed prerequisite: Task 3, import/export contracts now classify FantasyPros `TIERS` as source-only and Canonical JSON V1 `tier` as legacy ambiguous.
+- Relevant domain files:
   - `src/types/rankings.ts`
-  - `src/lib/rankingImportPreflight.ts`
-  - `src/lib/fantasyProsCsvParser.ts`
-  - `src/lib/canonicalRankingJsonParser.ts`
-  - `src/lib/canonicalRankingJsonExporter.ts`
-  - `src/lib/rankingNormalizer.ts`
-- Relevant focused tests:
-  - `src/lib/rankingImportPreflight.test.ts`
-  - `src/lib/fantasyProsCsvParser.test.ts`
-  - `src/lib/canonicalRankingJsonParser.test.ts`
-  - `src/lib/canonicalRankingJsonExporter.test.ts`
-  - `src/lib/rankingNormalizer.test.ts`, only for contract-shape coverage if needed
+  - `src/lib/rankingSetValidation.ts`
+  - `src/lib/rankingSetValidation.test.ts`
 
-Task 2 documentation alignment is complete. This slice begins runtime work by updating the import/export contracts so tier-bearing data can carry explicit semantics before later slices change domain validation, FantasyPros normalization behavior, persistence compatibility, Recommendation Engine behavior, or UI copy.
+This slice adds the domain model and validation target that later normalization, conversion, persistence, export, snapshot, recommendation, and UI slices will populate. It must not change FantasyPros import behavior or recommendation scoring yet.
 
 ## Goal
 
-Revise import-stage and portable ranking-set contracts so tier-like data is explicitly classified as source-only, recommendation-eligible, unsupported, absent, neutral, or legacy ambiguous before it can be normalized, validated, persisted, exported, or used by the engine.
+Extend the ranking domain model and validation rules so source tiers, recommendation tiers, neutral recommendation tiers, and legacy ambiguous tiers can be represented and checked without confusing preserved source information with engine-facing recommendation tier pressure.
 
 ## Scope
 
 ### Goals
 
-- Update `src/types/rankingImport.ts` with contract types for tier semantics.
-- Update `src/types/rankings.ts` only as needed to expose shared tier capability terminology required by import/export contracts.
-- Update `src/lib/rankingImportPreflight.ts` profile metadata so FantasyPros CSV `TIERS` is documented in code as source-tier data, not position-tier data.
-- Update parser contracts so FantasyPros `TIERS` remains parsed as a located source field but is identified as source-tier input for downstream stages.
-- Update Canonical Ranking Set JSON contract planning/types so new exports have an explicit path to carry source-tier semantics and recommendation-tier semantics without relying only on an ambiguous `tier` field.
-- Preserve the reader path for existing Canonical Ranking Set JSON V1 with ambiguous `tier` values.
-- Add or update focused contract tests for FantasyPros present/absent/malformed `TIERS`, legacy Canonical JSON V1 `tier`, and the new explicit tier-semantics export shape.
+- Add domain-facing tier semantics types in `src/types/rankings.ts`.
+- Preserve current `RankingEntry[]` compatibility for the Draft State Engine and Recommendation Engine.
+- Keep `RankingEntry.tier` as the engine-facing recommendation-tier value.
+- Add optional ranking-set and snapshot metadata that can preserve source tier values separately from `RankingEntry.tier`.
+- Add validation for source-tier metadata as source data, not position-local tier-cliff data.
+- Add validation for recommendation-tier semantics when a ranking set explicitly claims recommendation eligibility.
+- Add validation that neutral recommendation tiers are internally consistent and cannot create tier cliffs.
+- Add validation that legacy ambiguous tier metadata remains loadable but is not recommendation-eligible by default.
+- Keep existing ranking sets without the new metadata valid until later compatibility and migration slices populate it.
+- Add focused tests for domain semantics and validation.
 
 ### Non-Goals
 
-- Do not change final normalization behavior for FantasyPros imports beyond what is necessary to expose contract metadata.
-- Do not materialize neutral recommendation tiers in this slice.
-- Do not update domain validation, conversion, ranking-set editing, repositories, snapshots, scenarios, Recommendation Engine scoring, or UI components.
-- Do not rewrite existing ranking data or scenario fixtures except small contract fixtures required by tests.
-- Do not derive position tiers from rank, position rank, ADP, or source tiers.
-- Do not add projections, VORP, simulations, new recommendation factors, scoring tuning, live integrations, or new ranking source formats.
+- Do not derive position tiers from overall rank, position rank, ADP, or source tiers.
+- Do not change FantasyPros normalization or domain conversion.
+- Do not update repositories, persistence mappers, snapshots, scenario serialization, canonical import/export mapping, Recommendation Engine scoring, UI components, or data files.
+- Do not rename or remove `RankingEntry.tier`.
+- Do not rename the existing `capabilities.tiers` states in this slice unless required to keep validation coherent.
+- Do not materialize neutral tiers during import in this slice.
 - Do not update `docs/tasks.md`.
-- Do not mark Task 3 complete unless the focused contract tests and acceptance criteria pass.
+- Do not mark Task 4 complete unless focused validation passes.
 
 ## Implementation Steps
 
-1. Inspect current contract types.
+1. Inspect the current domain contract.
 
-   Review `src/types/rankingImport.ts`, `src/types/rankings.ts`, and `src/lib/rankingImportPreflight.ts`. Identify all current tier-related fields:
+   Review `src/types/rankings.ts` and `src/lib/rankingSetValidation.ts`.
 
-   - `NormalizedRankingCandidateField` includes `tier`.
-   - `NormalizedRankingCandidateEntry` has `tier`.
-   - `RankingTierCapability` currently uses `"source" | "defaulted-neutral"`.
-   - Canonical JSON V1 currently exports and parses `entries[].tier`.
-   - FantasyPros profile currently maps `TIERS` to `tier`.
+   Current important facts:
 
-2. Add explicit tier semantic contract types.
+   - `RankingEntry.tier` is a required positive number consumed by existing engine-facing ranking arrays.
+   - `RankingSetCapabilities.tiers` currently uses `"source" | "defaulted-neutral"`.
+   - `validateRankingSet` currently validates every `entry.tier` as positive and non-decreasing within position, regardless of semantic provenance.
+   - Existing callers and tests expect ranking sets without any explicit source-tier metadata to remain valid.
 
-   In `src/types/rankingImport.ts` and, only if necessary, `src/types/rankings.ts`, add focused types that let import/export code classify tier-like data without changing behavior yet.
+2. Add domain tier semantics types.
 
-   The contract must be able to represent:
+   In `src/types/rankings.ts`, add small explicit types aligned with `docs/design/tier-semantics.md`.
 
-   - source-only tier data;
-   - recommendation-eligible position-tier data;
-   - unsupported tier-like data;
-   - absent tier data;
-   - neutral recommendation tier state;
-   - legacy ambiguous tier data.
+   The domain model must be able to represent:
 
-   Prefer small explicit union types over broad abstractions. Keep names aligned with `docs/design/tier-semantics.md`.
+   - no source tier data;
+   - source-overall tier data;
+   - legacy ambiguous source tier data;
+   - neutral recommendation tiers;
+   - recommendation-position tiers.
 
-3. Update FantasyPros CSV profile metadata.
+   Prefer a narrow metadata shape rather than changing `RankingEntry`:
 
-   In `src/lib/rankingImportPreflight.ts`, keep the accepted `TIERS` and `TIER` aliases, but document/classify that semantic as source-tier input. Do not remove support for the existing column.
+   - source tier values should be preserved outside `RankingEntry.tier`;
+   - recommendation-tier state should describe the meaning of `RankingEntry.tier`;
+   - `RankingSet` and `RankingSnapshot` should be able to carry the metadata;
+   - absence of the new metadata should remain a compatibility state for existing in-memory tests until Task 6.
 
-   If changing the semantic field name from `tier` to something like `sourceTier`, carry the change only through parser contract shape in this slice and leave later normalization behavior changes for Task 5.
+   Suggested shape, adjustable if the implementation finds a simpler equivalent:
 
-4. Update FantasyPros parser contract tests.
+   ```ts
+   export type RankingSourceTierSemantics =
+     | "none"
+     | "source-overall"
+     | "legacy-ambiguous";
 
-   In `src/lib/fantasyProsCsvParser.test.ts`, add or update assertions proving:
+   export type RankingRecommendationTierSemantics =
+     | "neutral"
+     | "recommendation-position";
 
-   - a present `TIERS` column is parsed as located source-tier data;
-   - an absent `TIERS` column is allowed by the parser contract;
-   - malformed tier values are not parser failures merely because the parser does not do semantic numeric validation.
+   export type RankingSourceTierValue = Readonly<{
+     playerId: string;
+     overallRank: number;
+     tier: number;
+   }>;
 
-   Parser tests should stay parser-level: syntax, headers, and located source records only.
+   export type RankingTierSemantics = Readonly<{
+     source: Readonly<{
+       kind: RankingSourceTierSemantics;
+       values?: readonly RankingSourceTierValue[];
+     }>;
+     recommendation: Readonly<Partial<Record<Position, RankingRecommendationTierSemantics>>>;
+   }>;
+   ```
 
-5. Update canonical JSON contract types.
+   If this shape is revised during implementation, preserve the same capabilities and keep the blast radius local.
 
-   In `src/types/rankingImport.ts`, introduce the next explicit portable shape needed by the design. The implementation may add a V2 type or a V1-compatible metadata extension, but the contract must make source-tier and recommendation-tier semantics explicit for new exports.
+3. Extend ranking set and snapshot types.
 
-   Preserve `CanonicalRankingSetDocumentV1` as the legacy readable shape. Do not remove `entries[].tier` from V1.
+   Add optional `tierSemantics?: RankingTierSemantics` to `RankingSet` and `RankingSnapshot`.
 
-6. Update canonical parser/exporter contract surfaces.
+   Do not add parser, repository, or UI values yet. This slice establishes the domain target and validation rules only.
 
-   In `src/lib/canonicalRankingJsonParser.ts`, keep V1 parsing readable and make sure V1 `entries[].tier` is treated as legacy ambiguous at the contract boundary where applicable. Do not make legacy V1 fail only because it lacks new semantic metadata.
+4. Add source-tier metadata validation.
 
-   In `src/lib/canonicalRankingJsonExporter.ts`, expose the new explicit tier-semantics export shape or prepare the mapper type so later domain slices can populate it. Do not make export depend on domain fields that do not exist yet unless the slice also defines a backward-compatible placeholder.
+   In `src/lib/rankingSetValidation.ts`, validate `rankingSet.tierSemantics` only when present.
 
-7. Add canonical JSON contract tests.
+   Source-tier validation should ensure:
 
-   In `src/lib/canonicalRankingJsonParser.test.ts` and `src/lib/canonicalRankingJsonExporter.test.ts`, add or update tests proving:
+   - the source metadata shape is valid;
+   - `source.kind: "none"` has no source-tier values;
+   - `source.kind: "source-overall"` and `source.kind: "legacy-ambiguous"` may carry values;
+   - every source-tier value has a non-empty `playerId`, positive integer `overallRank`, and positive integer `tier`;
+   - source-tier values reference existing canonical entries by player ID and overall rank;
+   - source-tier values do not need to be position-local, contiguous, gapless, or non-decreasing within position.
 
-   - legacy V1 files with `entries[].tier` remain accepted;
-   - new contract shape can represent source-tier semantics and recommendation-tier semantics explicitly;
-   - ranking-set JSON and Scenario V1 JSON remain distinct;
-   - unsupported future versions fail clearly.
+   Use stable `invalid-capability` or `invalid-tier` errors unless a new error code is necessary. Prefer paths under `tierSemantics.source`.
 
-8. Update normalizer tests only if contract changes require it.
+5. Add recommendation-tier semantics validation.
 
-   If renamed parsed fields would otherwise break compilation, update `src/lib/rankingNormalizer.ts` and `src/lib/rankingNormalizer.test.ts` only to bridge the new contract shape without implementing Task 5 behavior. Any behavioral changes to FantasyPros source tiers becoming neutral recommendation tiers must stay out of this slice.
+   Validate the `recommendation` metadata only when `tierSemantics` is present.
 
-9. Run focused validation.
+   Recommendation-tier validation should ensure:
+
+   - recommendation metadata is an object keyed only by supported represented positions;
+   - every represented position has an explicit recommendation semantic when `tierSemantics` is present;
+   - absent positions do not have recommendation metadata;
+   - `"neutral"` positions have every `RankingEntry.tier` equal to `NEUTRAL_TIER`;
+   - `"recommendation-position"` positions rely on the existing positive, position-local, non-decreasing `RankingEntry.tier` validation;
+   - legacy ambiguous source metadata does not allow recommendation-position eligibility by default.
+
+   Keep existing `capabilities.tiers` validation. If `tierSemantics` is present, also check that:
+
+   - `recommendation: "neutral"` aligns with `capabilities.tiers[position] === "defaulted-neutral"`;
+   - `recommendation: "recommendation-position"` aligns with the existing non-neutral capability state used by the app today.
+
+6. Update validation tests.
+
+   In `src/lib/rankingSetValidation.test.ts`, add focused tests proving:
+
+   - valid source-overall tier metadata accepts overall-board tier values without requiring position-local progression;
+   - source-tier metadata with malformed, duplicate, or unknown entry references fails with stable paths;
+   - valid neutral recommendation metadata requires neutral `RankingEntry.tier` values for the affected position;
+   - neutral recommendation metadata rejects non-neutral tier values;
+   - recommendation-position metadata accepts complete position-local non-decreasing tiers;
+   - recommendation-position metadata rejects decreasing tiers through the existing entry-tier rule;
+   - legacy ambiguous source metadata remains loadable only with neutral recommendation metadata;
+   - existing ranking sets without `tierSemantics` still validate to preserve compatibility before Task 6.
+
+   Do not update parser, normalizer, conversion, repository, snapshot, scenario, recommendation, or UI tests unless TypeScript forces a local type-boundary adjustment. If broader updates are needed, stop and report that Task 4 needs to be split.
+
+7. Run focused validation.
 
    Run:
 
    ```text
-   npm test -- src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/canonicalRankingJsonExporter.test.ts
+   npm test -- src/lib/rankingSetValidation.test.ts
    npx tsc --noEmit
    ```
 
-   If `rankingNormalizer` needed contract-bridge changes, also run:
+   If TypeScript shows the new optional metadata affects adjacent pure domain helpers, run the smallest directly affected tests and report them.
 
-   ```text
-   npm test -- src/lib/rankingNormalizer.test.ts
-   ```
-
-10. Finalize the slice.
+8. Finalize the slice.
 
    If all acceptance criteria and focused validation pass:
 
-   - update `docs/patches/tier-semantics-tasks.md` to mark Task 3 complete;
+   - update `docs/patches/tier-semantics-tasks.md` to mark Task 4 complete;
    - update this file's Completion Status to complete;
    - do not update `docs/tasks.md`.
 
 ## Expected Files
 
-- `src/types/rankingImport.ts`
-- `src/types/rankings.ts`, only if shared tier capability terminology must move there
-- `src/lib/rankingImportPreflight.ts`
-- `src/lib/fantasyProsCsvParser.ts`, only if parser semantic field names change
-- `src/lib/canonicalRankingJsonParser.ts`
-- `src/lib/canonicalRankingJsonExporter.ts`
-- `src/lib/rankingNormalizer.ts`, only as a compatibility bridge if contract names change
-- `src/lib/rankingImportPreflight.test.ts`
-- `src/lib/fantasyProsCsvParser.test.ts`
-- `src/lib/canonicalRankingJsonParser.test.ts`
-- `src/lib/canonicalRankingJsonExporter.test.ts`
-- `src/lib/rankingNormalizer.test.ts`, only if `rankingNormalizer.ts` changes
-- `docs/patches/tier-semantics-tasks.md`, after validation, to mark Task 3 complete
+- `src/types/rankings.ts`
+- `src/lib/rankingSetValidation.ts`
+- `src/lib/rankingSetValidation.test.ts`
+- `docs/patches/tier-semantics-tasks.md`, after validation, to mark Task 4 complete
 - `docs/current-slice.md`, after validation, to record completion status
+
+Do not touch these files in this slice unless implementation proves the type change cannot compile without a narrowly scoped adjustment:
+
+- `src/types/draft.ts`
+- `src/lib/rankingNormalizer.ts`
+- `src/lib/rankingSetConversion.ts`
+- `src/lib/rankingSetRepository.ts`
+- `src/lib/rankingSnapshot.ts`
+- `src/lib/recommendationEngine.ts`
+- UI components
+- fixtures or data files
+- `docs/tasks.md`
 
 ## Tests
 
 Required focused validation:
 
 ```text
-npm test -- src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/canonicalRankingJsonExporter.test.ts
+npm test -- src/lib/rankingSetValidation.test.ts
 npx tsc --noEmit
-```
-
-Conditional validation if the normalizer bridge is touched:
-
-```text
-npm test -- src/lib/rankingNormalizer.test.ts
 ```
 
 Expected result:
 
-- FantasyPros parser contract preserves present `TIERS` as source-tier input.
-- FantasyPros parser contract permits missing `TIERS`.
-- Canonical JSON V1 remains readable as legacy ambiguous tier data.
-- New explicit tier-semantics portable contract has fixture coverage.
-- TypeScript compiles without leaking parser/source records into domain or engine consumers.
-
-Validation completed:
-
-- `npm test -- src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/canonicalRankingJsonExporter.test.ts`
-- `npx tsc --noEmit`
+- Domain types can represent source tiers and recommendation tiers independently.
+- Source-tier metadata validates as source data rather than position-tier cliff data.
+- Neutral recommendation metadata requires neutral engine-facing tier values.
+- Recommendation-position metadata requires complete position-local valid tier values.
+- Legacy ambiguous tier metadata is represented without becoming recommendation-eligible by default.
+- Existing ranking sets without explicit tier semantics remain valid for compatibility.
+- Existing Draft State and Recommendation Engine `RankingEntry[]` boundaries still compile.
 
 ## Manual QA
 
-No app manual QA is required for this contract-only slice.
+No app manual QA is required for this domain-validation slice.
 
 Manual review should confirm:
 
-- new contract names match `docs/design/tier-semantics.md`;
-- V1 canonical ranking files remain supported;
-- no UI text or recommendation behavior changes are introduced in this slice.
+- no recommendation scoring behavior changed;
+- no import normalization behavior changed;
+- no repository, snapshot, scenario, or UI behavior changed;
+- source-tier values are modeled separately from `RankingEntry.tier`.
 
 ## Acceptance Criteria
 
-- Contract types can represent source-only, recommendation-eligible, unsupported, absent, neutral, and legacy ambiguous tier states.
-- FantasyPros `TIERS` are classified as source-tier input in code-level profile or parser contract metadata.
-- Missing FantasyPros `TIERS` remain safely parseable.
-- Malformed supplied tier values remain a later semantic validation concern rather than a parser syntax failure.
-- Canonical Ranking Set JSON has an explicit contract path for source-tier and recommendation-tier semantics in new exports.
-- Legacy Canonical Ranking Set JSON V1 with `entries[].tier` remains readable through a legacy ambiguous-tier path.
-- Scenario V1 JSON is still rejected as ranking-set JSON.
-- No domain validation, persistence, snapshot, recommendation, UI, dependency, data-file, or `docs/tasks.md` changes are introduced.
+- Domain values can represent source tiers and recommendation tiers independently.
+- Neutral recommendation tiers are internally consistent and cannot produce tier cliffs.
+- Legacy ambiguous tiers are represented without making them recommendation-eligible.
+- Recommendation-eligible tiers require complete, position-local, non-decreasing data.
+- Source tiers are validated as source metadata and not as position-local recommendation tiers.
+- Existing draft and recommendation boundaries still compile against canonical `RankingEntry[]`.
+- No FantasyPros normalization, domain conversion, persistence, snapshot, scenario, recommendation, UI, dependency, data-file, or `docs/tasks.md` changes are introduced.
 - Focused tests and `npx tsc --noEmit` pass.
-- `docs/patches/tier-semantics-tasks.md` marks Task 3 complete only after validation passes.
+- `docs/patches/tier-semantics-tasks.md` marks Task 4 complete only after validation passes.
 
 ## Failure Handling
 
-- If contract changes require broad domain or persistence changes, stop and report that Task 3 needs to be split further.
-- If a V2 canonical export type cannot be added without changing runtime export behavior, add the type and fixtures only, then leave runtime export mapping to a later slice.
-- If legacy V1 compatibility conflicts with the new explicit shape, preserve V1 loadability and document the limitation for Task 6.
-- If tests fail outside the touched contract surface, report the failure rather than broadening the slice.
+- If adding optional domain metadata requires broad repository, snapshot, export, scenario, or UI changes, stop and report that Task 4 needs to be split.
+- If `RankingEntry` must change to preserve source tier values, stop and report the conflict before editing `src/types/draft.ts`.
+- If legacy compatibility conflicts with strict new metadata validation, keep metadata optional in this slice and defer migration behavior to Task 6.
+- If tests fail outside the touched domain surface, report the failure rather than broadening the slice.
 - If unrelated worktree changes appear in target files, preserve them and edit around them.
 
 ## Follow-Up
 
-After this slice is complete, the next slice should implement Task 4 from `docs/patches/tier-semantics-tasks.md`: add domain tier semantics and validation.
+After this slice is complete, the next slice should implement Task 5 from `docs/patches/tier-semantics-tasks.md`: correct FantasyPros tier normalization and domain conversion so FantasyPros `TIERS` populate source-tier metadata while engine-facing recommendation tiers become neutral.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. This slice changes only import/export contract semantics before behavior changes.
-- Executable by a lower-reasoning pass: yes. Target files, deferred work, tests, and acceptance criteria are explicit.
-- Avoids unnecessary architecture changes: yes. It adds explicit contract vocabulary without changing the overall import pipeline.
-- Blast radius reasonable: yes. Expected runtime files are limited to import/export contract surfaces and focused tests.
-- Review/revert comfort: yes. Contract changes can be reviewed independently from normalization, persistence, recommendation, and UI behavior.
-- Observable/testable acceptance criteria: yes. Focused parser/exporter tests and TypeScript validation prove the contract boundary.
+- Smallest meaningful increment: yes. This slice adds only domain semantics and validation before import/conversion behavior changes.
+- Executable by a lower-reasoning pass: yes. Target files, suggested types, validation rules, tests, and non-goals are explicit.
+- Avoids unnecessary architecture changes: yes. The existing `RankingEntry[]` engine boundary remains intact.
+- Blast radius reasonable: yes. Expected runtime files are limited to domain types and domain validation.
+- Review/revert comfort: yes. Domain metadata and validation can be reviewed independently from persistence, export, snapshot, recommendation, and UI behavior.
+- Observable/testable acceptance criteria: yes. Focused validation tests and TypeScript prove the new domain boundary.
