@@ -8,7 +8,9 @@ import type {
 } from "@/lib/draftRepository";
 import { loadDraftWorkspace } from "@/lib/draftWorkspaceLoader";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
+import { MANAGED_SEED_RANKING_SET_ID } from "@/lib/managedSeedRankingSet";
 import type { DraftWorkspace, Position, RankingEntry } from "@/types/draft";
+import type { RankingSetSummary } from "@/types/rankings";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -17,7 +19,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/app/actions/draftActions", () => ({
-  createConfiguredDraftAction: vi.fn(),
+  createConfiguredDraftFromRankingSetAction: vi.fn(),
   draftPlayerAction: vi.fn(),
   resetDraftAction: vi.fn(),
   undoLastPickAction: vi.fn(),
@@ -54,7 +56,9 @@ describe("DraftRoom loaded workspace recommendations", () => {
     const markup = renderToStaticMarkup(
       <DraftRoom
         draft={workspace.draft}
+        defaultRankingSetId={MANAGED_SEED_RANKING_SET_ID}
         rankings={workspace.rankings}
+        rankingSummaries={[createRankingSummary()]}
         leagueSettings={workspace.leagueSettings}
       />,
     );
@@ -204,5 +208,33 @@ function createDraftSummary(workspace: DraftWorkspace): DraftSummary {
     draftedPickCount: 1,
     createdAt: new Date("2026-06-01T00:00:00.000Z"),
     updatedAt: new Date("2026-06-02T00:00:00.000Z"),
+  };
+}
+
+function createRankingSummary(): RankingSetSummary {
+  const timestamp = new Date("2026-06-30T12:00:00.000Z");
+
+  return {
+    id: MANAGED_SEED_RANKING_SET_ID,
+    name: "FantasyPros 2026 Seed Rankings",
+    sourceKind: "seed",
+    entryCount: 500,
+    capabilities: {
+      team: "complete",
+      playerIdentity: "provided",
+      overallOrder: "explicit",
+      positionRank: "derived",
+      adp: "complete",
+      tiers: {
+        QB: "source",
+        RB: "source",
+        WR: "source",
+        TE: "source",
+        DST: "source",
+        K: "source",
+      },
+    },
+    createdAt: timestamp,
+    updatedAt: timestamp,
   };
 }

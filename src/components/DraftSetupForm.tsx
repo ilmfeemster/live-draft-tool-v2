@@ -8,42 +8,68 @@ import {
   LEAGUE_SETUP_ROSTER_CATEGORIES,
   type LeagueSetupInput,
   type LeagueSetupRosterCategory,
-  type LeagueSetupValidationError,
+  type LeagueSetupValidationField,
 } from "@/lib/leagueSetup";
+import type { Position } from "@/types/draft";
+import type {
+  RankingSetSourceKind,
+  RankingSetSummary,
+  RankingTierCapability,
+} from "@/types/rankings";
 
 type DraftSetupFormProps = {
-  rankingPlayerCount: number;
+  defaultRankingSetId: string;
   isPending: boolean;
-  serverErrors: LeagueSetupValidationError[];
+  rankingSummaries: readonly RankingSetSummary[];
+  serverErrors: DraftSetupValidationError[];
   formError: string | null;
   onCancel: () => void;
   onClearServerErrors: () => void;
-  onSubmit: (input: LeagueSetupInput) => Promise<void>;
+  onSubmit: (input: DraftSetupSubmitInput) => Promise<void>;
 };
 
 type DraftSetupFormValues = {
+  rankingSetId: string;
   teamCount: string;
   userDraftPosition: string;
   rosterSlotCounts: Record<LeagueSetupRosterCategory, string>;
 };
 
+export type DraftSetupSubmitInput = Readonly<{
+  leagueSetup: LeagueSetupInput;
+  rankingSetId: string;
+}>;
+
+export type DraftSetupValidationError = Readonly<{
+  field: LeagueSetupValidationField | "rankingSetId" | "rankingSet";
+  message: string;
+}>;
+
 export function DraftSetupForm({
-  rankingPlayerCount,
+  defaultRankingSetId,
   isPending,
+  rankingSummaries,
   serverErrors,
   formError,
   onCancel,
   onClearServerErrors,
   onSubmit,
 }: DraftSetupFormProps) {
-  const [values, setValues] = useState<DraftSetupFormValues>(createDefaultValues);
-  const [localErrors, setLocalErrors] = useState<LeagueSetupValidationError[]>([]);
+  const [values, setValues] = useState<DraftSetupFormValues>(() =>
+    createDefaultValues(rankingSummaries, defaultRankingSetId),
+  );
+  const [localErrors, setLocalErrors] = useState<DraftSetupValidationError[]>([]);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const visibleErrors = serverErrors.length > 0 ? serverErrors : localErrors;
+  const selectedSummary = getSelectedSummary(rankingSummaries, values.rankingSetId);
+  const selectedWarnings = selectedSummary
+    ? getRankingSummaryWarnings(selectedSummary)
+    : [];
   const summary = getDraftSummary(values);
+  const hasRankingSets = rankingSummaries.length > 0;
 
   function updateValue(
-    field: "teamCount" | "userDraftPosition",
+    field: "rankingSetId" | "teamCount" | "userDraftPosition",
     value: string,
   ) {
     const nextValues = { ...values, [field]: value };
@@ -69,27 +95,25 @@ export function DraftSetupForm({
     onClearServerErrors();
 
     if (hasSubmitted) {
-      const result = buildLeagueSetup(
-        toLeagueSetupInput(nextValues),
-        rankingPlayerCount,
-      );
-      setLocalErrors(result.ok ? [] : result.errors);
+      setLocalErrors(validateDraftSetupValues(nextValues, rankingSummaries));
     }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setHasSubmitted(true);
-    const input = toLeagueSetupInput(values);
-    const result = buildLeagueSetup(input, rankingPlayerCount);
+    const errors = validateDraftSetupValues(values, rankingSummaries);
 
-    if (!result.ok) {
-      setLocalErrors(result.errors);
+    if (errors.length > 0) {
+      setLocalErrors(errors);
       return;
     }
 
     setLocalErrors([]);
-    await onSubmit(input);
+    await onSubmit({
+      leagueSetup: toLeagueSetupInput(values),
+      rankingSetId: values.rankingSetId,
+    });
   }
 
   return (
@@ -101,11 +125,70 @@ export function DraftSetupForm({
         <h2 className="mt-1 text-2xl font-semibold text-zinc-950">New Draft Setup</h2>
         <p className="mt-2 text-sm leading-6 text-zinc-600">
           Configure a new persisted draft. Your current draft remains available in
-          draft history.
+          draft history. The selected ranking set is snapshotted for this draft
+          and cannot be switched after creation.
         </p>
       </div>
 
       <form className="mt-6 grid gap-6" onSubmit={submit}>
+        <div className="grid gap-3 rounded border border-zinc-200 bg-zinc-50 p-4">
+          <label className="grid gap-1 text-sm text-zinc-700" htmlFor="ranking-set-id">
+            <span className="font-medium">Ranking Set</span>
+            <select
+              id="ranking-set-id"
+              name="rankingSetId"
+              value={values.rankingSetId}
+              disabled={isPending || !hasRankingSets}
+              aria-invalid={getErrors(visibleErrors, "rankingSetId").length > 0}
+              className="h-10 rounded border border-zinc-300 bg-white px-3 text-zinc-950 disabled:bg-zinc-100"
+              onChange={(event) => {
+                updateValue("rankingSetId", event.currentTarget.value);
+              }}
+            >
+              <option value="">Choose a ranking set</option>
+              {rankingSummaries.map((rankingSummary) => (
+                <option key={rankingSummary.id} value={rankingSummary.id}>
+                  {rankingSummary.name} - {rankingSummary.entryCount} players
+                </option>
+              ))}
+            </select>
+            <ErrorList errors={getErrors(visibleErrors, "rankingSetId")} />
+          </label>
+
+          {hasRankingSets ? null : (
+            <p className="text-sm text-amber-800">
+              A managed ranking set is required before creating a draft.
+            </p>
+          )}
+
+          {selectedSummary ? (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <SummaryValue label="Selected Set" value={selectedSummary.name} />
+              <SummaryValue
+                label="Source"
+                value={formatSourceKind(selectedSummary.sourceKind)}
+              />
+              <SummaryValue
+                label="Players"
+                value={selectedSummary.entryCount.toString()}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-600">
+              Choose the managed ranking set that should anchor this draft.
+            </p>
+          )}
+
+          {selectedWarnings.length > 0 ? (
+            <div className="grid gap-1 text-sm text-amber-800">
+              {selectedWarnings.map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
+            </div>
+          ) : null}
+          <ErrorList errors={getErrors(visibleErrors, "rankingSet")} />
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <NumberField
             id="team-count"
@@ -161,10 +244,10 @@ export function DraftSetupForm({
         <div className="grid gap-4 rounded border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-4">
           <SummaryValue label="Draft Type" value="Snake" />
           <SummaryValue label="Scoring" value="PPR" />
-          <SummaryValue label="Rounds" value={summary?.rounds.toString() ?? "—"} />
+          <SummaryValue label="Rounds" value={summary?.rounds.toString() ?? "-"} />
           <SummaryValue
             label="Total Picks"
-            value={summary?.totalPicks.toString() ?? "—"}
+            value={summary?.totalPicks.toString() ?? "-"}
           />
         </div>
 
@@ -187,7 +270,7 @@ export function DraftSetupForm({
           <button
             type="submit"
             className="h-10 rounded bg-emerald-700 px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
-            disabled={isPending}
+            disabled={isPending || !hasRankingSets}
           >
             {isPending ? "Creating Draft..." : "Create Draft"}
           </button>
@@ -215,7 +298,7 @@ function NumberField({
   min: number;
   max: number;
   disabled: boolean;
-  errors: LeagueSetupValidationError[];
+  errors: DraftSetupValidationError[];
   onChange: (value: string) => void;
 }) {
   return (
@@ -248,7 +331,7 @@ function SummaryValue({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ErrorList({ errors }: { errors: LeagueSetupValidationError[] }) {
+function ErrorList({ errors }: { errors: DraftSetupValidationError[] }) {
   if (errors.length === 0) {
     return null;
   }
@@ -264,8 +347,16 @@ function ErrorList({ errors }: { errors: LeagueSetupValidationError[] }) {
   );
 }
 
-function createDefaultValues(): DraftSetupFormValues {
+function createDefaultValues(
+  rankingSummaries: readonly RankingSetSummary[],
+  defaultRankingSetId: string,
+): DraftSetupFormValues {
+  const hasDefaultRankingSet = rankingSummaries.some((summary) => {
+    return summary.id === defaultRankingSetId;
+  });
+
   return {
+    rankingSetId: hasDefaultRankingSet ? defaultRankingSetId : "",
     teamCount: defaultLeagueSetupInput.teamCount.toString(),
     userDraftPosition: defaultLeagueSetupInput.userDraftPosition.toString(),
     rosterSlotCounts: Object.fromEntries(
@@ -275,6 +366,31 @@ function createDefaultValues(): DraftSetupFormValues {
       ]),
     ) as DraftSetupFormValues["rosterSlotCounts"],
   };
+}
+
+function validateDraftSetupValues(
+  values: DraftSetupFormValues,
+  rankingSummaries: readonly RankingSetSummary[],
+): DraftSetupValidationError[] {
+  const selectedSummary = getSelectedSummary(rankingSummaries, values.rankingSetId);
+
+  if (!selectedSummary) {
+    return [
+      {
+        field: "rankingSetId",
+        message: rankingSummaries.length > 0
+          ? "Choose a managed ranking set."
+          : "A managed ranking set is required before creating a draft.",
+      },
+    ];
+  }
+
+  const setup = buildLeagueSetup(
+    toLeagueSetupInput(values),
+    selectedSummary.entryCount,
+  );
+
+  return setup.ok ? [] : setup.errors;
 }
 
 function toLeagueSetupInput(values: DraftSetupFormValues): LeagueSetupInput {
@@ -320,8 +436,54 @@ function getFiniteNumber(value: string): number | null {
 }
 
 function getErrors(
-  errors: LeagueSetupValidationError[],
-  field: LeagueSetupValidationError["field"],
+  errors: readonly DraftSetupValidationError[],
+  field: DraftSetupValidationError["field"],
 ) {
   return errors.filter((error) => error.field === field);
+}
+
+function getSelectedSummary(
+  rankingSummaries: readonly RankingSetSummary[],
+  rankingSetId: string,
+) {
+  return rankingSummaries.find((summary) => summary.id === rankingSetId) ?? null;
+}
+
+function getRankingSummaryWarnings(summary: RankingSetSummary): string[] {
+  const warnings: string[] = [];
+  const neutralTierPositions = getNeutralTierPositions(summary);
+
+  if (neutralTierPositions.length > 0) {
+    warnings.push(
+      `Tiers were neutralized for ${neutralTierPositions.join(", ")}.`,
+    );
+  }
+
+  if (summary.capabilities.team !== "complete") {
+    warnings.push("Team metadata is missing or partial.");
+  }
+
+  if (summary.capabilities.adp !== "complete") {
+    warnings.push("ADP metadata is missing or partial.");
+  }
+
+  return warnings;
+}
+
+function getNeutralTierPositions(summary: RankingSetSummary): Position[] {
+  return (
+    Object.entries(summary.capabilities.tiers) as [
+      Position,
+      RankingTierCapability,
+    ][]
+  )
+    .filter(([, capability]) => capability === "defaulted-neutral")
+    .map(([position]) => position)
+    .sort();
+}
+
+function formatSourceKind(sourceKind: RankingSetSourceKind): string {
+  return sourceKind
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

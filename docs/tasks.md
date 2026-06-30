@@ -885,7 +885,7 @@ Allow supported ranking corrections, reordering, and tier changes while keeping 
 
 ## Task 19 - Add Ranking Set Selection to Draft Setup
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 

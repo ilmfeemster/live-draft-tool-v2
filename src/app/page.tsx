@@ -2,6 +2,7 @@ import { DraftRoom } from "@/components/DraftRoom";
 import { DraftHistoryList } from "@/components/DraftHistoryList";
 import { RankingLibraryPanel } from "@/components/RankingLibraryPanel";
 import { loadDraftWorkspace } from "@/lib/draftWorkspaceLoader";
+import { MANAGED_SEED_RANKING_SET_ID } from "@/lib/managedSeedRankingSet";
 import { listManagedRankingSets } from "@/lib/rankingManagementWorkflow";
 
 export const dynamic = "force-dynamic";
@@ -87,6 +88,8 @@ export default async function Home({ searchParams }: HomeProps) {
           key={workspace.draft.id}
           draft={workspace.draft}
           leagueSettings={workspace.leagueSettings}
+          defaultRankingSetId={MANAGED_SEED_RANKING_SET_ID}
+          rankingSummaries={rankingSummaries}
           rankings={workspace.rankings}
         />
       </div>

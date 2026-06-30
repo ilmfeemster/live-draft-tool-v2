@@ -7,20 +7,21 @@ import {
   DeveloperWorkbenchPanel,
   type WorkbenchStatus,
 } from "@/components/DeveloperWorkbenchPanel";
-import { DraftSetupForm } from "@/components/DraftSetupForm";
+import {
+  DraftSetupForm,
+  type DraftSetupSubmitInput,
+  type DraftSetupValidationError,
+} from "@/components/DraftSetupForm";
 import { DraftStatusPanel } from "@/components/DraftStatusPanel";
 import { RecommendationsPanel } from "@/components/RecommendationsPanel";
 import { UserRosterPanel } from "@/components/UserRosterPanel";
 import {
-  createConfiguredDraftAction,
+  createConfiguredDraftFromRankingSetAction,
   draftPlayerAction,
   resetDraftAction,
   undoLastPickAction,
 } from "@/app/actions/draftActions";
-import type {
-  LeagueSetupInput,
-  LeagueSetupValidationError,
-} from "@/lib/leagueSetup";
+import type { CreateConfiguredDraftFromRankingSetError } from "@/lib/draftCreationWorkflow";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import { exportWorkspaceToScenarioV1 } from "@/lib/scenarioPortability";
 import {
@@ -40,10 +41,13 @@ import type {
   RankingEntry,
   UserRosterPlayer,
 } from "@/types/draft";
+import type { RankingSetSummary } from "@/types/rankings";
 
 type DraftRoomProps = {
   draft: Draft;
   leagueSettings: LeagueSettings;
+  defaultRankingSetId: string;
+  rankingSummaries: readonly RankingSetSummary[];
   rankings: RankingEntry[];
 };
 
@@ -51,7 +55,13 @@ type TransientSource =
   | { kind: "imported"; fileName: string }
   | { kind: "restart" };
 
-export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
+export function DraftRoom({
+  draft,
+  leagueSettings,
+  defaultRankingSetId,
+  rankingSummaries,
+  rankings,
+}: DraftRoomProps) {
   const router = useRouter();
   const pendingDraftScrollPositionRef = useRef<{
     x: number;
@@ -61,7 +71,7 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   const [isMutationPending, setIsMutationPending] = useState(false);
   const [isDraftSetupOpen, setIsDraftSetupOpen] = useState(false);
   const [draftSetupErrors, setDraftSetupErrors] = useState<
-    LeagueSetupValidationError[]
+    DraftSetupValidationError[]
   >([]);
   const [draftSetupFormError, setDraftSetupFormError] = useState<string | null>(null);
   const [transientSession, setTransientSession] =
@@ -301,7 +311,7 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
     setDraftSetupFormError(null);
   }
 
-  async function createConfiguredDraft(input: LeagueSetupInput) {
+  async function createConfiguredDraft(input: DraftSetupSubmitInput) {
     if (isAnyPending) {
       return;
     }
@@ -310,10 +320,10 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
     clearDraftSetupErrors();
 
     try {
-      const result = await createConfiguredDraftAction(input);
+      const result = await createConfiguredDraftFromRankingSetAction(input);
 
       if (!result.ok) {
-        setDraftSetupErrors(result.errors);
+        setDraftSetupErrors(mapSelectedRankingWorkflowErrors(result.errors));
         return;
       }
 
@@ -554,8 +564,9 @@ export function DraftRoom({ draft, leagueSettings, rankings }: DraftRoomProps) {
   if (isDraftSetupOpen) {
     return (
       <DraftSetupForm
-        rankingPlayerCount={rankings.length}
+        defaultRankingSetId={defaultRankingSetId}
         isPending={isMutationPending}
+        rankingSummaries={rankingSummaries}
         serverErrors={draftSetupErrors}
         formError={draftSetupFormError}
         onCancel={closeDraftSetup}
@@ -631,6 +642,41 @@ function formatSessionFailure(
   }
 
   return [`Pick ${result.error.pickIndex + 1}: ${result.error.message}`];
+}
+
+function mapSelectedRankingWorkflowErrors(
+  errors: readonly CreateConfiguredDraftFromRankingSetError[],
+): DraftSetupValidationError[] {
+  return errors.map((error) => ({
+    field: mapWorkflowErrorPath(error.path),
+    message: error.message,
+  }));
+}
+
+function mapWorkflowErrorPath(
+  path: CreateConfiguredDraftFromRankingSetError["path"],
+): DraftSetupValidationError["field"] {
+  switch (path) {
+    case "rankingSetId":
+      return "rankingSetId";
+    case "rankingPlayerCount":
+    case "teamCount":
+    case "userDraftPosition":
+    case "draftType":
+    case "scoringFormat":
+    case "rosterSlotCounts":
+    case "rosterSlotCounts.QB":
+    case "rosterSlotCounts.RB":
+    case "rosterSlotCounts.WR":
+    case "rosterSlotCounts.TE":
+    case "rosterSlotCounts.FLEX":
+    case "rosterSlotCounts.DST":
+    case "rosterSlotCounts.K":
+    case "rosterSlotCounts.BENCH":
+      return path;
+    default:
+      return "rankingSet";
+  }
 }
 
 function formatTransientSource(source: TransientSource | null): string {
