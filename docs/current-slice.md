@@ -1,202 +1,177 @@
-# Current Slice: Tier Semantics Task 4 - Add Domain Tier Semantics and Validation
+# Current Slice: Tier Semantics Task 5 - Correct FantasyPros Tier Normalization and Conversion
 
 ## Completion Status
 
-Complete. Domain tier semantics, validation, focused tests, and type checking passed.
+Planned. Implementation has not begun.
 
 ## Source Context
 
 - Patch project: `docs/patches/tier-semantics-project.md`
 - Patch task plan: `docs/patches/tier-semantics-tasks.md`
 - Approved design: `docs/design/tier-semantics.md`
-- Completed prerequisite: Task 3, import/export contracts now classify FantasyPros `TIERS` as source-only and Canonical JSON V1 `tier` as legacy ambiguous.
-- Relevant domain files:
-  - `src/types/rankings.ts`
-  - `src/lib/rankingSetValidation.ts`
-  - `src/lib/rankingSetValidation.test.ts`
+- Completed prerequisite: Task 4 added optional `RankingSet.tierSemantics`, optional `RankingSnapshot.tierSemantics`, and domain validation for source, neutral, recommendation-position, and legacy ambiguous tier semantics.
+- Relevant files:
+  - `src/types/rankingImport.ts`
+  - `src/lib/rankingNormalizer.ts`
+  - `src/lib/rankingSetConversion.ts`
+  - `src/lib/rankingNormalizer.test.ts`
+  - `src/lib/rankingSetConversion.test.ts`
+  - `src/lib/rankingImportWorkflow.test.ts`, only for import failure-isolation or warning propagation coverage if needed
 
-This slice adds the domain model and validation target that later normalization, conversion, persistence, export, snapshot, recommendation, and UI slices will populate. It must not change FantasyPros import behavior or recommendation scoring yet.
+Task 5 corrects the FantasyPros import pipeline so FantasyPros `TIERS` are preserved as source-tier metadata while engine-facing `RankingEntry.tier` values become neutral recommendation tiers. This slice must not add repository, export, snapshot, scenario, Recommendation Engine, or UI compatibility behavior; those remain later patch tasks.
 
 ## Goal
 
-Extend the ranking domain model and validation rules so source tiers, recommendation tiers, neutral recommendation tiers, and legacy ambiguous tiers can be represented and checked without confusing preserved source information with engine-facing recommendation tier pressure.
+Make FantasyPros CSV normalization and domain conversion preserve valid `TIERS` as source-overall tier metadata while materializing neutral recommendation tiers for all FantasyPros-derived engine-facing entries.
 
 ## Scope
 
 ### Goals
 
-- Add domain-facing tier semantics types in `src/types/rankings.ts`.
-- Preserve current `RankingEntry[]` compatibility for the Draft State Engine and Recommendation Engine.
-- Keep `RankingEntry.tier` as the engine-facing recommendation-tier value.
-- Add optional ranking-set and snapshot metadata that can preserve source tier values separately from `RankingEntry.tier`.
-- Add validation for source-tier metadata as source data, not position-local tier-cliff data.
-- Add validation for recommendation-tier semantics when a ranking set explicitly claims recommendation eligibility.
-- Add validation that neutral recommendation tiers are internally consistent and cannot create tier cliffs.
-- Add validation that legacy ambiguous tier metadata remains loadable but is not recommendation-eligible by default.
-- Keep existing ranking sets without the new metadata valid until later compatibility and migration slices populate it.
-- Add focused tests for domain semantics and validation.
+- Preserve FantasyPros `TIERS` separately from `NormalizedRankingCandidateEntry.tier` and final `RankingEntry.tier`.
+- Treat FantasyPros source tiers as overall/source metadata, not position-local recommendation tiers.
+- Materialize neutral recommendation tiers for every represented FantasyPros position.
+- Set FantasyPros tier capabilities to align with neutral recommendation semantics.
+- Populate final converted `RankingSet.tierSemantics` for FantasyPros imports:
+  - `source.kind: "source-overall"` with source-tier values when valid source tiers are supplied;
+  - `source.kind: "none"` when FantasyPros tier data is absent;
+  - `recommendation[position]: "neutral"` for every represented position.
+- Preserve malformed supplied FantasyPros tier failures at the normalization boundary.
+- Add focused tests for valid supplied tiers, absent tiers, malformed tiers, conversion output, and import failure isolation.
 
 ### Non-Goals
 
-- Do not derive position tiers from overall rank, position rank, ADP, or source tiers.
-- Do not change FantasyPros normalization or domain conversion.
-- Do not update repositories, persistence mappers, snapshots, scenario serialization, canonical import/export mapping, Recommendation Engine scoring, UI components, or data files.
-- Do not rename or remove `RankingEntry.tier`.
-- Do not rename the existing `capabilities.tiers` states in this slice unless required to keep validation coherent.
-- Do not materialize neutral tiers during import in this slice.
+- Do not update ranking-set repository persistence mapping.
+- Do not update canonical JSON import/export behavior beyond type-boundary adjustments forced by shared types.
+- Do not update snapshot creation, snapshot readers, scenario serialization, or replay behavior.
+- Do not change Recommendation Engine scoring or reason generation.
+- Do not update UI labels, warnings, or manual QA.
+- Do not add user-authored recommendation-tier mapping.
+- Do not derive position tiers from rank, position rank, ADP, source tiers, or overall order.
 - Do not update `docs/tasks.md`.
-- Do not mark Task 4 complete unless focused validation passes.
 
 ## Implementation Steps
 
-1. Inspect the current domain contract.
+1. Inspect the current FantasyPros normalization and conversion contract.
 
-   Review `src/types/rankings.ts` and `src/lib/rankingSetValidation.ts`.
+   Review:
+
+   - `src/types/rankingImport.ts`
+   - `src/lib/rankingNormalizer.ts`
+   - `src/lib/rankingSetConversion.ts`
+   - the focused tests for those files
 
    Current important facts:
 
-   - `RankingEntry.tier` is a required positive number consumed by existing engine-facing ranking arrays.
-   - `RankingSetCapabilities.tiers` currently uses `"source" | "defaulted-neutral"`.
-   - `validateRankingSet` currently validates every `entry.tier` as positive and non-decreasing within position, regardless of semantic provenance.
-   - Existing callers and tests expect ranking sets without any explicit source-tier metadata to remain valid.
+   - `NormalizedRankingCandidateEntry.tier` currently carries the normalized FantasyPros `TIER` value.
+   - `convertValidatedRankingCandidate` copies candidate `tier` directly into final `RankingEntry.tier`.
+   - `RankingSetCapabilities.tiers[position] === "source"` currently means the app sees candidate tiers as non-neutral.
+   - Task 4 validation requires neutral recommendation metadata to align with `capabilities.tiers[position] === "defaulted-neutral"`.
+   - Real repository persistence of `tierSemantics` is not part of this slice.
 
-2. Add domain tier semantics types.
+2. Add a normalized source-tier carrier.
 
-   In `src/types/rankings.ts`, add small explicit types aligned with `docs/design/tier-semantics.md`.
+   In `src/types/rankingImport.ts`, add the smallest candidate-level shape needed to carry FantasyPros source tier values through conversion without changing `RankingEntry`.
 
-   The domain model must be able to represent:
+   Preferred minimal approach:
 
-   - no source tier data;
-   - source-overall tier data;
-   - legacy ambiguous source tier data;
-   - neutral recommendation tiers;
-   - recommendation-position tiers.
+   - add optional `sourceTier: number | null` to `NormalizedRankingCandidateEntry`;
+   - add `"sourceTier"` to `NormalizedRankingCandidateField` if field-location support is useful for local tests or diagnostics;
+   - keep `tier` as the candidate's engine-facing recommendation tier.
 
-   Prefer a narrow metadata shape rather than changing `RankingEntry`:
+   If TypeScript shows a cleaner local shape is needed, preserve these semantics:
 
-   - source tier values should be preserved outside `RankingEntry.tier`;
-   - recommendation-tier state should describe the meaning of `RankingEntry.tier`;
-   - `RankingSet` and `RankingSnapshot` should be able to carry the metadata;
-   - absence of the new metadata should remain a compatibility state for existing in-memory tests until Task 6.
+   - candidate `tier` means recommendation tier;
+   - candidate source tier values are separate;
+   - final domain source tier values are built during conversion using final canonical `overallRank`.
 
-   Suggested shape, adjustable if the implementation finds a simpler equivalent:
+3. Update FantasyPros normalization.
 
-   ```ts
-   export type RankingSourceTierSemantics =
-     | "none"
-     | "source-overall"
-     | "legacy-ambiguous";
+   In `src/lib/rankingNormalizer.ts`, update only the FantasyPros path so:
 
-   export type RankingRecommendationTierSemantics =
-     | "neutral"
-     | "recommendation-position";
+   - valid `TIERS` values populate `sourceTier`;
+   - `entry.tier` is always `NEUTRAL_TIER` for FantasyPros entries;
+   - every represented FantasyPros position has `capabilities.tiers[position] === "defaulted-neutral"`;
+   - when the `TIERS` column is absent for all records, no source-tier values are produced;
+   - when the `TIERS` column is present with some valid blanks, preserve the supplied valid source-tier values and keep recommendation tiers neutral;
+   - malformed supplied `TIERS` still fail normalization with the existing stable diagnostic code/path behavior;
+   - add or reuse a warning/capability note that makes the preserved-but-not-used behavior inspectable through existing import diagnostics.
 
-   export type RankingSourceTierValue = Readonly<{
-     playerId: string;
-     overallRank: number;
-     tier: number;
-   }>;
+   Keep team, ADP, identity, order, and position-rank normalization unchanged.
 
-   export type RankingTierSemantics = Readonly<{
-     source: Readonly<{
-       kind: RankingSourceTierSemantics;
-       values?: readonly RankingSourceTierValue[];
-     }>;
-     recommendation: Readonly<Partial<Record<Position, RankingRecommendationTierSemantics>>>;
-   }>;
-   ```
+4. Preserve source-tier metadata during conversion.
 
-   If this shape is revised during implementation, preserve the same capabilities and keep the blast radius local.
+   In `src/lib/rankingSetConversion.ts`, build `RankingSet.tierSemantics` for FantasyPros-derived candidates.
 
-3. Extend ranking set and snapshot types.
+   Required conversion behavior:
 
-   Add optional `tierSemantics?: RankingTierSemantics` to `RankingSet` and `RankingSnapshot`.
+   - sort by source order as today;
+   - create final `RankingEntry[]` with `tier: NEUTRAL_TIER` for FantasyPros entries;
+   - create `tierSemantics.source.values` from each converted entry with a valid `sourceTier`, using the final canonical `overallRank`;
+   - use `source.kind: "source-overall"` when any source-tier values exist;
+   - use `source.kind: "none"` when no source-tier values exist;
+   - create `tierSemantics.recommendation` entries of `"neutral"` for every represented position;
+   - preserve existing final `validateRankingSet` invariant checking.
 
-   Do not add parser, repository, or UI values yet. This slice establishes the domain target and validation rules only.
+   Do not add repository or snapshot mapping here. If preserving `tierSemantics` through actual persistence requires repository schema or mapper changes, stop and report that this belongs to Task 6.
 
-4. Add source-tier metadata validation.
+5. Keep canonical JSON behavior scoped.
 
-   In `src/lib/rankingSetValidation.ts`, validate `rankingSet.tierSemantics` only when present.
+   Do not implement Canonical JSON V2, explicit export semantics, or legacy ambiguous compatibility in this slice.
 
-   Source-tier validation should ensure:
+   If shared type changes force local canonical normalization or conversion adjustments, choose the smallest compatibility-preserving change and keep existing Canonical JSON V1 tests passing. Do not mark old Canonical JSON V1 as corrected or recommendation-eligible in this slice.
 
-   - the source metadata shape is valid;
-   - `source.kind: "none"` has no source-tier values;
-   - `source.kind: "source-overall"` and `source.kind: "legacy-ambiguous"` may carry values;
-   - every source-tier value has a non-empty `playerId`, positive integer `overallRank`, and positive integer `tier`;
-   - source-tier values reference existing canonical entries by player ID and overall rank;
-   - source-tier values do not need to be position-local, contiguous, gapless, or non-decreasing within position.
+6. Update focused tests.
 
-   Use stable `invalid-capability` or `invalid-tier` errors unless a new error code is necessary. Prefer paths under `tierSemantics.source`.
+   Update or add tests proving:
 
-5. Add recommendation-tier semantics validation.
-
-   Validate the `recommendation` metadata only when `tierSemantics` is present.
-
-   Recommendation-tier validation should ensure:
-
-   - recommendation metadata is an object keyed only by supported represented positions;
-   - every represented position has an explicit recommendation semantic when `tierSemantics` is present;
-   - absent positions do not have recommendation metadata;
-   - `"neutral"` positions have every `RankingEntry.tier` equal to `NEUTRAL_TIER`;
-   - `"recommendation-position"` positions rely on the existing positive, position-local, non-decreasing `RankingEntry.tier` validation;
-   - legacy ambiguous source metadata does not allow recommendation-position eligibility by default.
-
-   Keep existing `capabilities.tiers` validation. If `tierSemantics` is present, also check that:
-
-   - `recommendation: "neutral"` aligns with `capabilities.tiers[position] === "defaulted-neutral"`;
-   - `recommendation: "recommendation-position"` aligns with the existing non-neutral capability state used by the app today.
-
-6. Update validation tests.
-
-   In `src/lib/rankingSetValidation.test.ts`, add focused tests proving:
-
-   - valid source-overall tier metadata accepts overall-board tier values without requiring position-local progression;
-   - source-tier metadata with malformed, duplicate, or unknown entry references fails with stable paths;
-   - valid neutral recommendation metadata requires neutral `RankingEntry.tier` values for the affected position;
-   - neutral recommendation metadata rejects non-neutral tier values;
-   - recommendation-position metadata accepts complete position-local non-decreasing tiers;
-   - recommendation-position metadata rejects decreasing tiers through the existing entry-tier rule;
-   - legacy ambiguous source metadata remains loadable only with neutral recommendation metadata;
-   - existing ranking sets without `tierSemantics` still validate to preserve compatibility before Task 6.
-
-   Do not update parser, normalizer, conversion, repository, snapshot, scenario, recommendation, or UI tests unless TypeScript forces a local type-boundary adjustment. If broader updates are needed, stop and report that Task 4 needs to be split.
+   - FantasyPros normalization with valid `TIERS` preserves source tiers separately and sets candidate recommendation tiers to `NEUTRAL_TIER`;
+   - FantasyPros normalization with valid `TIERS` reports the preserved-but-neutralized behavior through warnings or candidate metadata;
+   - FantasyPros normalization with absent `TIERS` succeeds with no source-tier values and neutral recommendation tiers;
+   - malformed supplied FantasyPros `TIERS` still fails at the normalization boundary;
+   - conversion from a valid FantasyPros candidate produces neutral `RankingEntry.tier` values and `RankingSet.tierSemantics.source.kind === "source-overall"` when source tiers exist;
+   - conversion from a FantasyPros candidate without source tiers produces `source.kind === "none"` and neutral recommendation metadata;
+   - import workflow failure isolation still prevents repository writes for malformed supplied `TIERS`;
+   - existing Canonical JSON V1 normalization and conversion tests still pass without broad compatibility work.
 
 7. Run focused validation.
 
    Run:
 
    ```text
-   npm test -- src/lib/rankingSetValidation.test.ts
+   npm test -- src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/rankingImportWorkflow.test.ts
    npx tsc --noEmit
    ```
 
-   If TypeScript shows the new optional metadata affects adjacent pure domain helpers, run the smallest directly affected tests and report them.
+   If TypeScript shows a narrower affected test set is sufficient because `rankingCandidateValidation` or `rankingImportWorkflow` were not touched, still run the listed tests unless they are clearly unrelated and report the reason for skipping.
 
 8. Finalize the slice.
 
    If all acceptance criteria and focused validation pass:
 
-   - update `docs/patches/tier-semantics-tasks.md` to mark Task 4 complete;
+   - update `docs/patches/tier-semantics-tasks.md` to mark Task 5 complete;
    - update this file's Completion Status to complete;
    - do not update `docs/tasks.md`.
 
 ## Expected Files
 
-- `src/types/rankings.ts`
-- `src/lib/rankingSetValidation.ts`
-- `src/lib/rankingSetValidation.test.ts`
-- `docs/patches/tier-semantics-tasks.md`, after validation, to mark Task 4 complete
+- `src/types/rankingImport.ts`
+- `src/lib/rankingNormalizer.ts`
+- `src/lib/rankingSetConversion.ts`
+- `src/lib/rankingNormalizer.test.ts`
+- `src/lib/rankingSetConversion.test.ts`
+- `src/lib/rankingImportWorkflow.test.ts`, only if needed for failure-isolation or warning propagation coverage
+- `docs/patches/tier-semantics-tasks.md`, after validation, to mark Task 5 complete
 - `docs/current-slice.md`, after validation, to record completion status
 
 Do not touch these files in this slice unless implementation proves the type change cannot compile without a narrowly scoped adjustment:
 
-- `src/types/draft.ts`
-- `src/lib/rankingNormalizer.ts`
-- `src/lib/rankingSetConversion.ts`
 - `src/lib/rankingSetRepository.ts`
+- `src/lib/canonicalRankingJsonParser.ts`
+- `src/lib/canonicalRankingJsonExporter.ts`
 - `src/lib/rankingSnapshot.ts`
 - `src/lib/recommendationEngine.ts`
+- Scenario or replay files
 - UI components
 - fixtures or data files
 - `docs/tasks.md`
@@ -206,60 +181,60 @@ Do not touch these files in this slice unless implementation proves the type cha
 Required focused validation:
 
 ```text
-npm test -- src/lib/rankingSetValidation.test.ts
+npm test -- src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/rankingImportWorkflow.test.ts
 npx tsc --noEmit
 ```
 
 Expected result:
 
-- Domain types can represent source tiers and recommendation tiers independently.
-- Source-tier metadata validates as source data rather than position-tier cliff data.
-- Neutral recommendation metadata requires neutral engine-facing tier values.
-- Recommendation-position metadata requires complete position-local valid tier values.
-- Legacy ambiguous tier metadata is represented without becoming recommendation-eligible by default.
-- Existing ranking sets without explicit tier semantics remain valid for compatibility.
-- Existing Draft State and Recommendation Engine `RankingEntry[]` boundaries still compile.
+- FantasyPros source tiers are preserved outside engine-facing recommendation tiers.
+- FantasyPros engine-facing tiers are neutralized.
+- FantasyPros represented positions declare neutral tier capability state.
+- FantasyPros malformed supplied tiers still fail before persistence.
+- Converted FantasyPros ranking sets pass `validateRankingSet` with explicit tier semantics.
+- Existing Canonical JSON V1 tests still pass without implementing Task 6 compatibility behavior.
 
 ## Manual QA
 
-No app manual QA is required for this domain-validation slice.
+No app manual QA is required for this normalization/conversion slice.
 
 Manual review should confirm:
 
-- no recommendation scoring behavior changed;
-- no import normalization behavior changed;
-- no repository, snapshot, scenario, or UI behavior changed;
-- source-tier values are modeled separately from `RankingEntry.tier`.
+- no Recommendation Engine code changed;
+- no repository, export, snapshot, scenario, replay, or UI behavior changed;
+- FantasyPros source-tier values are modeled separately from `RankingEntry.tier`;
+- new warnings or metadata use existing import diagnostic boundaries.
 
 ## Acceptance Criteria
 
-- Domain values can represent source tiers and recommendation tiers independently.
-- Neutral recommendation tiers are internally consistent and cannot produce tier cliffs.
-- Legacy ambiguous tiers are represented without making them recommendation-eligible.
-- Recommendation-eligible tiers require complete, position-local, non-decreasing data.
-- Source tiers are validated as source metadata and not as position-local recommendation tiers.
-- Existing draft and recommendation boundaries still compile against canonical `RankingEntry[]`.
-- No FantasyPros normalization, domain conversion, persistence, snapshot, scenario, recommendation, UI, dependency, data-file, or `docs/tasks.md` changes are introduced.
+- FantasyPros imports with valid `TIERS` preserve source-tier values before persistence.
+- FantasyPros imports with absent `TIERS` succeed with `source.kind: "none"` and neutral recommendation tiers.
+- FantasyPros imports with malformed supplied `TIERS` fail without repository writes.
+- Converted FantasyPros ranking entries used by engines contain neutral recommendation tiers.
+- Converted FantasyPros ranking sets include tier semantics that distinguish source-overall tiers from neutral recommendation tiers.
+- Import diagnostics or metadata make the preserved-but-neutralized behavior inspectable.
+- Canonical JSON V1 compatibility behavior is not broadened in this slice.
+- No repository, export, snapshot, scenario, recommendation, UI, dependency, data-file, or `docs/tasks.md` changes are introduced.
 - Focused tests and `npx tsc --noEmit` pass.
-- `docs/patches/tier-semantics-tasks.md` marks Task 4 complete only after validation passes.
+- `docs/patches/tier-semantics-tasks.md` marks Task 5 complete only after validation passes.
 
 ## Failure Handling
 
-- If adding optional domain metadata requires broad repository, snapshot, export, scenario, or UI changes, stop and report that Task 4 needs to be split.
-- If `RankingEntry` must change to preserve source tier values, stop and report the conflict before editing `src/types/draft.ts`.
-- If legacy compatibility conflicts with strict new metadata validation, keep metadata optional in this slice and defer migration behavior to Task 6.
-- If tests fail outside the touched domain surface, report the failure rather than broadening the slice.
+- If preserving FantasyPros source-tier metadata requires repository schema or persistence mapper changes, stop and report that Task 5 needs to be split or coordinated with Task 6.
+- If canonical import/export compatibility must change broadly to compile, stop and report that Task 6 should be promoted before or with this work.
+- If neutralizing FantasyPros `RankingEntry.tier` requires Recommendation Engine changes, stop and report the conflict because scoring behavior belongs to Task 7.
+- If validation fails outside the touched import/conversion surface, report the failure rather than broadening the slice.
 - If unrelated worktree changes appear in target files, preserve them and edit around them.
 
 ## Follow-Up
 
-After this slice is complete, the next slice should implement Task 5 from `docs/patches/tier-semantics-tasks.md`: correct FantasyPros tier normalization and domain conversion so FantasyPros `TIERS` populate source-tier metadata while engine-facing recommendation tiers become neutral.
+After this slice is complete, the next slice should implement Task 6 from `docs/patches/tier-semantics-tasks.md`: preserve ranking-set, export, snapshot, and scenario compatibility so persisted data and portable formats can carry or conservatively neutralize tier semantics.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. This slice adds only domain semantics and validation before import/conversion behavior changes.
-- Executable by a lower-reasoning pass: yes. Target files, suggested types, validation rules, tests, and non-goals are explicit.
-- Avoids unnecessary architecture changes: yes. The existing `RankingEntry[]` engine boundary remains intact.
-- Blast radius reasonable: yes. Expected runtime files are limited to domain types and domain validation.
-- Review/revert comfort: yes. Domain metadata and validation can be reviewed independently from persistence, export, snapshot, recommendation, and UI behavior.
-- Observable/testable acceptance criteria: yes. Focused validation tests and TypeScript prove the new domain boundary.
+- Smallest meaningful increment: yes. This slice corrects FantasyPros normalization and conversion without taking on persistence/export/snapshot compatibility.
+- Executable by a lower-reasoning pass: yes. Target files, expected semantics, tests, non-goals, and stop conditions are explicit.
+- Avoids unnecessary architecture changes: yes. The existing staged import pipeline remains intact and `RankingEntry[]` remains the engine boundary.
+- Blast radius reasonable: yes. Runtime changes should stay in import types, normalizer, and conversion.
+- Review/revert comfort: yes. The slice can be reviewed independently from repository/export/snapshot and Recommendation Engine changes.
+- Observable/testable acceptance criteria: yes. Focused tests can prove source-tier preservation, neutral recommendation tiers, malformed-tier failure isolation, and TypeScript compatibility.
