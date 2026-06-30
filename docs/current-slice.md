@@ -1,145 +1,203 @@
-# Current Slice: Complete Task 19 - Ranking Set Selection in Draft Setup
+# Current Slice: Complete Task 20 - Phase 5 Regression and Exit Validation
 
 ## Completion Status
 
-Completed. Task 19 implementation and automated validation are complete.
+Planned. Do not implement until this slice is approved or explicitly requested.
 
 ## Source Context
 
-- Phase 5 Task 19 is the active task: allow the user to choose which managed ranking set anchors a new draft.
-- `createConfiguredDraftFromRankingSet` already performs the authoritative identity-based draft creation workflow:
-  - trims and requires `rankingSetId`;
-  - loads the selected managed ranking set;
-  - validates league capacity against the selected set's entry count;
-  - creates an immutable ranking snapshot;
-  - persists the draft workspace from copied snapshot entries.
-- `createConfiguredDraftFromRankingSetAction` already exposes that workflow to the app.
-- `Home` already loads ranking-set summaries for `RankingLibraryPanel`; those summaries should also feed draft setup.
-- `DraftRoom` currently opens `DraftSetupForm` with only the active draft snapshot player count and calls the legacy seed-backed `createConfiguredDraftAction`.
-- Task 19 should switch the setup UI to pass ranking-set identity only. It must not copy ranking entries, validate ranking data, or create snapshots in the client.
+- Phase 5 Tasks 1-19 are complete.
+- Task 20 is the Phase 5 exit gate: prove rankings and data management work end to end without adding new features.
+- Phase 5 introduced:
+  - canonical ranking-set domain invariants;
+  - FantasyPros CSV and Canonical Ranking Set JSON V1 import paths;
+  - normalization, validation, conversion, export, and edit workflows;
+  - first-class ranking-set persistence;
+  - managed seed bootstrap;
+  - immutable draft snapshots from selected ranking sets;
+  - ranking library, editor, and draft setup selection UI.
+- Phase 4 replay, scenario, persisted draft, and developer workbench behavior remains a regression constraint.
+- Task 20 must validate the completed phase only. It must not broaden scope into Phase 6 strategy, live-provider integrations, accounts, new formats, recommendation tuning, or schema changes.
 
 ## Goal
 
-Finish Phase 5 Task 19 by adding ranking-set selection to new draft setup, defaulting to the managed seed set when available, and routing draft creation through the shared selected-ranking workflow while preserving immutable draft snapshot behavior.
+Complete Phase 5 regression and exit validation by running the automated validation gates, performing focused manual QA when local persistence is available, recording the result, and marking Phase 5 Task 20 complete only after validation passes or clearly reporting any blockers.
 
 ## Scope
 
 ### Goals
 
-- Pass managed ranking-set summaries from `Home` into `DraftRoom` and `DraftSetupForm`.
-- Add a required ranking-set selector to the existing draft setup form.
-- Default the selector to the managed seed ranking set when its summary is available; otherwise use a clear empty/choose state.
-- Show selected set name, source kind, player count, and concise non-blocking warnings for neutral tier capability or missing optional data.
-- Use the selected set's entry count for local league-capacity validation before submit.
-- Submit `{ leagueSetup, rankingSetId }` through `createConfiguredDraftFromRankingSetAction`.
-- Display selected-ranking workflow errors clearly, including missing/deleted set, invalid request, invalid league setup, and invalid ranking set.
-- Preserve cancel behavior, pending state, in-progress-draft confirmation, transient-session confirmation, and route-to-created-draft behavior.
-- Tell the user in setup copy that the selected set is snapshotted for the new draft and cannot be switched after creation.
-- Preserve existing ranking library, draft history, current draft, replay, scenario, and recommendation behavior.
+- Run focused automated tests across ranking import, validation, conversion, export, repository, management, snapshot, draft creation, draft setup, workspace loading, replay/scenario, and recommendation boundaries.
+- Run the full automated suite and project validation commands.
+- Confirm both supported import formats still pass positive and negative fixtures.
+- Confirm safely degraded ranking sets preserve explicit capability states and materialized fallback values without fabricating recommendation evidence.
+- Confirm import, replace, edit, delete, export, and draft creation failures do not partially corrupt stored data.
+- Confirm multiple ranking sets remain isolated through import, edit, selection, snapshot creation, source edit, source deletion, refresh, and resume.
+- Confirm legacy Phase 2 draft snapshots and existing persisted draft loading remain compatible.
+- Confirm Scenario V1 export/import/replay remains deterministic with captured ranking entries.
+- Confirm recommendation output remains deterministic for identical draft and snapshot inputs.
+- Complete focused manual QA from ranking import through selected draft creation and source mutation if local database setup is available.
+- Record manual QA results in a Phase 5 QA note.
+- After validation succeeds, update `docs/tasks.md` to mark Task 20 complete and update this slice status.
 
 ### Non-Goals
 
-- Do not edit rankings inside draft setup.
-- Do not blend, compare, merge, or preview multiple ranking sets.
-- Do not allow existing drafts to switch ranking snapshots.
-- Do not add league presets, account preferences, persistence schema changes, or package dependencies.
-- Do not redesign unrelated draft controls.
-- Do not move ranking-copy, validation, normalization, or snapshot creation logic into UI components.
-- Do not change recommendation scoring or tier semantics in this slice.
-- Do not remove the legacy seed-backed draft action unless it is no longer referenced and removal is trivially safe.
+- Do not add Phase 5 features during exit validation.
+- Do not weaken tests or change deterministic expected outputs merely to make validation pass.
+- Do not silently change recommendation scoring, tier semantics, import contracts, or snapshot behavior.
+- Do not add unsupported ranking formats, player reconciliation, feeds, provider integrations, accounts, persistence schema changes, or package dependencies.
+- Do not normalize or migrate historical draft snapshots.
+- Do not begin Phase 6 strategy or insight work.
 
-## Implementation Step
+## Implementation Steps
 
-1. Wire ranking-set selection into the existing configured draft setup path.
+1. Inspect the current working tree and validation surface.
 
-   Update `Home` to pass loaded `rankingSummaries` into `DraftRoom` and provide the managed seed default ID from `MANAGED_SEED_RANKING_SET_ID`. Extend `DraftRoom` props to accept those summaries and the default ID, pass them to `DraftSetupForm`, and replace its setup submit handler with a call to `createConfiguredDraftFromRankingSetAction({ leagueSetup: input, rankingSetId })`.
+   Use `git status --short` to identify pending changes and avoid reverting unrelated work. Confirm Task 19 changes are present and Task 20 is still unchecked in `docs/tasks.md`. Do not modify source code unless validation identifies a Task 20 regression that must be fixed inside Phase 5 scope.
 
-   Update `DraftSetupForm` so its form state includes `rankingSetId`. Render a selector from the supplied summaries, defaulting to the managed seed summary when present. Derive the selected summary from the current ID, use `selectedSummary.entryCount` for `buildLeagueSetup`, and block submit locally when no valid summary is selected. Keep the existing numeric setup controls and summary UI, but add selected-set metadata, a short snapshot immutability note, and non-blocking warnings based on summary capabilities:
+2. Run focused automated regression tests.
 
-   - any represented position with `tiers[position] === "defaulted-neutral"` should warn that tiers were neutralized for that position;
-   - `team !== "complete"` or `adp !== "complete"` should warn that optional metadata is missing or partial.
+   Run targeted tests covering Phase 5 and Phase 4 regression boundaries:
 
-   Convert selected-ranking workflow errors to the form's existing display pattern without changing domain error messages. Field/path errors for `rankingSetId` should appear near the selector, league setup errors should remain attached to the existing setup fields, and unexpected creation failures should continue using the form-level error.
+   ```text
+   npm test -- src/lib/rankingSetDomain.test.ts src/lib/rankingImportContracts.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalization.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/rankingSetSerialization.test.ts
+   npm test -- src/lib/rankingSetOperations.test.ts src/lib/rankingSetRepository.test.ts src/lib/managedSeedRankingSet.test.ts src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
+   npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftCreationWorkflow.test.ts src/app/actions/draftActions.test.ts src/lib/draftWorkspaceLoader.test.ts
+   npm test -- src/components/RankingLibraryPanel.test.tsx src/components/RankingSetEditorPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx
+   npm test -- src/lib/recommendations.test.ts src/lib/recommendationScenarios.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts
+   ```
 
-   Update focused tests to cover default managed seed selection, explicit alternate set selection markup/submission shape, empty/no-valid-set state, capability warnings, selected set capacity validation, selected-ranking workflow error display, preserved cancel/pending behavior, and the `DraftRoom` action handoff. Keep snapshot immutability and distinct-set creation assertions in the existing workflow tests unless a small regression test is needed to cover UI wiring.
+   If a named test file does not exist, stop and update the slice rather than substituting a broader command silently.
+
+3. Run full automated validation.
+
+   From the repository root, run:
+
+   ```text
+   npx tsc --noEmit
+   npm test
+   npm run lint
+   npm run build
+   npm run prisma:validate
+   ```
+
+   Expected result:
+
+   - TypeScript no-emit passes.
+   - Full Vitest suite passes, with database-gated tests skipped unless the local environment explicitly enables them.
+   - ESLint passes.
+   - Production build passes.
+   - Prisma schema validation passes.
+
+4. Complete focused manual QA if local persistence is available.
+
+   Run the app locally only if practical and a local database/persistence environment is available:
+
+   1. Confirm the managed seed ranking set is present after startup/bootstrap.
+   2. Import a valid FantasyPros CSV ranking set and confirm it appears in the ranking library.
+   3. Import or re-import a valid Canonical Ranking Set JSON V1 file and confirm it creates an independent set.
+   4. Try an invalid CSV or JSON import and confirm actionable errors appear with no stored-data change.
+   5. Edit a ranking set name, reorder one player, correct supported player metadata, and update a position tier assignment; confirm saved values reload.
+   6. Export a ranking set, re-import it as a separate set, and confirm domain-relevant order, metadata, and tiers are preserved.
+   7. Create one draft from the managed seed set and one draft from an alternate set; confirm each draft uses the selected set's recommendations.
+   8. Edit and then delete the source ranking set for one created draft; refresh/resume that draft and confirm its captured snapshot still loads.
+   9. Exercise missing/deleted selected set and oversized league-capacity failures in draft setup, confirming no partial draft is created.
+   10. Export a scenario from a draft, import it into the developer workbench, adjust replay target, reset/restart as appropriate, and confirm deterministic replay behavior.
+   11. Confirm cancel behavior, pending state, in-progress draft confirmation, transient-session confirmation, draft history, ranking library, current draft, scenario import/export, and replay still behave.
+
+   If local persistence is unavailable, record manual QA as blocked by database setup. Do not change app behavior to avoid the blocker.
+
+5. Record validation results.
+
+   Create or update `docs/qa/manual-phase-5-qa.md` with:
+
+   - date of validation;
+   - automated commands run and outcomes;
+   - manual QA environment;
+   - manual QA checklist outcomes;
+   - skipped database-gated tests or blocked manual steps, if any;
+   - any defects found and whether they were fixed in this slice or left as blockers.
+
+6. Handle failures conservatively.
+
+   If validation fails because of a clear Phase 5 regression, fix only the narrow cause and rerun the affected focused tests plus full validation needed for confidence. If the failure appears unrelated, environment-specific, or requires scope outside Task 20, stop and report the blocker without broadening the slice.
+
+7. Finalize documentation after successful validation.
+
+   Only after required automated validation passes and manual QA is either passed or explicitly recorded as blocked:
+
+   - update `docs/tasks.md` to mark Task 20 complete;
+   - update this file's Completion Status to completed;
+   - do not plan or begin any post-Phase 5 work.
 
 ## Expected Files
 
-- `src/app/page.tsx`
-- `src/components/DraftRoom.tsx`
-- `src/components/DraftRoom.test.tsx`
-- `src/components/DraftSetupForm.tsx`
-- `src/components/DraftSetupForm.test.tsx`
-- `src/app/actions/draftActions.test.ts`, only if selected-ranking action expectations need adjustment
-- `src/lib/draftCreationWorkflow.test.ts`, only if an acceptance criterion is not already covered there
-- `docs/current-slice.md`, for completion status after implementation
-- `docs/tasks.md`, after validation, to mark Phase 5 Task 19 complete
+- `docs/current-slice.md`, for completion status after validation.
+- `docs/tasks.md`, after validation, to mark Phase 5 Task 20 complete.
+- `docs/qa/manual-phase-5-qa.md`, to record Phase 5 exit validation and manual QA outcomes.
+- Source or test files only if validation exposes a narrow Phase 5 regression that must be fixed to satisfy Task 20.
 
 ## Tests
 
 Run from the repository root:
 
 ```text
-npm test -- src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx src/app/actions/draftActions.test.ts src/lib/draftCreationWorkflow.test.ts
-npm test -- src/lib/rankingManagementWorkflow.test.ts src/lib/rankingSetRepository.test.ts src/lib/draftWorkspaceLoader.test.ts
+npm test -- src/lib/rankingSetDomain.test.ts src/lib/rankingImportContracts.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalization.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/rankingSetSerialization.test.ts
+npm test -- src/lib/rankingSetOperations.test.ts src/lib/rankingSetRepository.test.ts src/lib/managedSeedRankingSet.test.ts src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
+npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftCreationWorkflow.test.ts src/app/actions/draftActions.test.ts src/lib/draftWorkspaceLoader.test.ts
+npm test -- src/components/RankingLibraryPanel.test.tsx src/components/RankingSetEditorPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx
+npm test -- src/lib/recommendations.test.ts src/lib/recommendationScenarios.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts
 npx tsc --noEmit
-npm run lint -- src/app/page.tsx src/components/DraftRoom.tsx src/components/DraftRoom.test.tsx src/components/DraftSetupForm.tsx src/components/DraftSetupForm.test.tsx src/app/actions/draftActions.test.ts src/lib/draftCreationWorkflow.test.ts
 npm test
 npm run lint
+npm run build
+npm run prisma:validate
 ```
 
 Expected result:
 
-- focused draft setup, draft room, action, and selected-ranking workflow tests pass;
-- ranking management and repository summary tests continue to pass;
-- draft workspace loading continues to preserve existing snapshot resume behavior;
-- TypeScript no-emit passes;
-- lint passes;
-- full Vitest suite passes, with database-gated tests skipped unless explicitly enabled.
+- focused Phase 5 tests pass;
+- Phase 4 replay/scenario/workbench regressions pass;
+- full Vitest suite passes, with database-gated tests skipped unless explicitly enabled;
+- TypeScript, lint, production build, and Prisma validation pass.
 
 ## Manual QA
 
-Run the app locally only if practical:
+Complete the checklist in Implementation Step 4 when local persistence is available.
 
-1. Open New Draft Setup and confirm the managed seed set is selected by default when present.
-2. Select a different managed ranking set, create a draft, and confirm recommendations reflect that set's snapshot.
-3. Create another draft from a different set and confirm the two drafts keep distinct recommendation inputs.
-4. Edit or delete the source ranking set after draft creation, refresh, and confirm the created draft still loads from its captured snapshot.
-5. Try setup with no available ranking sets, a deleted selected set, and an oversized league capacity, and confirm clear errors with no partial draft.
-6. Confirm cancel, pending state, in-progress draft confirmation, transient-session confirmation, draft history, ranking library, scenario import/export, and replay still behave.
-
-If local persistence is unavailable, report manual QA as blocked by database setup rather than changing this slice.
+If local persistence is unavailable, document the blocker in `docs/qa/manual-phase-5-qa.md` and report that manual QA could not be completed. Do not mark Task 20 complete unless the recorded blocker is acceptable to the user.
 
 ## Acceptance Criteria
 
-- A user can create two drafts from different managed ranking sets and receive deterministic recommendations corresponding to each selected set.
-- The managed seed ranking set provides a quick default selection path when available.
-- Missing, deleted, invalid, or insufficient ranking sets fail clearly without partial draft creation.
-- Safely degraded sets remain selectable and draft deterministically from their materialized canonical values.
-- Refresh and resume continue using each draft's captured immutable snapshot.
-- Draft setup UI passes ranking-set identity only and contains no ranking-copy, snapshot creation, normalization, conversion, or ranking validation logic.
-- Cancel behavior, pending state, in-progress-draft confirmation, and transient-session confirmation remain unchanged.
-- Existing ranking library, draft history, current draft, scenario, replay, and recommendation behavior remain unchanged.
-- After implementation validation, Phase 5 Task 19 is marked complete in `docs/tasks.md`.
+- Every Phase 5 task acceptance criterion is satisfied or any exception is reported as a blocker.
+- Both supported import profiles pass exact positive and negative automated coverage.
+- Permitted missing-column imports succeed with exact warnings, capability states, and canonical fallback values; malformed supplied values fail.
+- Canonical export/import round trips preserve domain-relevant ranking values.
+- At least two managed ranking sets remain isolated through import, edit, selection, draft snapshot creation, source edit, and source deletion.
+- Existing draft snapshots and Scenario V1 replay remain usable after source ranking sets change or are deleted.
+- Manual, persisted, and replay workflows continue producing deterministic recommendations.
+- Full automated validation passes.
+- Focused manual QA passes or is explicitly documented as blocked by environment setup.
+- No Phase 5 non-goals are introduced.
+- After validation, Phase 5 Task 20 is marked complete in `docs/tasks.md`.
 
 ## Failure Handling
 
-- If no ranking summaries are available, disable creation and show a concise message that a managed ranking set is required.
-- If the selected ranking set disappears before submit, show the workflow's not-found error and keep the setup form open.
-- If league setup fails against the selected set capacity, show the validation errors and do not call persistence beyond the workflow.
-- If snapshot creation rejects an invalid selected set, show the invalid-ranking-set errors and keep the setup form open.
-- If implementation appears to require ranking editing, blending sets, changing existing draft snapshots, schema changes, or recommendation scoring changes, stop and report the Task 19 boundary.
-- If unrelated tests fail, report them separately and do not broaden this task.
+- If a focused test file listed in this slice does not exist, stop and revise the slice rather than silently replacing it.
+- If automated validation fails because of this slice or a Phase 5 regression, fix the smallest local cause and rerun relevant validation.
+- If automated validation fails for an unrelated reason, report it separately and do not broaden the slice.
+- If manual QA requires unavailable database setup, record the blocker instead of changing product code.
+- If validation appears to require new features, schema changes, recommendation tuning, additional ranking formats, or live integrations, stop and report the Task 20 boundary.
 
 ## Follow-Up
 
-After Task 19 is complete, plan Task 20: complete Phase 5 regression and exit validation. Do not begin Task 20 automatically.
+After Task 20 is complete, Phase 5 should be ready for review or for planning the next approved project phase. Do not begin post-Phase 5 planning automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. This wires the already-built selected-ranking creation workflow into the existing setup UI.
-- Executable by a lower-reasoning pass: yes. The relevant files, data flow, error mapping, and validation expectations are explicit.
-- Avoids unnecessary architecture changes: yes. It reuses ranking summaries, the existing form, and the existing draft creation workflow.
-- Blast radius reasonable: yes. Planned changes are limited to the page prop, draft room, setup form, focused tests, and task status.
-- Review/revert comfort: yes. The UI wiring can be reverted without changing ranking storage, draft persistence, or recommendation scoring.
-- Observable/testable acceptance criteria: yes. Default selection, explicit alternate selection, workflow errors, capacity validation, and immutable resume behavior are directly observable.
+- Smallest meaningful increment: yes. This slice is limited to Phase 5 exit validation and documentation of results.
+- Executable by a lower-reasoning pass: yes. Commands, manual QA steps, failure handling, and documentation updates are explicit.
+- Avoids unnecessary architecture changes: yes. It is validation-first and permits source changes only for narrow regressions found during validation.
+- Blast radius reasonable: yes. Expected documentation changes are limited to the slice, Task 20 status, and a QA record; source changes are conditional on validation defects.
+- Review/revert comfort: yes. Validation documentation and any narrow regression fix can be reviewed independently.
+- Observable/testable acceptance criteria: yes. Automated command outcomes, QA checklist results, and Task 20 status are directly observable.
