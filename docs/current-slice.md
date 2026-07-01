@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Implementation has not begun.
+Complete. Focused tests, the full automated suite, and TypeScript validation pass.
 
 ## Source Context
 

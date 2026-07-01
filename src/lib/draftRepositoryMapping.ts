@@ -4,7 +4,7 @@ import {
   hydrateDraftFromSettings,
 } from "@/lib/draftHydration";
 import { parseLeagueSettingsSnapshotJson } from "@/lib/leagueSettingsSnapshot";
-import { parseRankingSnapshotJson } from "@/lib/rankingSnapshot";
+import { parsePersistedDraftRankingSnapshotJson } from "@/lib/rankingSnapshot";
 
 export type PersistedDraftPickRecord = {
   pickNumber: number;
@@ -27,7 +27,9 @@ export function mapDraftRecordToWorkspace(
   record: PersistedDraftWorkspaceRecord,
 ): DraftWorkspace {
   const leagueSettings = parseLeagueSettingsSnapshotJson(record.leagueSettings);
-  const rankings = parseRankingSnapshotJson(record.rankingSnapshot.rankings);
+  const rankings = parsePersistedDraftRankingSnapshotJson(
+    record.rankingSnapshot.rankings,
+  );
   const pickHistory = mapPickHistory(record.picks);
   const draft = hydrateDraftFromSettings({
     id: record.id,

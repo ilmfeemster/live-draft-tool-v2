@@ -1,9 +1,10 @@
 import type { Position, RankingEntry } from "@/types/draft";
 import { validateRankingSet } from "@/lib/rankingSetValidation";
-import type {
-  RankingSet,
-  RankingSetCapabilities,
-  RankingSnapshot,
+import {
+  NEUTRAL_TIER,
+  type RankingSet,
+  type RankingSetCapabilities,
+  type RankingSnapshot,
 } from "@/types/rankings";
 
 export type RankingSnapshotJson = RankingSnapshotJsonValue[];
@@ -76,6 +77,18 @@ export function parseRankingSnapshotJson(snapshot: unknown): RankingEntry[] {
   }
 
   return snapshot.map((entry, index) => parseRankingEntry(entry, index));
+}
+
+export function parsePersistedDraftRankingSnapshotJson(
+  snapshot: unknown,
+): RankingEntry[] {
+  return parseRankingSnapshotJson(snapshot).map((entry) => ({
+    player: { ...entry.player },
+    overallRank: entry.overallRank,
+    adpRank: entry.adpRank,
+    positionRank: entry.positionRank,
+    tier: NEUTRAL_TIER,
+  }));
 }
 
 function parseRankingEntry(entry: unknown, index: number): RankingEntry {

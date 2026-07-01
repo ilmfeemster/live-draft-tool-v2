@@ -8,6 +8,7 @@ import { isValidDraftState } from "@/lib/draftInvariants";
 import { serializeLeagueSettingsSnapshot } from "@/lib/leagueSettingsSnapshot";
 import { serializeRankingSnapshot } from "@/lib/rankingSnapshot";
 import type { LeagueSettings, Position, RankingEntry } from "@/types/draft";
+import { NEUTRAL_TIER } from "@/types/rankings";
 
 describe("mapDraftRecordToWorkspace", () => {
   it("maps an MVP-shaped persisted record to a valid draft workspace", () => {
@@ -106,7 +107,7 @@ describe("mapDraftRecordToWorkspace", () => {
     expect(isValidDraftState({ draft: workspace.draft })).toBe(true);
   });
 
-  it("exposes ranking snapshot JSON as typed rankings", () => {
+  it("exposes persisted ranking snapshots with neutral tiers", () => {
     const rankings = [
       createRanking("player-1", 1, "DST", {
         adpRank: null,
@@ -120,7 +121,13 @@ describe("mapDraftRecordToWorkspace", () => {
 
     const workspace = mapDraftRecordToWorkspace(record);
 
-    expect(workspace.rankings).toEqual(rankings);
+    expect(workspace.rankings).toEqual([
+      {
+        ...rankings[0],
+        player: { ...rankings[0].player },
+        tier: NEUTRAL_TIER,
+      },
+    ]);
   });
 
   it("rejects invalid league settings before hydration", () => {

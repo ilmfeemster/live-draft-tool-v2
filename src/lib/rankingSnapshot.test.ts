@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   copyRankingEntries,
   createRankingSnapshotFromRankingSet,
+  parsePersistedDraftRankingSnapshotJson,
   parseRankingSnapshotJson,
   serializeRankingSnapshot,
 } from "@/lib/rankingSnapshot";
@@ -131,6 +132,42 @@ describe("ranking snapshot mappers", () => {
     const parsedRankings = parseRankingSnapshotJson(snapshot);
 
     expect(parsedRankings).toEqual(rankings);
+  });
+
+  it("neutralizes only persisted draft tiers while preserving all other values", () => {
+    const rankings = [
+      createRanking("player-1", 1, "WR", {
+        adpRank: 3.5,
+        positionRank: 1,
+        tier: 2,
+        name: "Player One",
+        team: "ONE",
+      }),
+      createRanking("player-2", 2, "RB", {
+        adpRank: null,
+        positionRank: 1,
+        tier: 4,
+        name: "Player Two",
+        team: "TWO",
+      }),
+    ];
+    const serialized = serializeRankingSnapshot(rankings);
+    const parsed = parsePersistedDraftRankingSnapshotJson(serialized);
+
+    expect(parsed).toEqual([
+      { ...rankings[0], player: { ...rankings[0].player }, tier: NEUTRAL_TIER },
+      { ...rankings[1], player: { ...rankings[1].player }, tier: NEUTRAL_TIER },
+    ]);
+    expect(parsed).not.toBe(rankings);
+    expect(parsed[0]).not.toBe(rankings[0]);
+    expect(parsed[0].player).not.toBe(rankings[0].player);
+    expect(rankings.map((entry) => entry.tier)).toEqual([2, 4]);
+  });
+
+  it("keeps persisted draft parser errors aligned with generic parsing", () => {
+    expect(() =>
+      parsePersistedDraftRankingSnapshotJson({ rankings: [] }),
+    ).toThrow("Ranking snapshot must be an array.");
   });
 
   it("preserves null ADP ranks", () => {
