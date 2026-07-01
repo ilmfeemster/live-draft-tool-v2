@@ -134,7 +134,7 @@ Ensure newly created draft snapshots persist the ranking set's exact tier semant
 
 ## Slice 3 - Scenario V1 Compatibility
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -310,4 +310,9 @@ New draft snapshot semantics validation:
 - `npx tsc --noEmit`
 - `npm run lint` (no errors; one pre-existing unused-helper warning in `src/lib/rankingNormalizer.test.ts`)
 
-Previously completed compatibility coverage includes ranking-set semantics persistence, legacy persisted-draft tier neutralization, canonical ranking portability, and explicit new-snapshot semantics. The three remaining slices close the scenario, UI-language, and exit-validation gaps.
+Scenario V1 compatibility validation:
+
+- `npm test -- src/lib/scenarioValidation.test.ts src/lib/scenarioReplay.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/curatedScenarios.test.ts src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts` (7 files, 151 tests passed)
+- `npx tsc --noEmit`
+
+Previously completed compatibility coverage includes ranking-set semantics persistence, legacy persisted-draft tier neutralization, canonical ranking portability, explicit new-snapshot semantics, and Scenario V1 compatibility. The two remaining slices close the UI-language and exit-validation gaps.

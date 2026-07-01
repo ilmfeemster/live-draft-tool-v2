@@ -87,19 +87,19 @@ describe("curated scenario library", () => {
     expect(result.recommendations.findIndex((candidate) => {
       return candidate.playerId === "target-rb";
     })).toBe(0);
-    expect(primary.totalScore).toBe(109.02943725152286);
+    expect(primary.totalScore).toBe(98.02943725152286);
     expect(primary.components.find((component) => component.id === "roster_fit"))
       .toMatchObject({ delta: 10 });
     expect(primary.components.find((component) => component.id === "positional_run"))
       .toMatchObject({ delta: 2 });
     expect(primary.components.find((component) => component.id === "tier_cliff"))
-      .toMatchObject({ delta: 12 });
+      .toBeUndefined();
     expect(primary.components.find((component) => component.id === "positional_scarcity"))
       .toMatchObject({ delta: 3 });
     expect(primary.reasons.map((reason) => reason.id)).toEqual([
       "roster_fit:direct_starter_need",
-      "tier_cliff:major_tier_cliff",
       "positional_scarcity:mild_scarcity",
+      "base_value:overall_rank",
     ]);
   });
 

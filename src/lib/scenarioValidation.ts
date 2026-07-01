@@ -8,6 +8,8 @@ import {
 } from "@/lib/leagueSetup";
 import { parseLeagueSettingsSnapshotJson } from "@/lib/leagueSettingsSnapshot";
 import { parseRankingSnapshotJson } from "@/lib/rankingSnapshot";
+import type { RankingEntry } from "@/types/draft";
+import { NEUTRAL_TIER } from "@/types/rankings";
 import {
   SCENARIO_SCHEMA_VERSION,
   type ScenarioMetadata,
@@ -44,6 +46,16 @@ export type ScenarioValidationError = {
 export type ParseScenarioV1Result =
   | { ok: true; scenario: ScenarioV1 }
   | { ok: false; errors: ScenarioValidationError[] };
+
+export function materializeScenarioV1Rankings(
+  rankings: readonly RankingEntry[],
+): RankingEntry[] {
+  return rankings.map((ranking) => ({
+    ...ranking,
+    player: { ...ranking.player },
+    tier: NEUTRAL_TIER,
+  }));
+}
 
 class ScenarioValidationFailure extends Error {
   constructor(readonly validationError: ScenarioValidationError) {
@@ -328,7 +340,7 @@ function parseRankings(value: unknown): ScenarioV1["rankingContext"]["rankings"]
   }
 
   try {
-    return parseRankingSnapshotJson(value);
+    return materializeScenarioV1Rankings(parseRankingSnapshotJson(value));
   } catch {
     reject(
       "invalid-value",

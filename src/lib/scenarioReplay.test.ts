@@ -12,6 +12,7 @@ import {
 import { serializeScenarioV1 } from "@/lib/scenarioSerialization";
 import { parseScenarioV1Json } from "@/lib/scenarioValidation";
 import type { Draft, Position, RankingEntry } from "@/types/draft";
+import { NEUTRAL_TIER } from "@/types/rankings";
 import {
   SCENARIO_SCHEMA_VERSION,
   type ScenarioV1,
@@ -96,6 +97,57 @@ describe("scenario replay", () => {
     replayScenarioV1(scenario);
 
     expect(scenario).toEqual(before);
+  });
+
+  it("neutralizes ambiguous tiers for direct typed replay callers", () => {
+    const scenario = createScenario(0);
+    scenario.rankingContext.rankings.find(
+      ({ player }) => player.id === "player-rb-2",
+    )!.tier = 4;
+    const before = structuredClone(scenario);
+    const unguarded = generateRecommendations(scenario, createBaseDraft(scenario));
+    const neutralScenario = structuredClone(scenario);
+    neutralScenario.rankingContext.rankings.forEach((ranking) => {
+      ranking.tier = NEUTRAL_TIER;
+    });
+
+    const first = replayScenarioV1(scenario);
+    const second = replayScenarioV1(scenario);
+
+    expect(
+      unguarded.some((recommendation) =>
+        recommendation.components.some(({ id }) => id === "tier_cliff"),
+      ),
+    ).toBe(true);
+    expect(first).toEqual(second);
+    expect(first).toEqual(replayScenarioV1(neutralScenario));
+    expect(scenario).toEqual(before);
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      throw new Error("Expected replay success.");
+    }
+    for (const recommendation of first.recommendations) {
+      expect(recommendation.components.some(({ id }) => id === "tier_cliff")).toBe(
+        false,
+      );
+      expect(
+        recommendation.reasons.some(
+          ({ sourceComponentId }) => sourceComponentId === "tier_cliff",
+        ),
+      ).toBe(false);
+      const componentTotal = recommendation.components.reduce(
+        (total, component) => total + component.delta,
+        0,
+      );
+      const adjustmentTotal = recommendation.scoreAdjustments.reduce(
+        (total, adjustment) => total + adjustment.delta,
+        0,
+      );
+      expect(componentTotal + adjustmentTotal).toBeCloseTo(
+        recommendation.totalScore,
+        12,
+      );
+    }
   });
 
   it("replays dynamic non-default settings without default assumptions", () => {

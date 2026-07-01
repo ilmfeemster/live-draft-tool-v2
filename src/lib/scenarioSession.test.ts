@@ -12,6 +12,7 @@ import {
   type TransientScenarioSession,
   undoLastPickInTransientSession,
 } from "@/lib/scenarioSession";
+import { NEUTRAL_TIER } from "@/types/rankings";
 
 describe("transient scenario sessions", () => {
   it("creates a clean scenario session at the declared target", () => {
@@ -238,6 +239,34 @@ describe("transient scenario sessions", () => {
     expect(repositoryPick).not.toHaveBeenCalled();
     expect(repositoryUndo).not.toHaveBeenCalled();
     expect(repositoryReset).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy tiers neutral through local actions, reset, and restart", () => {
+    const initial = createEarlyScenarioSession();
+    const picked = draftPlayerInTransientSession(initial, "target-rb");
+    const undone = undoLastPickInTransientSession(picked);
+    const reset = resetTransientScenarioSession(picked);
+    const restarted = restartTransientSession(initial);
+
+    expect(reset.ok).toBe(true);
+    if (!reset.ok) {
+      throw new Error("Expected scenario reset to succeed.");
+    }
+    for (const session of [initial, picked, undone, reset.session, restarted]) {
+      expect(session.rankings.every(({ tier }) => tier === NEUTRAL_TIER)).toBe(
+        true,
+      );
+      for (const recommendation of session.recommendations) {
+        expect(
+          recommendation.components.some(({ id }) => id === "tier_cliff"),
+        ).toBe(false);
+        expect(
+          recommendation.reasons.some(
+            ({ sourceComponentId }) => sourceComponentId === "tier_cliff",
+          ),
+        ).toBe(false);
+      }
+    }
   });
 });
 

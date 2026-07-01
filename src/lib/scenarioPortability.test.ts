@@ -17,6 +17,7 @@ import type {
   Position,
   RankingEntry,
 } from "@/types/draft";
+import { NEUTRAL_TIER } from "@/types/rankings";
 
 describe("scenario portability", () => {
   it("exports safe defaults and the active assigned-pick count", () => {
@@ -151,6 +152,34 @@ describe("scenario portability", () => {
         },
       ],
     });
+  });
+
+  it("imports Scenario V1 tiers as neutral without tier recommendation evidence", () => {
+    const workspace = createManualWorkspace(0);
+    workspace.rankings.find(({ player }) => player.id === "player-rb-2")!.tier = 4;
+    const scenario = exportWorkspaceToScenarioV1(workspace);
+    const imported = importScenarioV1Json(serializeScenarioV1(scenario));
+
+    expect(imported.ok).toBe(true);
+    if (!imported.ok) {
+      throw new Error("Expected legacy scenario import to succeed.");
+    }
+    expect(imported.scenario.rankingContext.rankings).toEqual(
+      workspace.rankings.map((ranking) => ({
+        ...ranking,
+        tier: NEUTRAL_TIER,
+      })),
+    );
+    for (const recommendation of imported.recommendations) {
+      expect(recommendation.components.some(({ id }) => id === "tier_cliff")).toBe(
+        false,
+      );
+      expect(
+        recommendation.reasons.some(
+          ({ sourceComponentId }) => sourceComponentId === "tier_cliff",
+        ),
+      ).toBe(false);
+    }
   });
 
   it("round-trips a manual workspace with equivalent state and recommendations", () => {

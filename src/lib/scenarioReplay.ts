@@ -1,6 +1,7 @@
 import { hydrateDraftFromSettings } from "@/lib/draftHydration";
 import { draftPlayerInDraft } from "@/lib/draftState";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
+import { materializeScenarioV1Rankings } from "@/lib/scenarioValidation";
 import type { Draft, PlayerRecommendation } from "@/types/draft";
 import type { ScenarioV1 } from "@/types/scenario";
 
@@ -26,6 +27,9 @@ export type ScenarioReplayResult =
     };
 
 export function replayScenarioV1(scenario: ScenarioV1): ScenarioReplayResult {
+  const rankings = materializeScenarioV1Rankings(
+    scenario.rankingContext.rankings,
+  );
   const baseDraft = hydrateDraftFromSettings({
     id: SCENARIO_REPLAY_DRAFT_ID,
     leagueSettings: scenario.leagueSettings,
@@ -65,7 +69,7 @@ export function replayScenarioV1(scenario: ScenarioV1): ScenarioReplayResult {
 
   const recommendations = generatePlayerRecommendations({
     draft: targetDraft,
-    rankings: scenario.rankingContext.rankings,
+    rankings,
     leagueSettings: scenario.leagueSettings,
     userTeamId: scenario.userTeamContext.userTeamId,
   });

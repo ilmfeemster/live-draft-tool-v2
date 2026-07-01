@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Awaiting implementation approval.
+Complete. Scenario V1 rankings now materialize with neutral recommendation tiers at parse time and again defensively for direct typed replay callers. Focused scenario and recommendation validation passed (7 files, 151 tests), and TypeScript no-emit validation passed.
 
 ## Source Context
 

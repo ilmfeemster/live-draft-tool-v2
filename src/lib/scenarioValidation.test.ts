@@ -3,11 +3,13 @@ import { createDraftTeams } from "@/lib/draftOrder";
 import { buildLeagueSetup, type LeagueSetupInput } from "@/lib/leagueSetup";
 import { serializeScenarioV1 } from "@/lib/scenarioSerialization";
 import {
+  materializeScenarioV1Rankings,
   parseScenarioV1Json,
   SCENARIO_VALIDATION_LIMITS,
   type ScenarioValidationErrorCode,
 } from "@/lib/scenarioValidation";
 import type { Position, RankingEntry } from "@/types/draft";
+import { NEUTRAL_TIER } from "@/types/rankings";
 import {
   SCENARIO_SCHEMA_VERSION,
   type ScenarioV1,
@@ -29,6 +31,39 @@ describe("scenario v1 parsing and validation", () => {
     expect(result.scenario.leagueSettings).not.toBe(scenario.leagueSettings);
     expect(result.scenario.rankingContext.rankings).not.toBe(
       scenario.rankingContext.rankings,
+    );
+  });
+
+  it("materializes legacy ambiguous scenario tiers as fresh neutral rankings", () => {
+    const scenario = createValidScenario();
+    scenario.rankingContext.rankings.forEach((ranking, index) => {
+      ranking.tier = index + 2;
+    });
+    const before = structuredClone(scenario);
+
+    const mapped = materializeScenarioV1Rankings(
+      scenario.rankingContext.rankings,
+    );
+    const result = parseScenarioV1Json(serializeScenarioV1(scenario));
+
+    expect(scenario).toEqual(before);
+    expect(mapped).toEqual(
+      scenario.rankingContext.rankings.map((ranking) => ({
+        ...ranking,
+        tier: NEUTRAL_TIER,
+      })),
+    );
+    expect(mapped[0]).not.toBe(scenario.rankingContext.rankings[0]);
+    expect(mapped[0].player).not.toBe(
+      scenario.rankingContext.rankings[0].player,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("Expected a valid legacy scenario.");
+    }
+    expect(result.scenario.rankingContext.rankings).toEqual(mapped);
+    expect(result.scenario.rankingContext.rankings.map(({ tier }) => tier)).toEqual(
+      Array(mapped.length).fill(NEUTRAL_TIER),
     );
   });
 
