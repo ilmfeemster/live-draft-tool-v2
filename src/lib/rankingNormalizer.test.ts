@@ -32,7 +32,15 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
     });
 
     expectSuccess(result);
-    expect(result.warnings).toEqual([]);
+    expect(result.warnings).toEqual([
+      {
+        code: "source-tiers-preserved",
+        stage: "normalize",
+        severity: "warning",
+        message:
+          "2 FantasyPros source tiers were preserved as overall metadata; recommendation tiers remain neutral.",
+      },
+    ]);
     expect(result.value.name).toBe("June Rankings");
     expect(result.value.source).toEqual({
       kind: "external",
@@ -48,7 +56,7 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
       overallOrder: "explicit",
       positionRank: "derived",
       adp: "complete",
-      tiers: { QB: "source", RB: "source" },
+      tiers: { QB: "defaulted-neutral", RB: "defaulted-neutral" },
     });
     expect(result.value.entries).toEqual([
       expect.objectContaining({
@@ -59,7 +67,8 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
         position: "QB",
         sourceOrder: 5,
         sourcePositionRank: 3,
-        tier: 2,
+        sourceTier: 2,
+        tier: NEUTRAL_TIER,
         adpRank: 7,
       }),
       expect.objectContaining({
@@ -70,7 +79,8 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
         position: "RB",
         sourceOrder: 9,
         sourcePositionRank: 2,
-        tier: 4,
+        sourceTier: 4,
+        tier: NEUTRAL_TIER,
         adpRank: 8,
       }),
     ]);
@@ -86,7 +96,8 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
       sourcePositionRank: { row: 2, column: 5, field: "position" },
       team: { row: 2, column: 4, field: "team" },
       sourceOrder: { row: 2, column: 1, field: "overallOrder" },
-      tier: { row: 2, column: 2, field: "tier" },
+      sourceTier: { row: 2, column: 2, field: "tier" },
+      tier: { row: 2, column: 1, field: "overallOrder" },
       adpRank: { row: 2, column: 6, field: "adpDelta" },
     });
   });
@@ -113,6 +124,7 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
         position: "WR",
         sourceOrder: 1,
         sourcePositionRank: 1,
+        sourceTier: null,
         tier: NEUTRAL_TIER,
         adpRank: null,
       }),
@@ -122,6 +134,7 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
         position: "RB",
         sourceOrder: 2,
         sourcePositionRank: null,
+        sourceTier: null,
         tier: NEUTRAL_TIER,
         adpRank: null,
       }),
@@ -135,8 +148,8 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
     expect(result.warnings.map((warning) => warning.message)).toEqual([
       "2 ranking entries defaulted to UNK.",
       "2 ranking entries defaulted to null ADP.",
-      "RB tiers defaulted to neutral for 1 entry because 1 tier was missing.",
-      "WR tiers defaulted to neutral for 1 entry because 1 tier was missing.",
+      "RB recommendation tiers defaulted to neutral because FantasyPros source tiers were absent.",
+      "WR recommendation tiers defaulted to neutral because FantasyPros source tiers were absent.",
     ]);
     expect(result.value.entries[0]?.fieldLocations.sourceOrder).toEqual(
       result.value.entries[0]?.location,
@@ -146,7 +159,7 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
     );
   });
 
-  it("neutralizes an entire position for partial tiers and preserves other gaps", () => {
+  it("preserves partial source tiers while neutralizing every recommendation tier", () => {
     const result = normalizeRankingSource(
       parseCsv(
         "PLAYER NAME,POS,TIER\nQB One,QB1,3\nQB Two,QB2,\nRB One,RB1,2\nRB Two,RB2,5",
@@ -155,17 +168,23 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
     );
 
     expectSuccess(result);
-    expect(result.value.entries.map((entry) => entry.tier)).toEqual([1, 1, 2, 5]);
+    expect(result.value.entries.map((entry) => entry.sourceTier)).toEqual([
+      3,
+      null,
+      2,
+      5,
+    ]);
+    expect(result.value.entries.map((entry) => entry.tier)).toEqual([1, 1, 1, 1]);
     expect(result.value.capabilities.tiers).toEqual({
       QB: "defaulted-neutral",
-      RB: "source",
+      RB: "defaulted-neutral",
     });
     expect(result.warnings.at(-1)).toEqual({
-      code: "tiers-defaulted-neutral",
+      code: "source-tiers-preserved",
       stage: "normalize",
       severity: "warning",
       message:
-        "QB tiers defaulted to neutral for 2 entries because 1 tier was missing.",
+        "3 FantasyPros source tiers were preserved as overall metadata; recommendation tiers remain neutral.",
     });
   });
 
@@ -201,6 +220,7 @@ describe("normalizeRankingSource FantasyPros CSV", () => {
     expect(result.value.capabilities.adp).toBe("none");
     expect(result.warnings.map((warning) => warning.code)).toEqual([
       "adp-defaulted",
+      "source-tiers-preserved",
     ]);
   });
 
@@ -518,7 +538,7 @@ describe("normalizeRankingSource Canonical Ranking JSON", () => {
 });
 
 describe("normalizeRankingSource boundaries", () => {
-  it("produces equivalent source-neutral entries across formats", () => {
+  it("keeps FantasyPros source tiers separate without broadening Canonical V1", () => {
     const csv = normalizeRankingSource(
       parseCsv("RK,TIER,PLAYER NAME,TEAM,POS,ECR VS ADP\n3,2,Player One,KC,QB1,-"),
       { name: "Equivalent", importedAt },
@@ -558,10 +578,16 @@ describe("normalizeRankingSource boundaries", () => {
 
     expectSuccess(csv);
     expectSuccess(canonical);
-    expect(stripLocations(csv.value.entries[0])).toEqual(
-      stripLocations(canonical.value.entries[0]),
-    );
-    expect(csv.value.capabilities).toEqual(canonical.value.capabilities);
+    expect(csv.value.entries[0]).toMatchObject({
+      sourceTier: 2,
+      tier: NEUTRAL_TIER,
+    });
+    expect(canonical.value.entries[0]).not.toHaveProperty("sourceTier");
+    expect(canonical.value.entries[0]?.tier).toBe(2);
+    expect(csv.value.capabilities.tiers).toEqual({
+      QB: "defaulted-neutral",
+    });
+    expect(canonical.value.capabilities.tiers).toEqual({ QB: "source" });
   });
 
   it("does not mutate parsed input", () => {

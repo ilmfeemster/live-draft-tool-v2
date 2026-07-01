@@ -27,6 +27,7 @@ describe("ranking import workflow", () => {
     expect(result.replaced).toBe(false);
     expect(result.warnings.map((warning) => warning.code)).toEqual([
       "adp-defaulted",
+      "source-tiers-preserved",
     ]);
     expect(result.rankingSet).toMatchObject({
       id: "created-rankings",
@@ -44,7 +45,7 @@ describe("ranking import workflow", () => {
         overallOrder: "explicit",
         positionRank: "derived",
         adp: "partial",
-        tiers: { QB: "source", RB: "source" },
+        tiers: { QB: "defaulted-neutral", RB: "defaulted-neutral" },
       },
       createdAt: importedAt,
       updatedAt: importedAt,
@@ -148,10 +149,10 @@ describe("ranking import workflow", () => {
         expectedStage: "parse",
       },
       {
-        name: "normalization failure",
+        name: "malformed supplied FantasyPros tier",
         input: {
           ...createCsvInput(),
-          text: "PLAYER NAME,POS\nBad Position,DEF",
+          text: "PLAYER NAME,POS,TIERS\nBad Tier,QB,bad",
         },
         expectedStage: "normalize",
       },
@@ -249,7 +250,7 @@ describe("ranking import workflow", () => {
     expect(fake.records).toEqual([result.rankingSet]);
   });
 
-  it("does not replace an existing set when replacement import fails", async () => {
+  it("does not replace an existing set when a supplied tier is malformed", async () => {
     const fake = createFakeRepository();
     const existing = createExistingSet();
     fake.records.push(existing);
@@ -257,7 +258,7 @@ describe("ranking import workflow", () => {
     const result = await importRankingSet(
       {
         ...createCsvInput({
-          text: "PLAYER NAME,POS\nBad,DEF",
+          text: "PLAYER NAME,POS,TIERS\nBad Tier,QB,bad",
         }),
         intent: { kind: "replace", rankingSetId: existing.id },
       },

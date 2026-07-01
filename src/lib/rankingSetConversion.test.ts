@@ -33,7 +33,7 @@ import {
 const createTimestamp = new Date("2026-06-28T12:00:00.000Z");
 
 describe("convertValidatedRankingCandidate", () => {
-  it("converts a complete FantasyPros import into an exact canonical set", () => {
+  it("converts FantasyPros source tiers into metadata and neutral recommendation tiers", () => {
     const validated = validatedCsv(
       "RK,TIER,PLAYER NAME,TEAM,POS,ECR VS ADP\n" +
         "10,1,Quarterback,KC,QB1,+2\n" +
@@ -63,7 +63,30 @@ describe("convertValidatedRankingCandidate", () => {
         overallOrder: "explicit",
         positionRank: "derived",
         adp: "partial",
-        tiers: { QB: "source", RB: "source" },
+        tiers: { QB: "defaulted-neutral", RB: "defaulted-neutral" },
+      },
+      tierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: [
+            {
+              playerId: "fantasypros-v1:rb:running%20back",
+              overallRank: 1,
+              tier: 2,
+            },
+            {
+              playerId: "fantasypros-v1:qb:quarterback",
+              overallRank: 2,
+              tier: 1,
+            },
+            {
+              playerId: "fantasypros-v1:qb:second%20quarterback",
+              overallRank: 3,
+              tier: 4,
+            },
+          ],
+        },
+        recommendation: { RB: "neutral", QB: "neutral" },
       },
       entries: [
         {
@@ -75,7 +98,7 @@ describe("convertValidatedRankingCandidate", () => {
           },
           overallRank: 1,
           positionRank: 1,
-          tier: 2,
+          tier: NEUTRAL_TIER,
           adpRank: null,
         },
         {
@@ -99,7 +122,7 @@ describe("convertValidatedRankingCandidate", () => {
           },
           overallRank: 3,
           positionRank: 2,
-          tier: 4,
+          tier: NEUTRAL_TIER,
           adpRank: 40,
         },
       ],
@@ -229,6 +252,11 @@ describe("convertValidatedRankingCandidate", () => {
         RB: "defaulted-neutral",
       },
     });
+    expect(result.value.rankingSet.tierSemantics).toEqual({
+      source: { kind: "none" },
+      recommendation: { QB: "neutral", RB: "neutral" },
+    });
+    expectDomainSuccess(validateRankingSet(result.value.rankingSet));
   });
 
   it("assigns create lifecycle values into independent Date objects", () => {

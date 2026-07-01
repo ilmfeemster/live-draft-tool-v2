@@ -107,6 +107,7 @@ export type NormalizedRankingCandidateField =
   | "position"
   | "sourceOrder"
   | "sourcePositionRank"
+  | "sourceTier"
   | "tier"
   | "adpRank";
 
@@ -127,6 +128,7 @@ export type NormalizedRankingCandidateEntry = Readonly<{
   position: string | null;
   sourceOrder: number | null;
   sourcePositionRank: number | null;
+  sourceTier?: number | null;
   tier: number | null;
   adpRank: number | null;
 }>;

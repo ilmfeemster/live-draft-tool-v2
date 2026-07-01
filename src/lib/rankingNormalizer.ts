@@ -38,6 +38,7 @@ export type RankingNormalizerDiagnosticCode =
   | "invalid-null-marker"
   | "team-defaulted"
   | "adp-defaulted"
+  | "source-tiers-preserved"
   | "tiers-defaulted-neutral";
 
 type NormalizerDiagnostic =
@@ -60,6 +61,7 @@ type WorkingEntry = {
   position: string | null;
   sourceOrder: number | null;
   sourcePositionRank: number | null;
+  sourceTier?: number | null;
   tier: number | null;
   adpRank: number | null;
   teamState?: "source" | "missing" | "malformed";
@@ -164,9 +166,10 @@ function normalizeFantasyPros(
     );
   }
 
-  const tierCapabilities: Partial<
-    Record<Position, "source" | "defaulted-neutral">
-  > = {};
+  const tierCapabilities: Partial<Record<Position, "defaulted-neutral">> = {};
+  const suppliedSourceTierCount = entries.filter(
+    (entry) => entry.tierState === "source",
+  ).length;
 
   POSITIONS.forEach((position) => {
     const positionEntries = entries.filter(
@@ -177,30 +180,32 @@ function normalizeFantasyPros(
       return;
     }
 
-    const hasMalformedTier = positionEntries.some(
-      (entry) => entry.tierState === "malformed",
-    );
-    const missingTierCount = positionEntries.filter(
-      (entry) => entry.tierState === "missing",
-    ).length;
+    positionEntries.forEach((entry) => {
+      entry.tier = NEUTRAL_TIER;
+      entry.fieldLocations.tier = entry.location;
+    });
+    tierCapabilities[position] = "defaulted-neutral";
 
-    if (!hasMalformedTier && missingTierCount > 0) {
-      positionEntries.forEach((entry) => {
-        entry.tier = NEUTRAL_TIER;
-        entry.fieldLocations.tier = entry.location;
-      });
-      tierCapabilities[position] = "defaulted-neutral";
+    if (suppliedSourceTierCount === 0) {
       warnings.push(
         diagnostic(
           "tiers-defaulted-neutral",
           "warning",
-          `${position} tiers defaulted to neutral for ${positionEntries.length} ${plural(positionEntries.length, "entry", "entries")} because ${missingTierCount} ${plural(missingTierCount, "tier was", "tiers were")} missing.`,
+          `${position} recommendation tiers defaulted to neutral because FantasyPros source tiers were absent.`,
         ),
       );
-    } else {
-      tierCapabilities[position] = "source";
     }
   });
+
+  if (suppliedSourceTierCount > 0) {
+    warnings.push(
+      diagnostic(
+        "source-tiers-preserved",
+        "warning",
+        `${suppliedSourceTierCount} FantasyPros source ${plural(suppliedSourceTierCount, "tier was", "tiers were")} preserved as overall metadata; recommendation tiers remain neutral.`,
+      ),
+    );
+  }
 
   if (errors.length > 0) {
     return failure(errors, warnings);
@@ -304,9 +309,11 @@ function normalizeFantasyProsRecord(
     "tier",
     recordErrors,
   );
-  entry.tier = tierResult.value;
+  entry.sourceTier = tierResult.value;
+  entry.tier = NEUTRAL_TIER;
   entry.tierState = tierResult.state;
-  setLocation(entry, "tier", tierField?.location ?? location);
+  setLocation(entry, "sourceTier", tierField?.location ?? location);
+  setLocation(entry, "tier", location);
 
   const adpField = record.fields.adpDelta;
   const delta = normalizeCsvAdpDelta(adpField, recordErrors);
@@ -1343,6 +1350,9 @@ function toCandidateEntry(entry: WorkingEntry): NormalizedRankingCandidateEntry 
     position: entry.position,
     sourceOrder: entry.sourceOrder,
     sourcePositionRank: entry.sourcePositionRank,
+    ...(Object.prototype.hasOwnProperty.call(entry, "sourceTier")
+      ? { sourceTier: entry.sourceTier ?? null }
+      : {}),
     tier: entry.tier,
     adpRank: entry.adpRank,
   };
@@ -1374,6 +1384,7 @@ function canonicalFieldLocation(
     position: `entries[${sourceIndex}].player.position`,
     sourceOrder: `entries[${sourceIndex}].overallRank`,
     sourcePositionRank: `entries[${sourceIndex}].positionRank`,
+    sourceTier: `entries[${sourceIndex}].sourceTier`,
     tier: `entries[${sourceIndex}].tier`,
     adpRank: `entries[${sourceIndex}].adpRank`,
   };

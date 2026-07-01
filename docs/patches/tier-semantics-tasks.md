@@ -206,7 +206,7 @@ Extend the ranking domain model and validation rules so source tiers, recommenda
 
 ## Task 5 - Correct FantasyPros Tier Normalization and Domain Conversion
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -464,7 +464,7 @@ Confirm the patch has corrected tier semantics without broadening scope or regre
 
 ## Testing Status
 
-The tier-semantics design, documentation-alignment, import/export contract, and domain-validation tasks are complete.
+The tier-semantics design, documentation-alignment, import/export contract, domain-validation, and FantasyPros normalization/conversion tasks are complete.
 
 Task 3 validation passed:
 
@@ -476,7 +476,13 @@ Task 4 validation passed:
 - `npm test -- src/lib/rankingSetValidation.test.ts`
 - `npx tsc --noEmit`
 
-The next task is Task 5, correct FantasyPros tier normalization and domain conversion, unless the user chooses to revise the domain semantics before implementation planning.
+Task 5 validation passed:
+
+- `npm test -- src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/rankingImportWorkflow.test.ts`
+- `npm test`
+- `npx tsc --noEmit`
+
+The next task is Task 6, preserve ranking-set, export, snapshot, and scenario compatibility, unless the user chooses to revise the compatibility plan before implementation planning.
 
 ---
 

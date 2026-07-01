@@ -1,5 +1,6 @@
 import { validateRankingSet } from "@/lib/rankingSetValidation";
 import type { Position, RankingEntry } from "@/types/draft";
+import { NEUTRAL_TIER } from "@/types/rankings";
 import type {
   ConvertedRankingSet,
   RankingImportDiagnostic,
@@ -10,6 +11,7 @@ import type {
   RankingSet,
   RankingSetCapabilities,
   RankingSetSource,
+  RankingTierSemantics,
 } from "@/types/rankings";
 
 export type RankingSetCreateConversionRequest = Readonly<{
@@ -237,6 +239,9 @@ function buildRankingSet(
   const sortedEntries = [...candidate.entries].sort(
     (left, right) => (left.sourceOrder as number) - (right.sourceOrder as number),
   );
+  const isFantasyProsCandidate = sortedEntries.every((entry) =>
+    Object.prototype.hasOwnProperty.call(entry, "sourceTier"),
+  );
   const entries: RankingEntry[] = sortedEntries.map((entry, index) => {
     const position = entry.position as Position;
     const positionRank = (positionCounts.get(position) ?? 0) + 1;
@@ -251,19 +256,56 @@ function buildRankingSet(
       },
       overallRank: index + 1,
       positionRank,
-      tier: entry.tier as number,
+      tier: isFantasyProsCandidate ? NEUTRAL_TIER : (entry.tier as number),
       adpRank: entry.adpRank,
     };
   });
+  const tierSemantics = isFantasyProsCandidate
+    ? buildFantasyProsTierSemantics(sortedEntries, entries)
+    : undefined;
 
   return {
     id: rankingSetId,
     name: candidate.name,
     source: copySource(candidate.source),
     capabilities: copyCapabilities(candidate.capabilities),
+    ...(tierSemantics === undefined ? {} : { tierSemantics }),
     entries,
     createdAt: cloneDate(createdAt),
     updatedAt: cloneDate(updatedAt),
+  };
+}
+
+function buildFantasyProsTierSemantics(
+  candidateEntries: ValidatedRankingCandidate["candidate"]["entries"],
+  entries: readonly RankingEntry[],
+): RankingTierSemantics {
+  const sourceValues = candidateEntries.flatMap((candidateEntry, index) => {
+    if (!isPositiveInteger(candidateEntry.sourceTier)) {
+      return [];
+    }
+
+    const entry = entries[index] as RankingEntry;
+    return [
+      {
+        playerId: entry.player.id,
+        overallRank: entry.overallRank,
+        tier: candidateEntry.sourceTier,
+      },
+    ];
+  });
+  const recommendation: Partial<Record<Position, "neutral">> = {};
+
+  entries.forEach((entry) => {
+    recommendation[entry.player.position] = "neutral";
+  });
+
+  return {
+    source:
+      sourceValues.length === 0
+        ? { kind: "none" }
+        : { kind: "source-overall", values: sourceValues },
+    recommendation,
   };
 }
 
