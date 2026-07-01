@@ -1,251 +1,221 @@
-# Current Slice: Tier Semantics Patch Slice 3 - Scenario V1 Compatibility
+# Current Slice: Tier Semantics Patch Slice 4A - Ranking Management Terminology
 
 ## Completion Status
 
-Complete. Scenario V1 rankings now materialize with neutral recommendation tiers at parse time and again defensively for direct typed replay callers. Focused scenario and recommendation validation passed (7 files, 151 tests), and TypeScript no-emit validation passed.
+Planned and awaiting implementation approval. This is the first of two focused UI increments needed to complete Tier Semantics Patch Slice 4. It corrects ranking-library and ranking-detail language without changing tier domain behavior.
 
 ## Source Context
 
-- Patch task plan: `docs/patches/tier-semantics-tasks.md`, Slice 3.
-- Approved design: `docs/design/tier-semantics.md`, especially Scenario V1 compatibility and recommendation behavior.
-- Completed prerequisite: source-only, absent, neutral, and legacy ranking-set values reach the engine as neutral tiers.
-- Completed prerequisite: new draft snapshot envelopes preserve explicit eligibility, while legacy snapshot arrays hydrate neutral.
-- Completed prerequisite: neutral engine-facing tiers produce no tier score component or reason.
-- Current Scenario V1 facts:
-  - the format embeds only `RankingEntry[]` and has no tier-semantics metadata;
-  - `scenarioValidation` parses entry `tier` values unchanged;
-  - `scenarioReplay` passes those values directly to `generatePlayerRecommendations`;
-  - transient sessions retain the parsed scenario rankings and reuse them for later local picks, undo, reset, and restart;
-  - the curated early-pressure fixture contains tier gaps and currently asserts an invalid tier-cliff component/reason;
-  - direct recommendation scenario tests also use non-neutral tiers, but those are engine tests rather than Scenario V1 portability tests and must retain valid explicit-tier coverage.
+- Patch task plan: `docs/patches/tier-semantics-tasks.md`, Slice 4.
+- Approved design: `docs/design/tier-semantics.md`, especially Tier Vocabulary and UI and Editing Behavior.
+- Project scope: ranking management may preserve source tiers and supported recommendation-tier data, but the UI must not conflate those concepts.
+- Completed prerequisites:
+  - FantasyPros `TIERS` are preserved as source-overall metadata while engine-facing recommendation tiers are neutral.
+  - Canonical Ranking JSON and new draft snapshots preserve explicit source and recommendation semantics.
+  - Legacy ranking sets, snapshots, and Scenario V1 inputs remain loadable with conservative recommendation-neutral behavior.
+  - Neutral recommendation tiers produce no tier score component or reason.
+- Current ranking-management UI facts:
+  - ranking-library summaries call every `source` tier capability a source tier even though that capability can also represent explicit recommendation-position data;
+  - ranking detail exposes the engine-facing `RankingEntry.tier` through a bare `Tier` column;
+  - ranking detail presents `RankingEntry.tier` as editable `Position Tiers` and says neutral fallback values are editable through that assignment;
+  - the tier assignment edit path does not preserve or intentionally transition the new `tierSemantics` metadata, so the UI cannot accurately claim that it edits source tiers or recommendation-eligible tiers;
+  - the loaded `RankingSet` already carries the detailed `tierSemantics` needed for accurate read-only source and recommendation labels;
+  - draft setup and draft-room terminology remain for the follow-up Slice 4B.
 
 ## Goal
 
-Keep Scenario V1 files loadable, replayable, and deterministic while treating every embedded `tier` value as legacy ambiguous and materializing neutral recommendation tiers before any Scenario V1 recommendation evaluation.
+Make the ranking library and ranking detail describe source tiers, recommendation tiers, neutral fallback, and legacy ambiguity accurately, while removing the unsupported ambiguous tier-authoring controls from the UI.
 
 ## Scope
 
 ### Goals
 
-- Add one pure Scenario V1 ranking compatibility mapper.
-- Parse Scenario V1 ranking entries through that mapper after existing structural validation.
-- Return parsed `ScenarioV1` values whose engine-facing tiers are all `NEUTRAL_TIER`.
-- Defensively apply the same mapper in `replayScenarioV1` for typed scenarios created without the JSON parser.
-- Ensure transient sessions and later local recomputation continue using neutralized rankings.
-- Preserve ranking order, player data, overall rank, position rank, ADP, league settings, draft configuration, pick history, replay target, and metadata.
-- Preserve deterministic replay and exact score/component reconciliation.
-- Keep replay independent from ranking-set persistence, snapshot persistence, and database access.
+- Replace ranking-library capability copy that infers tier meaning from the legacy `capabilities.tiers` field.
+- Present detailed source-tier and recommendation-tier state from `RankingSet.tierSemantics` without inferring semantics from numeric tier values.
+- Display preserved source tier values separately from engine-facing recommendation tiers.
+- Show recommendation tier numbers only for positions explicitly marked `recommendation-position`.
+- Show neutral or compatibility-neutral states as text rather than displaying the numeric neutral sentinel as though it were authored tier data.
+- Remove the ranking-detail `Position Tiers` assignment form and its ranking-library callback path.
+- Preserve rename, reorder, player correction, import, export, delete, and ranking-detail workflows.
 
 ### Non-Goals
 
-- Do not create Scenario V2 or add tier-semantics fields to Scenario V1.
-- Do not preserve ambiguous Scenario V1 tier numbers as new source metadata.
-- Do not rewrite curated scenario JSON fixtures merely to make their tier values cosmetic.
-- Do not change Scenario V1 document selection, schema version, or serialization shape.
-- Do not change Canonical Ranking JSON or persisted draft snapshot behavior.
-- Do not change recommendation scoring, factors, weights, caps, component priorities, or reason generation.
-- Do not remove valid positive tier-pressure tests that call the Recommendation Engine with explicit non-neutral tiers.
-- Do not add ranking-set or database lookups to parsing, replay, or sessions.
-- Do not update dependencies, data files, `docs/tasks.md`, or unrelated documentation.
+- Do not add manual source-tier, position-tier, or recommendation-tier authoring.
+- Do not redesign the ranking library or ranking-detail layout beyond the tier-related copy and controls.
+- Do not change ranking-set types, tier semantics, validation, normalization, editing operations, persistence, snapshots, or recommendation scoring.
+- Do not delete or rename the domain `assign-position-tiers` edit intent; removing the inaccurate UI entry point is sufficient for this slice.
+- Do not change draft setup, available-player, recommendation-panel, or draft-room copy in this slice.
+- Do not expose source metadata in recommendation scoring or infer recommendation eligibility from source tiers.
+- Do not update dependencies, `docs/tasks.md`, patch tracking, or unrelated documentation.
 
-## Compatibility Decisions
+## UI Decisions
 
-- Scenario V1 `tier` values are always legacy ambiguous because the format has no eligibility metadata.
-- The parsed in-memory `ScenarioV1.rankingContext.rankings` becomes the compatibility boundary output: all entries use `NEUTRAL_TIER`.
-- The mapper copies every entry and nested player object. It must not mutate the parsed JSON value or a caller-supplied typed scenario.
-- Raw ambiguous tier numbers are not retained in `ScenarioV1`; source-tier portability requires a future Scenario V2 and is outside this patch.
-- `replayScenarioV1` rematerializes neutral rankings defensively before calling the engine. This protects direct typed callers without changing replay output shape.
-- Transient scenario sessions use the already-neutral parsed scenario rankings, so local picks, undo, reset, and restart cannot restore ambiguous tier pressure.
-- Scenario V1 export/serialization remains shape-compatible. A subsequently imported Scenario V1 document is neutralized regardless of the numeric tier values written by an older or current producer.
-- `recommendations.scenario.test.ts` remains an engine-level suite. Its positive tier-cliff cases are not Scenario V1 compatibility cases and must continue passing unchanged.
+- `RankingSetCapabilities.tiers` is legacy capability metadata, not a complete semantic description. Library summaries may describe its values as `provided tier values` and `neutral fallback`, but must not call `source` capability values source tiers or position tiers.
+- Ranking detail must use `rankingSet.tierSemantics` as the authoritative display source:
+  - `source-overall` is labeled `Source tier` and described as preserved source data that does not drive recommendation pressure;
+  - `legacy-ambiguous` is labeled `Legacy tier` and described as recommendation-neutral compatibility data;
+  - `none` displays no source tier value;
+  - missing semantics are displayed as legacy/compatibility-neutral rather than inferred from capabilities or entry numbers.
+- Preserved source values are matched by both `playerId` and `overallRank`, consistent with the canonical tier metadata contract. A missing match displays an em dash; the UI does not repair data.
+- An engine-facing numeric tier is shown only when that row's position is explicitly `recommendation-position`. A `neutral` or missing semantic displays `Neutral` or `Neutral (compatibility)`.
+- The existing `Position Tiers` form is removed because it cannot truthfully distinguish source editing from recommendation-tier authoring under the current edit contract.
+- The pure domain edit intent remains untouched for compatibility and possible future redesign.
+- This 4A increment does not mark patch Slice 4 complete. Slice 4B must still correct draft setup and draft-room terminology.
 
 ## Implementation Steps
 
-1. Add the pure Scenario V1 compatibility mapper.
+1. Make ranking-library capability wording semantics-safe.
 
-   In `src/lib/scenarioValidation.ts`:
+   In `src/components/RankingLibraryPanel.tsx`:
 
-   - import `NEUTRAL_TIER` and the ranking-entry type;
-   - export a narrowly named helper such as `materializeScenarioV1Rankings`;
-   - accept `readonly RankingEntry[]` and return fresh `RankingEntry[]` values;
-   - copy each player and every non-tier ranking field exactly;
-   - set every output `tier` to `NEUTRAL_TIER`;
-   - do not validate, reorder, derive, or mutate values in this helper.
+   - update `formatCapabilitySummary` so `capabilities.tiers[position] === "source"` is described as a provided tier value, not as a source tier or position tier;
+   - describe `defaulted-neutral` positions as recommendation-neutral fallback;
+   - preserve deterministic position sorting and the existing team/ADP summary structure;
+   - remove `assignLoadedPositionTiers` and the `onAssignPositionTiers` prop wiring after the editor prop is removed;
+   - leave ranking import, load, rename, reorder, player correction, export, delete, status messages, and error handling unchanged.
 
-2. Neutralize rankings during Scenario V1 parsing.
+2. Replace ambiguous ranking-detail tier presentation.
 
-   In `parseRankings`:
+   In `src/components/RankingSetEditorPanel.tsx`:
 
-   - retain the current array, size, non-empty, and typed-entry validation;
-   - pass the successfully parsed entries through `materializeScenarioV1Rankings` before constructing `ScenarioV1`;
-   - preserve all existing validation errors, paths, limits, consistency checks, and object-copy behavior;
-   - do not add tier metadata to the parsed scenario.
+   - remove the `onAssignPositionTiers` prop, tier assignment form state/effects, submit handler, inputs, and `Position Tiers` form;
+   - do not replace the form with another editing control;
+   - replace `formatEditorCapabilitySummary` with a helper that accepts the complete `RankingSet` or add a separate tier-semantics summary helper;
+   - summarize preserved source semantics and per-position recommendation eligibility from `rankingSet.tierSemantics`;
+   - keep all listed positions deterministic and sorted;
+   - replace the bare `Tier` table column with separate semantic presentation for preserved source/legacy tier values and recommendation tier state;
+   - use a small pure lookup/formatting helper so source values match rows by `playerId` plus `overallRank`;
+   - render numeric recommendation tiers only for `recommendation-position`; render neutral and missing-semantics compatibility states as explicit text;
+   - preserve row order and every non-tier field and control.
 
-3. Guard direct typed replay callers.
+3. Update focused ranking-detail tests.
 
-   In `src/lib/scenarioReplay.ts`:
+   In `src/components/RankingSetEditorPanel.test.tsx`:
 
-   - materialize a local neutral ranking array before recommendation generation;
-   - pass only that local array to `generatePlayerRecommendations`;
-   - keep draft hydration, pick replay, rejection behavior, replay target selection, and result shape unchanged;
-   - do not mutate `scenario.rankingContext.rankings` or replace the caller's scenario object.
+   - remove the obsolete callback prop from component fixtures;
+   - replace position-tier assignment-control tests with explicit semantics fixtures covering:
+     - source-overall values displayed as `Source tier` data;
+     - recommendation-position values displayed separately and numerically;
+     - neutral recommendation positions displayed as `Neutral`;
+     - legacy-ambiguous and missing semantics displayed as compatibility-neutral without semantic inference;
+     - source values remaining distinct from recommendation values for the same row;
+   - assert the rendered detail does not contain `Position Tiers`, `Save Position Tiers`, `Tier capability`, `Current tier`, or a bare ambiguous tier heading;
+   - retain existing rename, reorder, correction, row-order, capability-summary, and error tests except for intentional tier-copy changes.
 
-4. Add parser compatibility tests.
+4. Update focused ranking-library tests.
 
-   In `src/lib/scenarioValidation.test.ts`, add a valid Scenario V1 document containing multiple positions and non-neutral tier gaps, then prove:
+   In `src/components/RankingLibraryPanel.test.tsx`:
 
-   - parsing succeeds;
-   - every parsed tier equals `NEUTRAL_TIER`;
-   - all non-tier ranking fields remain exact and ordered;
-   - the source document and its nested player values are unchanged;
-   - existing malformed ranking and consistency diagnostics remain unchanged.
+   - update capability-summary expectations to the new semantics-safe wording;
+   - assert summaries do not label a legacy `source` capability as `source tiers` or `position tiers`;
+   - retain empty state, import controls, summary metadata, diagnostics, delete confirmation, and export-file-name coverage unchanged.
 
-5. Add replay safety and determinism tests.
-
-   In `src/lib/scenarioReplay.test.ts`, add a directly constructed Scenario V1 with same-position tier gaps that would otherwise create pressure, then prove:
-
-   - replay succeeds without a tier-cliff component or reason;
-   - repeated replay returns identical draft, ordering, scores, components, and reasons;
-   - total scores reconcile with emitted components;
-   - roster fit, scarcity, run pressure, value opportunity, base order, and pick replay behavior remain unchanged;
-   - the caller's scenario and original tier values are not mutated.
-
-6. Cover the full import and transient-session paths.
-
-   In `src/lib/scenarioPortability.test.ts` and `src/lib/scenarioSession.test.ts`, prove:
-
-   - imported non-neutral Scenario V1 JSON exposes only neutral tiers;
-   - import recommendations contain no `tier_cliff` component or reason;
-   - a local transient pick, undo, reset, and restart continue recomputing from neutral rankings;
-   - scenario import/replay remains independent of mutable ranking sets and persistence;
-   - existing metadata, provenance, draft state, and non-tier semantic round trips remain intact.
-
-7. Correct curated Scenario V1 regression expectations.
-
-   In `src/lib/curatedScenarios.test.ts`:
-
-   - keep the existing curated JSON fixture unchanged;
-   - retain assertions for league configuration, replay target, user picks, available-player order, and deterministic primary recommendation ordering unless observed non-tier behavior proves otherwise;
-   - remove the expectation that the early-pressure fixture emits a tier-cliff component/reason;
-   - assert the component and reason are absent;
-   - update the exact score and remaining reason list only for the intentional removal of invalid tier pressure;
-   - continue asserting roster need, positional run, scarcity, and other non-tier components exactly.
-
-8. Run focused validation.
+5. Run focused validation.
 
    Run:
 
    ```text
-   npm test -- src/lib/scenarioValidation.test.ts src/lib/scenarioReplay.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/curatedScenarios.test.ts src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts
+   npm test -- src/components/RankingSetEditorPanel.test.tsx src/components/RankingLibraryPanel.test.tsx
    npx tsc --noEmit
+   npm run lint
    ```
 
-   The recommendation suites are regression-only:
+   If lint reports only the already-recorded unrelated warning in `src/lib/rankingNormalizer.test.ts`, record it as pre-existing and do not change that file.
 
-   - neutral-tier behavior must remain an explicit no-op;
-   - direct engine tests with valid non-neutral recommendation tiers must retain positive tier-pressure coverage.
+6. Complete focused manual QA.
 
-9. Finalize the slice after validation.
+   In the ranking library and ranking detail, verify:
 
-   If focused validation passes:
+   - a FantasyPros source-only set identifies preserved source tiers separately and never presents them as position tiers or recommendation pressure;
+   - an explicit canonical recommendation-eligible fixture shows numeric recommendation tiers only for eligible positions;
+   - a neutral or legacy-compatible set displays neutral recommendation state without exposing the numeric fallback as authored tier data;
+   - no tier assignment control remains;
+   - rename, reorder, player correction, export, close detail, and library navigation still work.
 
-   - update this file's Completion Status to complete;
-   - mark only Slice 3 complete in `docs/patches/tier-semantics-tasks.md`;
-   - record the exact validation commands and results in the patch task file;
-   - do not update `docs/tasks.md` or begin UI terminology work automatically.
+7. Finalize the slice after validation.
+
+   If automated validation and manual QA pass:
+
+   - update this file's Completion Status with the exact results;
+   - do not mark Slice 4 complete in `docs/patches/tier-semantics-tasks.md` yet;
+   - do not update `docs/tasks.md`;
+   - stop before beginning Slice 4B.
 
 ## Expected Files
 
 Production files:
 
-- `src/lib/scenarioValidation.ts`
-- `src/lib/scenarioReplay.ts`
+- `src/components/RankingLibraryPanel.tsx`
+- `src/components/RankingSetEditorPanel.tsx`
 
 Focused tests:
 
-- `src/lib/scenarioValidation.test.ts`
-- `src/lib/scenarioReplay.test.ts`
-- `src/lib/scenarioPortability.test.ts`
-- `src/lib/scenarioSession.test.ts`
-- `src/lib/curatedScenarios.test.ts`
+- `src/components/RankingLibraryPanel.test.tsx`
+- `src/components/RankingSetEditorPanel.test.tsx`
 
 Tracking after successful implementation:
 
 - `docs/current-slice.md`
-- `docs/patches/tier-semantics-tasks.md`
 
 Do not touch:
 
-- `src/types/scenario.ts` or the Scenario V1 schema shape.
-- `src/lib/scenarioSerialization.ts` unless implementation proves the unchanged writer bypasses the import compatibility boundary; stop and report before changing it.
-- curated scenario JSON fixtures or other data files.
-- recommendation production code or scoring constants.
-- ranking import, ranking repository, draft snapshot, draft repository, Prisma, UI, or replay-independent production files.
-- dependencies or `docs/tasks.md`.
+- ranking domain types, validation, normalization, conversion, editing, repository, or action modules;
+- snapshot, scenario, recommendation, or scoring modules;
+- draft setup, draft room, available-player, or recommendation components;
+- Prisma, data files, dependencies, `docs/tasks.md`, or `docs/patches/tier-semantics-tasks.md`.
 
 ## Tests
 
-Required focused validation:
+Required automated validation:
 
 ```text
-npm test -- src/lib/scenarioValidation.test.ts src/lib/scenarioReplay.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/curatedScenarios.test.ts src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts
+npm test -- src/components/RankingSetEditorPanel.test.tsx src/components/RankingLibraryPanel.test.tsx
 npx tsc --noEmit
+npm run lint
 ```
 
 Expected result:
 
-- Existing Scenario V1 documents continue parsing and replaying.
-- Parsed and session-held Scenario V1 rankings are recommendation-neutral.
-- Direct typed replay also cannot produce ambiguous tier pressure.
-- Tier-cliff components and reasons are absent from Scenario V1 results.
-- Non-tier components, ordering, pick replay, and score reconciliation remain deterministic.
-- Explicit engine-level tier-pressure tests remain green.
-
-## Manual QA
-
-No browser QA is required for this pure compatibility/replay slice.
-
-Manual code review should confirm:
-
-- neutralization occurs before rankings enter session state or recommendation evaluation;
-- the original Scenario V1 document and typed scenario are not mutated;
-- no tier semantics are inferred from numeric values;
-- replay performs no ranking-set or database lookup;
-- Scenario V1 schema and fixture files are unchanged;
-- Recommendation Engine behavior is unchanged.
+- ranking-library summaries no longer infer source or position semantics from capability values;
+- ranking detail distinguishes source, recommendation-eligible, neutral, and legacy-compatible states;
+- source values and engine-facing values cannot be mistaken for one another;
+- the ambiguous position-tier editing UI is absent;
+- unrelated ranking-management controls and workflows remain intact;
+- type checking and lint remain clean apart from any explicitly recorded pre-existing warning.
 
 ## Acceptance Criteria
 
-- Existing Scenario V1 fixtures continue to parse, import, replay, reset, restart, and support transient local picks.
-- Every parsed Scenario V1 ranking uses `NEUTRAL_TIER` regardless of the embedded numeric tier.
-- Direct typed Scenario V1 replay also treats embedded tiers as legacy ambiguous.
-- Ambiguous Scenario V1 tiers produce no tier-drop score component or tier-cliff reason.
-- Repeated replay of identical Scenario V1 input remains deterministic.
-- Recommendation totals reconcile with emitted components after tier pressure is removed.
-- Non-tier recommendation inputs, components, ordering, and replay state remain unchanged except where the removed invalid tier delta affected the final total or top-three reasons.
-- Scenario replay remains independent of mutable ranking sets, persisted snapshots, and database access.
-- Valid explicit non-neutral Recommendation Engine tests continue producing bounded tier pressure.
-- No Scenario V2, schema, fixture, serialization-shape, canonical import, snapshot, persistence, scoring, UI, dependency, data-file, or `docs/tasks.md` changes are introduced.
-- Required focused tests and `npx tsc --noEmit` pass.
+- Ranking-library summaries do not call a `source` tier capability a source tier or position tier.
+- Ranking detail labels `source-overall` metadata as source tiers and explains that it does not drive recommendation pressure.
+- Legacy ambiguous tier metadata is labeled legacy and displayed as recommendation-neutral compatibility data.
+- Missing tier semantics are not inferred from numeric values or capability labels.
+- Preserved source tier values are matched and displayed without replacing or mutating engine-facing recommendation tiers.
+- Numeric recommendation tiers appear only for positions explicitly marked `recommendation-position`.
+- Neutral positions display a textual neutral state instead of presenting `NEUTRAL_TIER` as authored tier data.
+- The UI contains no `Position Tiers`, `Save Position Tiers`, `Tier capability`, or bare ambiguous `Tier` table label in ranking detail.
+- Ranking detail no longer exposes a tier assignment form or calls the tier assignment action path.
+- Rename, reorder, player correction, import, export, delete, and ranking-detail navigation behavior remain unchanged.
+- No domain, persistence, snapshot, scenario, recommendation, draft-room, dependency, data-file, `docs/tasks.md`, or patch-tracking changes are introduced.
+- Focused component tests, TypeScript no-emit validation, lint, and manual QA pass, or an exact blocker is reported.
 
 ## Failure Handling
 
-- If parsed Scenario V1 rankings are consumed before `parseRankings` returns, stop and report that path before adding another neutralization point.
-- If direct replay needs neutralization but importing the compatibility helper creates a module cycle, keep the helper in a tiny scenario-specific module; do not duplicate tier policy across parser and replay.
-- If a curated scenario changes beyond the removed tier delta/reason, identify the exact non-tier difference and stop rather than broadly updating expectations.
-- If a positive tier-pressure engine test fails, preserve that explicit engine contract; do not neutralize generic `RecommendationInput`.
-- If unrelated scenario validation or replay tests fail, report them rather than weakening assertions or rewriting fixtures.
-- Preserve unrelated worktree changes, including completed Canonical JSON and snapshot slices, and report any unsafe overlap.
+- If a row has no matching preserved source value, display an em dash and keep rendering; do not infer from `RankingEntry.tier` or repair metadata in the UI.
+- If `tierSemantics` is missing, display compatibility-neutral language; do not infer eligibility from `capabilities.tiers`.
+- If removing the editor callback reveals another production caller, stop and report it before expanding beyond the two named components.
+- If correct display requires changing `RankingSetSummary`, domain types, repository projections, or edit semantics, stop and defer that change to a separately planned slice.
+- If unrelated component, type, or lint validation fails, report it rather than changing out-of-scope files.
+- Preserve unrelated worktree changes and report any unsafe overlap.
 
 ## Follow-Up
 
-After this slice is implemented and validated, the next slice is Tier Semantics Patch Slice 4 - Focused UI Terminology. It should correct affected user-facing tier labels and explanations without redesigning ranking-management screens. Do not begin it automatically.
+After this slice is implemented and validated, plan Tier Semantics Patch Slice 4B - Draft Workflow Terminology. It should correct draft-setup neutralization guidance and remove or relabel ambiguous tier presentation in the available-player and recommendation surfaces, with focused component and browser QA. Only after 4B passes should patch Slice 4 be marked complete.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. Parser and replay neutralization close the complete Scenario V1 recommendation path without changing the format.
-- Executable by a lower-reasoning pass: yes. The compatibility rule, exact boundaries, tests, and failure behavior are explicit.
-- Avoids unnecessary architecture changes: yes. No new scenario version, metadata model, persistence lookup, or scoring change is introduced.
-- Blast radius reasonable: yes. Runtime changes stay in two existing scenario modules; remaining changes are focused regression tests and tracking.
-- Review/revert comfort: yes. The mapper and defensive replay call are localized and fixture files remain unchanged.
-- Observable/testable acceptance criteria: yes. Parsed tiers, component/reason absence, deterministic output, score reconciliation, and non-mutation are directly assertable.
+- Smallest meaningful increment: yes. Ranking-library and ranking-detail terminology form one user-visible management workflow, while draft-room changes remain independently reviewable.
+- Executable by a lower-reasoning pass: yes. The authoritative metadata, exact labels to remove, fallback behavior, files, tests, and failure boundaries are explicit.
+- Avoids unnecessary architecture changes: yes. The slice consumes existing `tierSemantics` and removes an inaccurate UI entry point without changing domain contracts.
+- Blast radius reasonable: yes. Runtime and test changes are limited to two existing component pairs, plus completion tracking in this file.
+- Review/revert comfort: yes. The changes are localized presentation and prop removal with no persistence or scoring effects.
+- Observable/testable acceptance criteria: yes. Labels, values, absent controls, neutral states, and preserved ranking-management workflows are directly testable and manually inspectable.
