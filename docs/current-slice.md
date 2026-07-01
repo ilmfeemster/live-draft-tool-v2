@@ -1,207 +1,222 @@
-# Current Slice: Tier Semantics Patch Slice 1 - Canonical Ranking JSON Compatibility
+# Current Slice: Tier Semantics Patch Slice 2 - New Draft Snapshot Semantics
 
 ## Completion Status
 
-Complete. Canonical JSON V2 export, V1/V2 import compatibility, focused regression coverage, the full automated suite, and TypeScript validation pass.
+Planned. Awaiting implementation approval.
 
 ## Source Context
 
-- Patch task plan: `docs/patches/tier-semantics-tasks.md`, Slice 1.
-- Approved design: `docs/design/tier-semantics.md`, especially Canonical Ranking Set JSON and export compatibility.
-- Project constraints: `docs/project.md` and `docs/decisions.md` preserve deterministic staged imports, mutable ranking sets, immutable draft snapshots, and conservative legacy compatibility.
-- Completed prerequisites:
-  - import contracts define source-tier and recommendation-tier concepts;
-  - `RankingSet.tierSemantics` preserves source values separately from engine-facing recommendation tiers;
-  - FantasyPros conversion materializes neutral recommendation tiers;
-  - persisted ranking-set compatibility neutralizes legacy ambiguous tiers;
-  - neutral recommendation tiers produce no score component or reason.
-- Current Canonical JSON facts:
-  - transport preflight selects `canonical-ranking-json` format version 1;
-  - document `schemaVersion: 1` stores one ambiguous entry-level `tier` value;
-  - V2 document types already sketch separate `sourceTier` and `recommendationTier` values plus explicit top-level semantics;
-  - the executable exporter still writes V1;
-  - the parser accepts only V1;
-  - canonical V1 normalization currently forwards ambiguous `tier` values as engine-facing recommendation tiers.
+- Patch task plan: `docs/patches/tier-semantics-tasks.md`, Slice 2.
+- Approved design: `docs/design/tier-semantics.md`, especially immutable snapshots and persistence compatibility.
+- Completed prerequisite: Canonical Ranking JSON V2 now preserves explicit source and recommendation tier semantics.
+- Completed prerequisite: ranking sets persist `RankingSet.tierSemantics`, and legacy ranking-set rows load conservatively.
+- Completed prerequisite: legacy persisted draft snapshot arrays load with neutral recommendation tiers.
+- Current snapshot facts:
+  - `RankingSnapshot` can represent capabilities, tier semantics, source-set provenance, and capture time;
+  - `createRankingSnapshotFromRankingSet` currently copies only entries, capabilities, provenance, and capture time, dropping `tierSemantics`;
+  - `RankingSnapshot.rankings` is one Prisma `Json` column, so a versioned envelope can be stored without a schema migration;
+  - repository writes currently serialize only a bare `RankingEntry[]`;
+  - persisted draft hydration currently treats every stored snapshot as legacy and neutralizes every tier;
+  - the managed draft-creation workflow creates a rich snapshot but passes only its entries to the repository.
 
 ## Goal
 
-Export new canonical ranking documents with explicit tier semantics and round-trip them through the existing staged import workflow, while keeping Canonical Ranking Set JSON V1 readable with its ambiguous tiers preserved as legacy metadata and neutralized for recommendations.
+Persist complete, immutable tier semantics with every newly written draft ranking snapshot and hydrate recommendation tiers according to that stored eligibility, while keeping legacy bare-array snapshots readable and recommendation-neutral.
 
 ## Scope
 
 ### Goals
 
-- Make Canonical Ranking Set JSON V2 the only shape emitted by new exports.
-- Keep `canonical-ranking-json` transport format version 1; use document `schemaVersion` to dispatch V1 versus V2.
-- Preserve source-tier values, source-tier meaning, recommendation-tier values, and per-position recommendation eligibility across V2 export and re-import.
-- Keep V1 parsing available and classify its lone `tier` field as legacy ambiguous.
-- Preserve V1 tier numbers as legacy source metadata where possible, but materialize `NEUTRAL_TIER` for every engine-facing V1 entry.
-- Validate V2 tier-semantics metadata and entry fields through stable staged diagnostics.
-- Preserve import atomicity: malformed V2 input must not create or replace a stored ranking set.
-- Preserve deterministic property order, entry order, UTF-8 byte limits, entry limits, source provenance, and local-identity behavior.
+- Define a versioned persisted ranking-snapshot JSON envelope for new writes.
+- Store engine-facing rankings separately from source-tier metadata inside the envelope.
+- Preserve capabilities, tier semantics, source ranking-set identity/name, and capture time when available.
+- Make all new repository snapshot writes explicit: managed snapshots retain their semantics; callers without semantics receive a conservative legacy-ambiguous/neutral envelope.
+- Continue reading pre-patch bare ranking arrays.
+- Treat legacy array tiers as ambiguous source values and return neutral engine-facing tiers.
+- Preserve explicitly recommendation-eligible tiers from new envelopes during hydration.
+- Reject malformed new envelopes rather than inferring eligibility from numeric values.
+- Keep snapshot data independent from later ranking-set edits or deletion.
 
 ### Non-Goals
 
-- Do not change FantasyPros CSV behavior.
-- Do not derive recommendation tiers from source tiers, overall rank, position rank, or ADP.
-- Do not add a new transport-format selector, runtime plugin system, or generic migration framework.
-- Do not change ranking-set persistence schema or repository mapping.
-- Do not change draft snapshot, Scenario V1, replay, recommendation scoring, or UI behavior.
-- Do not rewrite existing files or database rows.
-- Do not update dependencies, data files, `docs/tasks.md`, or documentation outside the two patch tracking files named in the finalization step.
+- Do not rewrite existing snapshot rows.
+- Do not add or alter Prisma models, columns, migrations, or generated clients.
+- Do not make draft workspaces query mutable ranking sets during load.
+- Do not expose snapshot metadata in `DraftWorkspace` or add UI.
+- Do not persist recommendation output.
+- Do not change Scenario V1 parsing or replay.
+- Do not change recommendation scoring, weights, or reasons.
+- Do not add a generic snapshot migration framework.
+- Do not update dependencies, data files, `docs/tasks.md`, or unrelated documentation.
 
-## Canonical V2 Contract Decisions
+## Persisted Snapshot Contract
 
-- Continue passing `formatId: "canonical-ranking-json"` and `formatVersion: 1` through preflight. The JSON envelope's `schemaVersion` is authoritative for V1/V2 parsing.
-- Emit `schemaVersion: 2` with root fields in this deterministic order:
-  1. `schemaVersion`
-  2. `metadata`
-  3. `tierSemantics`
-  4. `capabilities`
-  5. `entries`
-- Each V2 entry contains `player`, `overallRank`, `positionRank`, `sourceTier`, `recommendationTier`, and `adpRank`; it never contains the ambiguous `tier` field.
-- Map domain source semantics as follows:
-  - `source-overall` -> `sourceTier: { kind: "source-only", sourceScope: "overall", recommendationEligible: false }`;
-  - `legacy-ambiguous` -> `sourceTier: { kind: "legacy-ambiguous", sourceScope: "unknown", recommendationEligible: false }`;
-  - `none` -> `sourceTier: { kind: "absent", sourceScope: "unknown", recommendationEligible: false }`.
-- The V2 `recommendationTier` contract declares that the entry field is position-scoped. Per-position eligibility comes from the existing tier capability together with `RankingSet.tierSemantics.recommendation`:
-  - represented positions marked `recommendation-position` preserve their canonical entry tier and import as recommendation-eligible;
-  - represented positions marked `neutral` export and import as `NEUTRAL_TIER` with `defaulted-neutral` capability;
-  - absent or contradictory eligibility metadata is invalid rather than inferred from a number.
-- For a domain set with missing tier semantics, export conservatively as legacy ambiguous: preserve its existing entry tiers in `sourceTier`, emit neutral `recommendationTier` values, and mark every represented position neutral. Never promote missing metadata to recommendation eligibility.
-- V1 import maps each legacy `tier` value to legacy ambiguous source metadata and sets the candidate's recommendation tier to `NEUTRAL_TIER`. Its imported tier capabilities are neutralized for represented positions even if the V1 capability object claimed source tiers.
+- Keep the existing `RankingSnapshot.rankings` Prisma JSON column. New writes store a document in this shape:
+
+  ```text
+  {
+    schemaVersion: 2,
+    rankings: RankingEntry[],
+    capabilities?: RankingSetCapabilities,
+    tierSemantics: RankingTierSemantics,
+    sourceRankingSetId?: string,
+    sourceRankingSetName?: string,
+    capturedAt: ISO-8601 string
+  }
+  ```
+
+- The envelope's `rankings` are the engine-facing immutable values. Source-tier values remain only in `tierSemantics.source.values`.
+- For an explicit managed snapshot:
+  - copy `RankingSet.tierSemantics` deeply;
+  - preserve entry tiers for positions marked `recommendation-position`;
+  - require neutral positions to contain `NEUTRAL_TIER`;
+  - copy capabilities and provenance.
+- For a new repository write that has entries but no explicit semantics:
+  - classify the original entry tiers as `legacy-ambiguous` source values;
+  - materialize `NEUTRAL_TIER` in every persisted engine-facing entry;
+  - mark every represented position `neutral`;
+  - convert represented tier capabilities to `defaulted-neutral` when capabilities are supplied;
+  - never infer recommendation eligibility from the tier numbers.
+- For a legacy bare-array snapshot:
+  - keep accepting the array shape;
+  - preserve its original tier numbers only as legacy-ambiguous source metadata in the parsed snapshot value;
+  - return neutral engine-facing rankings;
+  - do not require fields that the legacy document never stored.
+- `capturedAt` is copied from the managed snapshot when provided; repository-created conservative envelopes use the repository write time.
 
 ## Implementation Steps
 
-1. Complete the shared canonical handoff types.
+1. Add the versioned snapshot envelope and deep-copy helpers.
 
-   In `src/types/rankingImport.ts`:
+   In `src/lib/rankingSnapshot.ts`:
 
-   - retain the existing V1 and V2 portable document types;
-   - add the smallest source-neutral normalized tier-semantics handoff needed to carry source kind and per-position recommendation eligibility from normalization to conversion;
-   - add that optional handoff to `NormalizedRankingCandidate`;
-   - do not place parsed records or portable document objects on `RankingSet`.
+   - define the V2 persisted envelope type and update `RankingSnapshotJson` to cover legacy arrays and V2 envelopes;
+   - keep `parseRankingSnapshotJson` as the existing bare-array parser for low-level compatibility tests;
+   - allow `serializeRankingSnapshot` to distinguish a legacy array fixture from a `RankingSnapshot` value:
+     - an array serializes as the legacy array shape;
+     - a snapshot value serializes as the V2 envelope;
+   - add one internal conservative materialization path for snapshot values missing tier semantics;
+   - deep-copy capabilities, source-tier values, recommendation semantics, entries, and dates;
+   - serialize `capturedAt` as an ISO string without mutating the input.
 
-2. Dispatch and map canonical V1 and V2 documents.
+2. Make managed snapshot creation preserve exact semantics.
 
-   In `src/lib/canonicalRankingJsonParser.ts`:
+   In `createRankingSnapshotFromRankingSet`:
 
-   - accept document `schemaVersion` 1 and 2 under the existing canonical transport format;
-   - retain the Scenario V1 wrong-document guard and existing envelope/entry-count checks;
-   - keep the V1 mapping isolated: map entry `tier` to the source-tier field and attach legacy-ambiguous semantics;
-   - for V2, require an object `tierSemantics` envelope field and map entry `sourceTier` and `recommendationTier` separately;
-   - preserve exact field locations such as `tierSemantics.recommendationTier` and `entries[n].sourceTier` for downstream diagnostics;
-   - reject unsupported schema versions with the existing stable `unsupported-schema-version` category and a message listing 1 and 2;
-   - reject structurally malformed V2 envelopes or non-object entries at parse stage without attempting normalization.
+   - continue validating the source ranking set first;
+   - copy explicit `RankingSet.tierSemantics` into the snapshot;
+   - when semantics are absent, create the conservative legacy-ambiguous source metadata and neutral recommendation entries described above;
+   - align snapshot tier capabilities with the materialized recommendation semantics;
+   - retain source-set ID/name and the copied capture timestamp;
+   - ensure all nested values are independent of the mutable source set.
 
-3. Normalize explicit V2 semantics and neutralize V1.
+3. Parse legacy and V2 persisted snapshots through one compatibility boundary.
 
-   In `src/lib/rankingNormalizer.ts`:
+   Update `parsePersistedDraftRankingSnapshotJson` to return a `RankingSnapshot`:
 
-   - branch canonical normalization by parsed schema version rather than by a new transport format;
-   - validate the V2 source and recommendation semantic contracts, including allowed kind, scope, and `recommendationEligible` combinations;
-   - validate `sourceTier` as nullable or a positive integer and `recommendationTier` as a positive integer;
-   - derive per-position recommendation eligibility only from the explicit V2 semantics plus the existing tier capability for that position;
-   - require neutral positions to contain only `NEUTRAL_TIER` and require recommendation-eligible positions to remain eligible for normal canonical/domain tier validation;
-   - normalize V1 legacy tiers into `sourceTier`, set engine-facing `tier` to `NEUTRAL_TIER`, set represented tier capabilities to `defaulted-neutral`, and attach legacy-ambiguous source semantics;
-   - return stable `normalize` diagnostics with exact field paths for malformed or contradictory semantics;
-   - preserve all non-tier canonical name, provenance, capability, entry, and warning behavior.
+   - if the stored value is an array, parse it as legacy, preserve raw tiers as legacy source metadata, and neutralize engine-facing entries;
+   - if the stored value is an object, require `schemaVersion: 2`, an array `rankings`, an object `tierSemantics`, and a valid `capturedAt` string;
+   - parse optional capabilities and provenance when present;
+   - preserve tiers only for positions explicitly marked `recommendation-position`;
+   - require neutral positions to contain `NEUTRAL_TIER`;
+   - reject missing position semantics, unsupported semantics, malformed source-tier references, or inconsistent capabilities with stable errors;
+   - do not consult a ranking-set repository during parsing.
 
-4. Convert normalized canonical semantics without format-specific inference.
+4. Write V2 envelopes from the draft repository.
 
-   In `src/lib/rankingSetConversion.ts`:
+   In `src/lib/draftRepository.ts`:
 
-   - replace the current `isFantasyProsCandidate` inference with the explicit normalized tier-semantics handoff;
-   - build `RankingSet.tierSemantics.source.values` from validated source-tier values using canonical player IDs and overall ranks;
-   - copy the normalized per-position recommendation semantic map;
-   - use the normalized entry `tier` as the engine-facing recommendation tier; do not derive it from `sourceTier`;
-   - preserve the current FantasyPros result through the same generalized path;
-   - let existing conversion/domain validation reject invalid recommendation-tier ordering or capability mismatches before persistence.
+   - extend `CreateDraftWorkspaceInput` with optional snapshot metadata that excludes the already-present `rankings` array;
+   - always combine `input.rankings` with that metadata and serialize a V2 snapshot envelope;
+   - if metadata is absent, use the conservative materialization path rather than writing another ambiguous bare array;
+   - keep the Prisma write in the existing `rankingSnapshot.create.rankings` JSON field;
+   - preserve every other draft create, pick, undo, reset, list, and delete behavior.
 
-5. Emit deterministic Canonical Ranking Set JSON V2.
+5. Hydrate workspaces from the parsed snapshot rankings.
 
-   In `src/lib/canonicalRankingJsonExporter.ts`:
+   In `src/lib/draftRepositoryMapping.ts`:
 
-   - change the successful export value to `CanonicalRankingSetDocumentV2`;
-   - map explicit domain tier semantics using the contract decisions above;
-   - use `null` when an entry has no source-tier value;
-   - emit recommendation tiers only according to explicit per-position eligibility, otherwise emit `NEUTRAL_TIER`;
-   - apply the conservative legacy fallback when the domain set has no tier-semantics metadata;
-   - retain domain validation, entry and byte limits, source identity option, deep-copy behavior, and deterministic JSON serialization;
-   - do not retain a V1 export option.
+   - consume the `RankingSnapshot` returned by `parsePersistedDraftRankingSnapshotJson`;
+   - pass only `snapshot.rankings` into the existing `DraftWorkspace` boundary;
+   - do not add mutable source lookups or snapshot metadata to `DraftWorkspace`.
 
-6. Add focused parser and normalizer coverage.
+6. Pass managed snapshot metadata through draft creation.
 
-   In `src/lib/canonicalRankingJsonParser.test.ts` and `src/lib/rankingNormalizer.test.ts`, prove:
+   In `src/lib/draftCreationWorkflow.ts`:
 
-   - representative V2 fields and their locations map correctly;
-   - V1 remains readable and becomes legacy ambiguous plus recommendation-neutral;
-   - malformed/missing V2 tier metadata, unsupported semantic combinations, invalid source tiers, and invalid recommendation tiers return ordered stable diagnostics;
-   - Scenario V1 remains distinguishable;
-   - unsupported document schema versions still fail deterministically;
-   - existing non-tier V1 parser and canonical normalization behavior remains intact.
+   - continue creating the immutable snapshot before repository persistence;
+   - pass copied snapshot metadata alongside `snapshot.rankings` in `CreateDraftWorkspaceInput`;
+   - do not independently rebuild tier semantics in the workflow;
+   - retain league validation, error mapping, ranking-set selection, and result shape.
 
-7. Replace V1 exporter expectations with V2 round-trip coverage.
+7. Add focused snapshot mapper tests.
 
-   In `src/lib/canonicalRankingJsonExporter.test.ts`, prove:
+   In `src/lib/rankingSnapshot.test.ts`, prove:
 
-   - exact compact V2 output and frozen property order;
-   - V2 output contains no ambiguous entry-level `tier` field;
-   - source-only FantasyPros semantics round-trip with source values preserved and recommendation tiers neutral;
-   - explicit recommendation-position semantics and values round-trip unchanged;
-   - mixed represented positions preserve their individual eligible/neutral states;
-   - missing domain semantics export through the conservative legacy-ambiguous fallback and re-import neutral;
-   - degraded capabilities, source identity, deterministic copies, byte limits, entry limits, and invalid-domain failures retain their existing behavior.
+   - source-only managed semantics persist source values while engine tiers remain neutral;
+   - explicit recommendation-position tiers survive creation, V2 serialization, and hydration;
+   - mixed eligible/neutral positions retain their exact behavior;
+   - a managed set with missing semantics becomes legacy ambiguous and neutral;
+   - legacy arrays remain readable, preserve raw values as legacy metadata, and hydrate neutral;
+   - malformed V2 metadata, missing position eligibility, non-neutral values in neutral positions, and invalid source references fail;
+   - source entries, capabilities, semantics, source values, and dates share no mutable references with the snapshot or serialized value.
 
-8. Prove atomic workflow behavior.
+8. Add repository mapping and persistence coverage.
 
-   In `src/lib/rankingImportWorkflow.test.ts`, add one focused replacement test that starts with an existing set, submits malformed V2 tier metadata, and proves:
+   In `src/lib/draftRepository.test.ts` and `src/lib/draftRepositoryMapping.test.ts`, prove:
 
-   - the failure retains its parse or normalize stage and stable diagnostic path;
-   - `replaceRankingSet` is not called;
-   - the existing stored set is unchanged.
+   - new repository writes store `schemaVersion: 2` in the existing JSON field;
+   - explicit managed metadata round-trips without losing eligibility;
+   - repository callers without metadata produce conservative V2 envelopes, not legacy arrays;
+   - a legacy bare-array database fixture still loads with neutral tiers;
+   - eligible new snapshots hydrate their stored recommendation tiers;
+   - draft create/load, pick, undo, reset, summaries, and deletion remain unchanged.
 
-   Also update the existing canonical create fixture to V2 while retaining one explicit V1 create compatibility test.
+9. Add managed draft-creation isolation coverage.
 
-9. Run focused validation.
+   In `src/lib/draftCreationWorkflow.test.ts`, add source-only, recommendation-eligible, and mixed-semantic ranking-set fixtures and prove:
+
+   - the workflow passes complete copied snapshot metadata to persistence;
+   - source tiers remain separate from persisted engine tiers;
+   - eligible recommendation tiers remain eligible after simulated hydration;
+   - edits to or deletion of the source set after creation do not alter persisted snapshot entries or semantics;
+   - degraded and invalid ranking-set behavior remains unchanged.
+
+10. Run focused validation.
 
    Run:
 
    ```text
-   npm test -- src/lib/rankingImportPreflight.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/canonicalRankingJsonExporter.test.ts src/lib/rankingImportWorkflow.test.ts
+   npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/draftRepository.test.ts src/lib/draftCreationWorkflow.test.ts src/lib/recommendations.test.ts
    npx tsc --noEmit
    ```
 
-   Preflight coverage is regression-only: its canonical transport selector remains version 1 while document schema dispatch moves into the parser.
+   The recommendation suite is regression-only: it proves the hydrated neutral and explicitly eligible entry values retain the existing engine contract without changing scoring code.
 
-10. Finalize the slice after validation.
+11. Finalize the slice after validation.
 
    If focused validation passes:
 
    - update this file's Completion Status to complete;
-   - mark only Slice 1 complete in `docs/patches/tier-semantics-tasks.md`;
-   - record the exact validation commands and results in the patch task file if its completed-validation section is maintained;
-   - do not update `docs/tasks.md` or begin snapshot work automatically.
+   - mark only Slice 2 complete in `docs/patches/tier-semantics-tasks.md`;
+   - record the exact validation commands and results in the patch task file;
+   - do not update `docs/tasks.md` or begin Scenario V1 compatibility automatically.
 
 ## Expected Files
 
-Production and contract files:
+Production files:
 
-- `src/types/rankingImport.ts`
-- `src/lib/canonicalRankingJsonParser.ts`
-- `src/lib/rankingNormalizer.ts`
-- `src/lib/rankingSetConversion.ts`
-- `src/lib/canonicalRankingJsonExporter.ts`
+- `src/lib/rankingSnapshot.ts`
+- `src/lib/draftRepository.ts`
+- `src/lib/draftRepositoryMapping.ts`
+- `src/lib/draftCreationWorkflow.ts`
 
 Focused tests:
 
-- `src/lib/canonicalRankingJsonParser.test.ts`
-- `src/lib/rankingNormalizer.test.ts`
-- `src/lib/rankingSetConversion.test.ts`
-- `src/lib/canonicalRankingJsonExporter.test.ts`
-- `src/lib/rankingImportWorkflow.test.ts`
-- `src/lib/rankingManagementWorkflow.test.ts`, to update the managed-export contract assertion
-- `src/app/actions/rankingActions.test.ts`, to update the action boundary's typed V2 fixture
+- `src/lib/rankingSnapshot.test.ts`
+- `src/lib/draftRepository.test.ts`
+- `src/lib/draftRepositoryMapping.test.ts`
+- `src/lib/draftCreationWorkflow.test.ts`
 
 Tracking after successful implementation:
 
@@ -210,80 +225,75 @@ Tracking after successful implementation:
 
 Do not touch:
 
-- `src/lib/rankingImportPreflight.ts` unless implementation proves schema dispatch cannot remain parser-local; stop and report that conflict before changing it.
-- ranking repository production files or Prisma schema/migrations.
-- draft snapshot, draft repository, Scenario V1, replay, recommendation, or UI files.
-- `docs/tasks.md`.
+- `prisma/schema.prisma`, migrations, or generated Prisma files.
+- ranking-set repository or Canonical JSON production files.
+- Scenario V1, replay, recommendation, or UI production files.
+- `src/types/draft.ts` or the `DraftWorkspace` shape.
+- dependencies, fixtures outside focused tests, data files, or `docs/tasks.md`.
 
 ## Tests
 
 Required focused validation:
 
 ```text
-npm test -- src/lib/rankingImportPreflight.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/canonicalRankingJsonExporter.test.ts src/lib/rankingImportWorkflow.test.ts
+npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/draftRepository.test.ts src/lib/draftCreationWorkflow.test.ts src/lib/recommendations.test.ts
 npx tsc --noEmit
 ```
 
 Expected result:
 
-- New exports are deterministic Canonical Ranking Set JSON V2 documents.
-- V2 export/re-import preserves explicit source and recommendation tier semantics.
-- Legacy V1 remains importable but cannot create recommendation-tier pressure.
-- Malformed V2 semantics fail before persistence and cannot replace stored data.
-- FantasyPros CSV, format preflight, validation, conversion, and workflow regressions remain green.
-
-Completed result:
-
-- Required focused validation passed: 7 test files and 135 tests.
-- Directly affected ranking-management and action suites passed: 2 test files and 23 tests.
-- Full automated validation passed: 44 test files, 638 tests passed, and 1 test skipped.
-- `npx tsc --noEmit` passed.
+- New snapshot JSON is a deterministic V2 envelope in the existing column.
+- Source-only tiers remain inspectable but hydrate recommendation-neutral.
+- Explicitly eligible recommendation tiers survive persistence and hydration.
+- Legacy arrays continue loading with conservative neutral behavior.
+- Source changes or deletion do not affect stored snapshot behavior.
+- Existing draft persistence and recommendation regressions remain green.
 
 ## Manual QA
 
-No browser QA is required for this format-boundary slice.
+No browser QA is required for this persistence-boundary slice.
 
 Manual code review should confirm:
 
-- new exports contain no ambiguous lone `tier` field;
-- V1 compatibility never upgrades legacy values into recommendation eligibility;
-- `sourceTier` never directly populates the engine-facing tier;
-- per-position eligibility is copied from explicit semantics rather than inferred from tier numbers;
-- no persistence, snapshot, scenario, recommendation, or UI boundary changed.
+- the Prisma schema is unchanged;
+- new snapshot writes are objects, while legacy arrays remain accepted;
+- source-tier metadata never directly populates engine-facing tiers;
+- eligibility comes only from stored per-position semantics;
+- draft loading performs no mutable ranking-set lookup;
+- snapshot metadata is copied, not referenced.
 
 ## Acceptance Criteria
 
-- A new canonical export and re-import preserve explicit source-tier values and meaning.
-- A new canonical export and re-import preserve recommendation-tier values and per-position eligibility/neutralization.
-- New canonical documents use `schemaVersion: 2` and do not rely on an ambiguous lone `tier` field.
-- Legacy Canonical Ranking Set JSON V1 documents remain importable.
-- Legacy V1 tier values are preserved as legacy ambiguous metadata where practical and are materialized as neutral engine-facing tiers.
-- V1 imports cannot create recommendation-tier pressure by default.
-- Malformed or contradictory V2 tier metadata fails with stable staged diagnostics and exact locations.
-- Failed V2 replacement imports do not call the repository replacement operation or mutate stored data.
-- Canonical ranking documents remain distinct from Scenario V1 documents.
-- Deterministic ordering, identity rules, source provenance, byte limits, entry limits, and non-tier canonical behavior remain unchanged.
+- Every newly persisted draft ranking snapshot uses the V2 envelope with explicit tier semantics.
+- New managed snapshots preserve source-tier values separately from engine-facing recommendation tiers.
+- Explicit per-position recommendation eligibility and tier values survive creation, persistence, and hydration.
+- Source-only, absent, missing-semantic, and legacy ambiguous values hydrate with neutral tier pressure.
+- Legacy bare-array snapshots continue to load deterministically.
+- Malformed V2 semantics cannot be upgraded into recommendation eligibility.
+- Snapshot entries and metadata remain unchanged after source ranking-set edits or deletion.
+- Snapshot hydration remains independent of mutable ranking-set persistence.
+- Existing draft create/load, picks, undo, reset, list, delete, and deterministic recommendation behavior remain unchanged.
+- No Prisma schema, migration, Scenario V1, replay, scoring, UI, dependency, data-file, or `docs/tasks.md` changes are introduced.
 - Required focused tests and `npx tsc --noEmit` pass.
-- No persistence, snapshot, Scenario V1, replay, recommendation, UI, dependency, data-file, or `docs/tasks.md` changes are introduced.
 
 ## Failure Handling
 
-- If the existing V2 type shape cannot represent a currently valid `RankingSet.tierSemantics` state without loss, stop and report the exact state rather than silently flattening eligibility.
-- If V2 requires changing the external transport `formatVersion`, stop and report the preflight/UI compatibility impact before broadening scope.
-- If V1 source-tier preservation violates an existing canonical invariant, retain loadability and neutral recommendation behavior, then report the metadata limitation rather than restoring ambiguous pressure.
-- If malformed V2 input reaches repository create or replace, fix only the staged import boundary responsible; do not add repository-format validation.
-- If focused failures are unrelated to canonical tier semantics, report them rather than changing other workflows.
-- Preserve unrelated worktree changes and report any unsafe overlap.
+- If the V2 envelope cannot fit safely in the existing JSON column, stop and report the exact serialization limitation before proposing schema changes.
+- If a currently valid explicit `RankingTierSemantics` state cannot round-trip through the envelope, stop and report that state rather than flattening eligibility.
+- If a legacy array lacks enough metadata to preserve source meaning, preserve loadability and neutral recommendation behavior; do not infer eligibility.
+- If a new envelope is malformed or contradictory, fail hydration rather than silently treating numeric tiers as eligible.
+- If draft repository regressions require changing unrelated draft behavior, report them rather than broadening the slice.
+- Preserve unrelated worktree changes, including the completed Canonical JSON slice, and report any unsafe overlap.
 
 ## Follow-Up
 
-After this slice is implemented and validated, the next slice is Tier Semantics Patch Slice 2 - New Draft Snapshot Semantics. It should persist and hydrate explicit tier semantics in newly created immutable snapshots while retaining conservative legacy snapshot behavior. Do not begin it automatically.
+After this slice is implemented and validated, the next slice is Tier Semantics Patch Slice 3 - Scenario V1 Compatibility. It should keep existing scenarios replayable while neutralizing ambiguous Scenario V1 tiers. Do not begin it automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. Export and import are kept together because the user-visible portable format must round-trip safely; either half alone is incomplete.
-- Executable by a lower-reasoning pass: yes. Version dispatch, exact compatibility behavior, semantic mappings, files, tests, and failure rules are explicit.
-- Avoids unnecessary architecture changes: yes. It extends the existing staged import handoff and versioned document contract without a new format selector, repository rule, or migration system.
-- Blast radius reasonable: yes, with a documented exception to the five-file preference. The five production/contract files are the existing contiguous parse-normalize-convert-export boundary; additional changes are focused tests and tracking only.
-- Review/revert comfort: yes. No persistence schema, snapshot, scenario, scoring, or UI change is included.
-- Observable/testable acceptance criteria: yes. Exact JSON, round trips, diagnostics, neutralization, and repository call counts are directly assertable.
+- Smallest meaningful increment: yes. Snapshot creation, persistence, and hydration stay together because semantics are only useful if they survive the complete immutable boundary.
+- Executable by a lower-reasoning pass: yes. The envelope, compatibility behavior, handoff, exact files, tests, and failure rules are specified.
+- Avoids unnecessary architecture changes: yes. It reuses the existing JSON column and snapshot module without a migration or new repository.
+- Blast radius reasonable: yes. Four production files form the existing creation/serialization/hydration path; the remaining changes are focused tests and tracking.
+- Review/revert comfort: yes. No schema, workspace, scenario, scoring, or UI contract changes are included.
+- Observable/testable acceptance criteria: yes. Stored JSON shape, parsed metadata, hydrated tier values, repository behavior, and isolation are directly assertable.
