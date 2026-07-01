@@ -1,209 +1,210 @@
-# Current Slice: Tier Semantics Task 6b - Neutralize Legacy Draft Snapshot Tiers
+# Current Slice: Tier Semantics Task 7 - Make Neutral Tier Pressure an Explicit No-Op
 
 ## Completion Status
 
-Complete. Focused tests, the full automated suite, and TypeScript validation pass.
+Planned. Implementation has not begun.
 
 ## Source Context
 
 - Patch task plan: `docs/patches/tier-semantics-tasks.md`
 - Approved design: `docs/design/tier-semantics.md`
-- Completed prerequisite: Task 5 neutralizes FantasyPros engine-facing tiers while preserving source tiers.
-- Completed prerequisite: Task 6a persists ranking-set tier semantics and conservatively maps legacy ranking-set rows.
-- Current draft snapshot behavior:
-  - persisted `RankingSnapshot.rankings` values are unversioned JSON arrays of `RankingEntry` values;
-  - draft hydration parses those arrays through `parseRankingSnapshotJson` and exposes them directly as `DraftWorkspace.rankings`;
-  - old persisted arrays may therefore still contain ambiguous non-neutral tier values that reach recommendations;
-  - the same generic ranking-snapshot parser is also used by Scenario V1 validation, so changing its behavior globally would broaden this slice into scenario compatibility.
+- Completed prerequisite: Task 5 converts FantasyPros source tiers into metadata and materializes neutral engine-facing tiers.
+- Completed prerequisite: Task 6a neutralizes legacy ranking-set rows during repository mapping.
+- Completed prerequisite: Task 6b neutralizes legacy persisted draft snapshot tiers during draft hydration.
+- Current Recommendation Engine facts:
+  - `RecommendationInput` contains `RankingEntry[]`, not ranking-set or snapshot tier metadata;
+  - upstream boundaries now guarantee that source-only, absent, and legacy ambiguous tiers reach the engine as `NEUTRAL_TIER`;
+  - `calculateTierDropRiskComponent` already produces zero delta when all same-position entries share the neutral tier because no next tier exists;
+  - `generatePlayerRecommendations` still emits that zero-delta `tier_cliff` component even though it cannot affect scoring or produce a reason;
+  - the legacy `calculateTierDropModifier` path also naturally returns zero for neutral tiers, but the behavior is not explicit or regression-tested as a semantic boundary.
 
-The immediate product problem is preventing ambiguous overall tiers from acting like position-tier recommendation pressure. This slice closes the persisted-draft hydration path only. It does not introduce a new snapshot format or persist tier-semantics metadata; those broader portability capabilities remain deferred unless later engine work proves they are necessary.
+Task 6 still has deferred Canonical JSON and richer snapshot/scenario portability work. Per the current priority, this slice promotes the engine safety task now because the engine-facing neutralization boundaries are complete. It does not reopen those deferred compatibility surfaces.
 
 ## Goal
 
-Ensure every existing unversioned persisted draft ranking snapshot hydrates with neutral engine-facing tiers, without changing generic ranking-array parsing or Scenario V1 behavior.
+Make neutral recommendation tiers explicitly produce no tier-drop score, score component, or tier-cliff reason while preserving existing behavior for validated non-neutral recommendation-tier inputs.
 
 ## Scope
 
 ### Goals
 
-- Add a draft-specific persisted snapshot parser at the ranking-snapshot boundary.
-- Reuse existing strict ranking-entry parsing before applying compatibility behavior.
-- Replace every hydrated persisted-draft `RankingEntry.tier` with `NEUTRAL_TIER`.
-- Preserve player, overall rank, position rank, ADP, canonical order, and array length exactly.
-- Return independently owned entry and player objects.
-- Update draft repository mapping to use the draft-specific compatibility parser.
-- Keep the generic `parseRankingSnapshotJson` behavior unchanged for Scenario V1 and other callers.
-- Add focused tests proving legacy draft snapshot neutralization and parser isolation.
+- Add an explicit neutral-tier guard to the modern tier-drop component calculation.
+- Return a deterministic zero-delta result with inspectable neutral-tier evidence from the pure calculation helper.
+- Omit zero-delta `tier_cliff` components from final `PlayerRecommendation.components`.
+- Preserve the existing rule that reasons are created only from positive score components.
+- Add an explicit neutral-tier guard to the legacy tier-drop modifier helper.
+- Preserve positive tier-pressure behavior for existing non-neutral recommendation-tier test inputs.
+- Preserve all non-tier scoring, urgency caps, ordering, tie breakers, and determinism.
+- Add focused regression tests for neutral modern and legacy paths.
 
 ### Non-Goals
 
-- Do not add a new versioned draft snapshot JSON contract.
-- Do not persist `RankingSnapshot.capabilities` or `RankingSnapshot.tierSemantics` in this slice.
-- Do not change snapshot database schema or add a migration.
-- Do not change ranking-set repository behavior.
-- Do not change Scenario V1 validation, serialization, replay, or fixtures.
-- Do not change Canonical Ranking Set JSON import/export.
-- Do not change Recommendation Engine scoring, components, reasons, or tuning yet.
-- Do not add recommendation-tier authoring or infer eligible tiers.
-- Do not update UI or manual QA.
-- Do not update `docs/tasks.md` or mark patch Task 6 complete.
+- Do not add tier-semantics metadata to `RecommendationInput` or `DraftWorkspace`.
+- Do not make the engine inspect ranking-set source metadata, import records, repositories, or snapshots.
+- Do not derive tiers or infer eligibility from rank, position rank, ADP, or source tiers.
+- Do not retune tier-pressure constants or unrelated scoring weights.
+- Do not remove valid non-neutral tier-pressure behavior.
+- Do not update ranking import, repository, snapshot, Canonical JSON, Scenario V1, or replay code.
+- Do not update UI copy or manual QA.
+- Do not update dependencies or data files.
+- Do not update `docs/tasks.md`.
 
 ## Implementation Steps
 
-1. Add a draft-specific compatibility parser.
+1. Make neutral modern tier input explicit.
 
-   In `src/lib/rankingSnapshot.ts`, add one explicit function, preferably:
+   In `src/lib/recommendations.ts`, import `NEUTRAL_TIER` and update `calculateTierDropRiskComponent`.
 
-   ```ts
-   parsePersistedDraftRankingSnapshotJson(snapshot: unknown): RankingEntry[]
-   ```
+   After collecting and stably sorting same-position available rankings, detect the neutral semantic state when every represented same-position entry has `tier === NEUTRAL_TIER`.
 
-   The function must:
+   Return the normal `tier_cliff` component shape with:
 
-   - call the existing `parseRankingSnapshotJson` first so malformed legacy JSON retains the current stable validation behavior;
-   - map the parsed entries to fresh entry and player objects;
-   - set only `tier` to `NEUTRAL_TIER`;
-   - preserve every other parsed value and canonical order;
-   - remain pure and deterministic.
+   - `delta: 0`;
+   - `direction: "neutral"`;
+   - the existing component priority;
+   - evidence containing the position, current tier, same-tier count, `nextTier: null`, `tierGap: null`, distance to the next user pick, roster-fit delta, and a stable threshold such as `"neutral_recommendation_tiers"`.
 
-   Do not add format detection, metadata inference, or source-specific logic. Every persisted unversioned draft snapshot is ambiguous and receives the same conservative treatment.
+   Keep malformed or empty direct-helper inputs under their existing behavior. Do not add domain validation inside the engine.
 
-2. Keep the generic parser unchanged.
+2. Stop emitting non-scoring tier components.
 
-   `parseRankingSnapshotJson` and `serializeRankingSnapshot` must retain their current array round-trip behavior. Scenario V1 and other generic ranking-array consumers must not be silently neutralized by this slice.
+   In `generatePlayerRecommendations`, continue calculating the tier component before urgency totals, but include it in `PlayerRecommendation.components` only when `tierCliffComponent.delta !== 0`.
 
-   Do not rename the existing functions or alter their accepted JSON shape.
+   Required behavior:
 
-3. Route persisted draft hydration through the compatibility parser.
+   - a neutral tier component contributes zero to urgency and context scoring;
+   - it is absent from the final component list;
+   - it cannot produce a reason because reason selection only sees emitted score components;
+   - positive tier components remain emitted exactly as today;
+   - score reconciliation remains exact.
 
-   In `src/lib/draftRepositoryMapping.ts`:
+   Do not filter unrelated zero-delta components in this slice.
 
-   - replace the `parseRankingSnapshotJson` import with the new draft-specific parser;
-   - use it only for `record.rankingSnapshot.rankings`;
-   - keep league-settings parsing, pick-history mapping, draft hydration, and workspace shape unchanged.
+3. Make the legacy helper explicitly neutral.
 
-   Do not change `DraftWorkspace`, `CreateDraftWorkspaceInput`, `draftRepository.ts`, or database types.
+   In `calculateTierDropModifier`, after collecting same-position rankings, return `{ modifier: 0, reason: null }` when all represented same-position entries use `NEUTRAL_TIER`.
 
-4. Add focused ranking-snapshot tests.
+   Preserve every existing positive non-neutral legacy behavior and reason string.
 
-   In `src/lib/rankingSnapshot.test.ts`, add tests proving:
+4. Add focused modern-engine tests.
 
-   - the draft-specific parser converts mixed non-neutral legacy tiers to `NEUTRAL_TIER`;
-   - all non-tier fields and ordering are preserved;
-   - returned entries and players do not share references with parsed or source values;
-   - malformed input still throws the existing parser error;
-   - `serializeRankingSnapshot` plus generic `parseRankingSnapshotJson` still round-trips non-neutral tiers unchanged.
+   In `src/lib/recommendations.test.ts`, add tests proving:
 
-5. Update draft repository mapping tests.
+   - `calculateTierDropRiskComponent` returns zero with the stable neutral-tier threshold for a position containing only neutral tiers;
+   - `generatePlayerRecommendations` emits no `tier_cliff` component for neutral-tier inputs;
+   - neutral-tier recommendations contain no tier-cliff reason;
+   - total, context, urgency adjustment, and non-tier components still reconcile;
+   - repeated evaluation remains deterministic;
+   - existing mild, last-in-tier, and major non-neutral tier-pressure tests continue passing unchanged.
 
-   In `src/lib/draftRepositoryMapping.test.ts`:
+5. Add focused legacy-helper coverage.
 
-   - update the persisted snapshot expectation that currently exposes tier `4` unchanged;
-   - assert that the hydrated workspace exposes `NEUTRAL_TIER` instead;
-   - assert that player, rank, position-rank, ADP, and team values remain unchanged;
-   - keep invalid snapshot and pick-history behavior unchanged.
+   In the existing legacy recommendation test section, add or update one test proving `calculateTierDropModifier` returns zero and no reason for neutral same-position entries.
+
+   Do not rewrite the legacy recommendation API or migrate its callers in this slice.
 
 6. Run focused validation.
 
    Run:
 
    ```text
-   npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/draftRepository.test.ts src/lib/draftCreationWorkflow.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioSerialization.test.ts
+   npm test -- src/lib/recommendations.test.ts src/lib/draftWorkflow.test.ts src/lib/draftRepository.test.ts src/lib/scenarioReplay.test.ts src/lib/scenarioSession.test.ts
    npx tsc --noEmit
    ```
 
-   The draft repository and creation tests protect the real persistence workflow. The scenario tests prove that leaving the generic parser unchanged preserves the deferred Scenario V1 boundary.
+   The recommendation unit suite proves score/component/reason behavior. Draft and scenario regressions prove that non-tier behavior and deterministic workflows remain intact without changing their source files.
 
-7. Finalize this slice.
+7. Finalize the slice.
 
    If focused validation passes:
 
    - update this file's Completion Status to complete;
-   - do not mark patch Task 6 complete;
+   - mark Task 7 complete in `docs/patches/tier-semantics-tasks.md`;
+   - do not mark Task 6 complete;
    - do not update `docs/tasks.md`;
-   - recommend Task 7 as the next active slice;
-   - record Canonical JSON and richer snapshot/scenario portability as deferred compatibility work rather than beginning it automatically.
+   - report the deferred Canonical JSON and richer scenario/snapshot portability work separately;
+   - do not begin UI or regression-exit work automatically.
 
 ## Expected Files
 
-- `src/lib/rankingSnapshot.ts`
-- `src/lib/rankingSnapshot.test.ts`
-- `src/lib/draftRepositoryMapping.ts`
-- `src/lib/draftRepositoryMapping.test.ts`
+- `src/lib/recommendations.ts`
+- `src/lib/recommendations.test.ts`
+- `docs/patches/tier-semantics-tasks.md`, after validation, to mark Task 7 complete
 - `docs/current-slice.md`, after validation, to record completion status
 
 Do not touch these files in this slice:
 
-- `src/types/rankings.ts`
 - `src/types/draft.ts`
-- `src/lib/draftRepository.ts`
-- `src/lib/draftCreationWorkflow.ts`
-- `src/lib/rankingSetRepository.ts`
-- `src/lib/recommendations.ts`
+- `src/types/rankings.ts`
+- Ranking import, conversion, or repository files
+- Ranking snapshot or draft repository mapping files
 - Canonical JSON files
-- Scenario or replay files
+- Scenario, replay, or curated-scenario files
 - Prisma schema or migrations
 - UI components
 - fixtures or data files
 - `docs/tasks.md`
-- `docs/patches/tier-semantics-tasks.md`
 
 ## Tests
 
 Required focused validation:
 
 ```text
-npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/draftRepository.test.ts src/lib/draftCreationWorkflow.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioSerialization.test.ts
+npm test -- src/lib/recommendations.test.ts src/lib/draftWorkflow.test.ts src/lib/draftRepository.test.ts src/lib/scenarioReplay.test.ts src/lib/scenarioSession.test.ts
 npx tsc --noEmit
 ```
 
 Expected result:
 
-- Existing persisted draft arrays hydrate successfully.
-- Hydrated draft rankings contain only `NEUTRAL_TIER` values.
-- No ambiguous persisted tier can reach recommendations through `DraftWorkspace.rankings`.
-- Non-tier ranking values and draft pick history remain unchanged.
-- Generic ranking-array parsing still preserves supplied tiers for deferred Scenario V1 compatibility.
-- No schema, engine, scenario, export, or UI behavior changes.
+- Neutral engine-facing tiers produce zero tier pressure.
+- Neutral tiers emit no `tier_cliff` score component.
+- Neutral tiers emit no tier-cliff reason.
+- Valid non-neutral tier-pressure tests retain their current deltas, components, reasons, caps, and ordering.
+- Roster fit, positional scarcity, observed run pressure, value opportunity, and base ranking behavior remain unchanged.
+- Draft and scenario recommendation output remains deterministic.
+- No upstream persistence, snapshot, scenario, export, or UI code changes.
 
 ## Manual QA
 
-No app manual QA is required for this compatibility-mapper slice.
+No app manual QA is required for this pure engine slice.
 
 Manual review should confirm:
 
-- neutralization occurs only in persisted draft hydration;
-- generic ranking snapshot parsing remains byte-shape compatible with existing array callers;
-- no scenario or recommendation code changed;
-- the new helper is a small compatibility boundary, not a new snapshot abstraction.
+- the engine checks only the materialized neutral tier value, not source metadata;
+- the neutral path changes no score;
+- positive tier components remain score-backed;
+- reason selection cannot emit a tier reason without an emitted positive component;
+- no scoring constants changed.
 
 ## Acceptance Criteria
 
-- A persisted draft snapshot containing tier values such as `1`, `2`, and `4` hydrates with every entry tier equal to `NEUTRAL_TIER`.
-- Hydration preserves player identity, player fields, overall rank, position rank, ADP, ordering, and entry count.
-- Invalid persisted snapshot JSON retains the current error behavior.
-- Hydrated rankings are independently owned values.
-- Generic `serializeRankingSnapshot` and `parseRankingSnapshotJson` continue preserving non-neutral tiers unchanged.
-- Scenario V1 validation and serialization tests pass without scenario code changes.
-- No database, ranking-set repository, canonical JSON, Recommendation Engine, UI, dependency, data-file, `docs/tasks.md`, or patch-task-status changes are introduced.
+- FantasyPros-derived neutral entries create no tier-drop score, component, or reason.
+- Legacy ranking-set and persisted-draft entries neutralized upstream create no tier-drop score, component, or reason.
+- `calculateTierDropRiskComponent` exposes a deterministic neutral-tier no-op result.
+- `calculateTierDropModifier` returns zero and no reason for neutral tiers.
+- Existing non-neutral recommendation-tier scenarios continue producing their current bounded tier pressure.
+- Non-tier modifiers, score reconciliation, reason/component linkage, ordering, and deterministic repetition remain unchanged.
+- No input-type, import, repository, snapshot, Canonical JSON, Scenario V1, replay, UI, dependency, data-file, or `docs/tasks.md` changes are introduced.
 - Focused tests and `npx tsc --noEmit` pass.
+- Patch Task 7 is marked complete only after validation passes.
 
 ## Failure Handling
 
-- If draft hydration cannot be isolated from Scenario V1 without changing shared public behavior, stop and report the coupling rather than changing scenarios in this slice.
-- If neutralizing persisted entries breaks draft invariants unrelated to tiers, report the failure rather than modifying draft state logic.
-- If Recommendation Engine changes are required to make neutral tiers no-op, stop; that belongs to Task 7.
-- If unrelated worktree changes overlap the four target source/test files, preserve them and report any conflict that prevents safe editing.
+- If neutral tiers currently affect scoring through a path other than the two documented tier helpers, stop and report that path before broadening implementation.
+- If omitting a neutral tier component breaks score reconciliation, fix only component assembly caused by this slice; do not alter scoring constants.
+- If a positive tier-pressure test requires semantics metadata that does not reach the engine, preserve the existing non-neutral materialized-tier contract rather than adding repository or snapshot coupling.
+- If draft or scenario regression failures are unrelated to tier component omission, report them rather than modifying those workflows.
+- If unrelated worktree changes overlap `recommendations.ts` or its test file, preserve them and report any unsafe conflict.
 
 ## Follow-Up
 
-After this slice, plan Task 7 to ensure tier-drop scoring and tier-cliff reasons no-op for neutral recommendation tiers. Canonical JSON evolution and richer Scenario/snapshot portability remain deferred unless explicitly reprioritized. Do not begin the next slice automatically.
+After this slice, reassess the remaining patch work. Canonical JSON evolution and richer Scenario/snapshot portability remain deferred. The next product-facing slice should be Task 8 UI language only if the corrected semantics need user-visible explanation; otherwise plan Task 9 focused regression consolidation. Do not begin either automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It closes the remaining legacy persisted-draft route into recommendation input.
-- Executable by a lower-reasoning pass: yes. One helper, one call-site change, focused assertions, and explicit non-goals define the work.
-- Avoids unnecessary architecture changes: yes. Existing array storage, domain types, and workspace boundaries remain intact.
-- Blast radius reasonable: yes. Runtime changes affect two modules and two focused test files.
-- Review/revert comfort: yes. Draft-only compatibility neutralization is isolated and reversible.
-- Observable/testable acceptance criteria: yes. Exact hydrated values and generic parser isolation are directly assertable.
+- Smallest meaningful increment: yes. The scoring behavior is already nearly correct; this slice makes the neutral contract explicit and removes misleading output.
+- Executable by a lower-reasoning pass: yes. The two helper guards, one component filter, exact evidence, and tests are specified.
+- Avoids unnecessary architecture changes: yes. No new metadata channel or engine input type is introduced.
+- Blast radius reasonable: yes. Runtime and test changes stay in one recommendation module and its focused test file.
+- Review/revert comfort: yes. The neutral guard and component omission are localized.
+- Observable/testable acceptance criteria: yes. Exact deltas, component presence, reason presence, and score reconciliation are directly assertable.
