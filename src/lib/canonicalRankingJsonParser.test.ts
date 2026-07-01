@@ -110,7 +110,7 @@ describe("parseCanonicalRankingJson", () => {
             "entries[0].positionRank",
             "sourcePositionRank",
           ),
-          tier: located(2, "entries[0].tier", "tier"),
+          sourceTier: located(2, "entries[0].tier", "sourceTier"),
           adpRank: located(null, "entries[0].adpRank", "adpRank"),
           playerId: located(
             "portable-player-1",
@@ -165,7 +165,7 @@ describe("parseCanonicalRankingJson", () => {
             "entries[0].positionRank",
             "sourcePositionRank",
           ),
-          tier: located(-7, "entries[0].tier", "tier"),
+          sourceTier: located(-7, "entries[0].tier", "sourceTier"),
           adpRank: located("unknown", "entries[0].adpRank", "adpRank"),
           player: located(
             "not-an-object",
@@ -252,7 +252,7 @@ describe("parseCanonicalRankingJson", () => {
     expect(result.errors[0]?.location).toEqual({ path: "schemaVersion" });
   });
 
-  it.each([0, 2, "1", null])(
+  it.each([0, 3, "1", null])(
     "rejects unsupported schema version %j without coercion",
     (schemaVersion) => {
       const result = parseValue({
@@ -266,6 +266,71 @@ describe("parseCanonicalRankingJson", () => {
       expect(result.errors[0]?.location).toEqual({ path: "schemaVersion" });
     },
   );
+
+  it("maps V2 tier semantics and separate entry tier fields", () => {
+    const tierSemantics = {
+      sourceTier: {
+        kind: "source-only",
+        sourceScope: "overall",
+        recommendationEligible: false,
+      },
+      recommendationTier: {
+        kind: "recommendation-eligible",
+        sourceScope: "position",
+        recommendationEligible: true,
+      },
+    };
+    const result = parseValue({
+      schemaVersion: 2,
+      metadata: {},
+      tierSemantics,
+      capabilities: {},
+      entries: [
+        {
+          sourceTier: 4,
+          recommendationTier: 2,
+        },
+      ],
+    });
+
+    expectSuccess(result);
+    expect(result.value.metadata).toEqual({
+      schemaVersion: located(2, "schemaVersion", "schemaVersion"),
+      documentMetadata: located({}, "metadata", "metadata"),
+      capabilities: located({}, "capabilities", "capabilities"),
+      tierSemantics: located(
+        tierSemantics,
+        "tierSemantics",
+        "tierSemantics",
+      ),
+    });
+    expect(result.value).not.toHaveProperty("tierSemantics");
+    expect(result.value.records[0]?.fields).toEqual({
+      sourceTier: located(4, "entries[0].sourceTier", "sourceTier"),
+      tier: located(2, "entries[0].recommendationTier", "tier"),
+    });
+  });
+
+  it("requires an object tierSemantics envelope for V2", () => {
+    const missing = parseValue({
+      schemaVersion: 2,
+      metadata: {},
+      capabilities: {},
+      entries: [],
+    });
+    const invalid = parseValue({
+      schemaVersion: 2,
+      metadata: {},
+      tierSemantics: [],
+      capabilities: {},
+      entries: [],
+    });
+
+    expectFailureCodes(missing, ["missing-envelope-field"]);
+    expect(missing.errors[0]?.location).toEqual({ path: "tierSemantics" });
+    expectFailureCodes(invalid, ["invalid-envelope-field"]);
+    expect(invalid.errors[0]?.location).toEqual({ path: "tierSemantics" });
+  });
 
   it("reports missing envelope fields in frozen order", () => {
     const result = parseValue({ schemaVersion: 1 });

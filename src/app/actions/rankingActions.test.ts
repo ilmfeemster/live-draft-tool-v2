@@ -223,11 +223,23 @@ describe("ranking library server actions", () => {
 
     const exported: CanonicalRankingJsonExportValue = {
       document: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         metadata: {
           name: "Exported Rankings",
           exportedAt: "2026-06-30T19:15:00.000Z",
           sourceRankingSetId: "set-1",
+        },
+        tierSemantics: {
+          sourceTier: {
+            kind: "absent",
+            sourceScope: "unknown",
+            recommendationEligible: false,
+          },
+          recommendationTier: {
+            kind: "neutral",
+            sourceScope: "position",
+            recommendationEligible: false,
+          },
         },
         capabilities: createSummary().capabilities,
         entries: [],

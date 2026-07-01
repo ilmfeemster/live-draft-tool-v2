@@ -1,15 +1,18 @@
-import {
-  CANONICAL_RANKING_JSON_V1_PROFILE,
-  RANKING_IMPORT_LIMITS,
-} from "@/lib/rankingImportPreflight";
+import { RANKING_IMPORT_LIMITS } from "@/lib/rankingImportPreflight";
 import { validateRankingSet } from "@/lib/rankingSetValidation";
 import type { Position } from "@/types/draft";
 import type {
-  CanonicalRankingSetDocumentV1,
   CanonicalRankingSetDocumentV2,
   CanonicalRankingSetSourceV1,
+  RankingTierSemanticContract,
 } from "@/types/rankingImport";
-import type { RankingSet, RankingSetCapabilities } from "@/types/rankings";
+import {
+  NEUTRAL_TIER,
+  type RankingRecommendationTierSemantics,
+  type RankingSet,
+  type RankingSetCapabilities,
+  type RankingSourceTierSemantics,
+} from "@/types/rankings";
 
 export type CanonicalRankingJsonExplicitTierDocument =
   CanonicalRankingSetDocumentV2;
@@ -20,7 +23,7 @@ export type CanonicalRankingJsonExportRequest = Readonly<{
 }>;
 
 export type CanonicalRankingJsonExportValue = Readonly<{
-  document: CanonicalRankingSetDocumentV1;
+  document: CanonicalRankingSetDocumentV2;
   text: string;
   byteLength: number;
 }>;
@@ -127,7 +130,7 @@ function mapDocument(
   rankingSet: RankingSet,
   exportedAt: Date,
   includeSourceRankingSetId: boolean,
-): CanonicalRankingSetDocumentV1 {
+): CanonicalRankingSetDocumentV2 {
   const metadata = {
     name: rankingSet.name,
     exportedAt: exportedAt.toISOString(),
@@ -136,11 +139,21 @@ function mapDocument(
       : {}),
     source: mapSource(rankingSet),
   };
+  const tierState = resolveTierState(rankingSet);
 
   return {
-    schemaVersion: CANONICAL_RANKING_JSON_V1_PROFILE.schemaVersion,
+    schemaVersion: 2,
     metadata,
-    capabilities: mapCapabilities(rankingSet.capabilities),
+    tierSemantics: {
+      sourceTier: mapSourceTierContract(tierState.sourceKind),
+      recommendationTier: mapRecommendationTierContract(
+        tierState.recommendation,
+      ),
+    },
+    capabilities: mapCapabilities(
+      rankingSet.capabilities,
+      tierState.recommendation,
+    ),
     entries: rankingSet.entries.map((entry) => ({
       player: {
         id: entry.player.id,
@@ -150,10 +163,112 @@ function mapDocument(
       },
       overallRank: entry.overallRank,
       positionRank: entry.positionRank,
-      tier: entry.tier,
+      sourceTier:
+        tierState.sourceValues.get(sourceTierKey(entry.player.id, entry.overallRank)) ??
+        null,
+      recommendationTier:
+        tierState.recommendation[entry.player.position] ===
+        "recommendation-position"
+          ? entry.tier
+          : NEUTRAL_TIER,
       adpRank: entry.adpRank,
     })),
   };
+}
+
+type ExportTierState = Readonly<{
+  sourceKind: RankingSourceTierSemantics;
+  sourceValues: ReadonlyMap<string, number>;
+  recommendation: Readonly<
+    Partial<Record<Position, RankingRecommendationTierSemantics>>
+  >;
+}>;
+
+function resolveTierState(rankingSet: RankingSet): ExportTierState {
+  if (!rankingSet.tierSemantics) {
+    const sourceValues = new Map<string, number>();
+    const recommendation: Partial<
+      Record<Position, RankingRecommendationTierSemantics>
+    > = {};
+
+    rankingSet.entries.forEach((entry) => {
+      sourceValues.set(
+        sourceTierKey(entry.player.id, entry.overallRank),
+        entry.tier,
+      );
+      recommendation[entry.player.position] = "neutral";
+    });
+
+    return {
+      sourceKind: "legacy-ambiguous",
+      sourceValues,
+      recommendation,
+    };
+  }
+
+  const sourceValues = new Map<string, number>();
+  rankingSet.tierSemantics.source.values?.forEach((value) => {
+    sourceValues.set(
+      sourceTierKey(value.playerId, value.overallRank),
+      value.tier,
+    );
+  });
+
+  return {
+    sourceKind: rankingSet.tierSemantics.source.kind,
+    sourceValues,
+    recommendation: { ...rankingSet.tierSemantics.recommendation },
+  };
+}
+
+function mapSourceTierContract(
+  sourceKind: RankingSourceTierSemantics,
+): RankingTierSemanticContract {
+  if (sourceKind === "source-overall") {
+    return {
+      kind: "source-only",
+      sourceScope: "overall",
+      recommendationEligible: false,
+    };
+  }
+
+  if (sourceKind === "legacy-ambiguous") {
+    return {
+      kind: "legacy-ambiguous",
+      sourceScope: "unknown",
+      recommendationEligible: false,
+    };
+  }
+
+  return {
+    kind: "absent",
+    sourceScope: "unknown",
+    recommendationEligible: false,
+  };
+}
+
+function mapRecommendationTierContract(
+  recommendation: ExportTierState["recommendation"],
+): RankingTierSemanticContract {
+  const recommendationEligible = Object.values(recommendation).includes(
+    "recommendation-position",
+  );
+
+  return recommendationEligible
+    ? {
+        kind: "recommendation-eligible",
+        sourceScope: "position",
+        recommendationEligible: true,
+      }
+    : {
+        kind: "neutral",
+        sourceScope: "position",
+        recommendationEligible: false,
+      };
+}
+
+function sourceTierKey(playerId: string, overallRank: number): string {
+  return `${playerId}\u0000${overallRank}`;
 }
 
 function mapSource(rankingSet: RankingSet): CanonicalRankingSetSourceV1 {
@@ -174,11 +289,19 @@ function mapSource(rankingSet: RankingSet): CanonicalRankingSetSourceV1 {
 
 function mapCapabilities(
   capabilities: RankingSetCapabilities,
+  recommendation: ExportTierState["recommendation"],
 ): RankingSetCapabilities {
   const tiers: RankingSetCapabilities["tiers"] = Object.fromEntries(
     POSITIONS.flatMap((position) => {
-      const capability = capabilities.tiers[position];
-      return capability === undefined ? [] : [[position, capability]];
+      const semantic = recommendation[position];
+      return semantic === undefined
+        ? []
+        : [
+            [
+              position,
+              semantic === "neutral" ? "defaulted-neutral" : "source",
+            ],
+          ];
     }),
   );
 

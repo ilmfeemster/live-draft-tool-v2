@@ -187,6 +187,91 @@ describe("convertValidatedRankingCandidate", () => {
     expect(result.value.rankingSet.entries[0]?.player.id).toBe(
       "portable-player",
     );
+    expect(result.value.rankingSet.entries[0]?.tier).toBe(NEUTRAL_TIER);
+    expect(result.value.rankingSet.tierSemantics).toEqual({
+      source: {
+        kind: "legacy-ambiguous",
+        values: [
+          { playerId: "portable-player", overallRank: 1, tier: 3 },
+        ],
+      },
+      recommendation: { WR: "neutral" },
+    });
+  });
+
+  it("converts explicit Canonical V2 source and recommendation semantics", () => {
+    const validated = validatedCanonical({
+      schemaVersion: 2,
+      metadata: {
+        name: "Portable V2 Rankings",
+        exportedAt: "2026-06-28T11:00:00.000Z",
+      },
+      tierSemantics: {
+        sourceTier: {
+          kind: "source-only",
+          sourceScope: "overall",
+          recommendationEligible: false,
+        },
+        recommendationTier: {
+          kind: "recommendation-eligible",
+          sourceScope: "position",
+          recommendationEligible: true,
+        },
+      },
+      capabilities: {
+        team: "complete",
+        playerIdentity: "provided",
+        overallOrder: "explicit",
+        positionRank: "derived",
+        adp: "none",
+        tiers: { WR: "source", RB: "defaulted-neutral" },
+      },
+      entries: [
+        {
+          player: {
+            id: "portable-wr",
+            name: "Portable WR",
+            team: "CIN",
+            position: "WR",
+          },
+          overallRank: 1,
+          positionRank: 1,
+          sourceTier: 4,
+          recommendationTier: 2,
+          adpRank: null,
+        },
+        {
+          player: {
+            id: "portable-rb",
+            name: "Portable RB",
+            team: "BUF",
+            position: "RB",
+          },
+          overallRank: 2,
+          positionRank: 1,
+          sourceTier: null,
+          recommendationTier: NEUTRAL_TIER,
+          adpRank: null,
+        },
+      ],
+    });
+    const result = convertValidatedRankingCandidate(validated, createRequest());
+
+    expectSuccess(result);
+    expect(result.value.rankingSet.entries.map((entry) => entry.tier)).toEqual([
+      2,
+      NEUTRAL_TIER,
+    ]);
+    expect(result.value.rankingSet.tierSemantics).toEqual({
+      source: {
+        kind: "source-overall",
+        values: [{ playerId: "portable-wr", overallRank: 1, tier: 4 }],
+      },
+      recommendation: {
+        WR: "recommendation-position",
+        RB: "neutral",
+      },
+    });
   });
 
   it("derives contiguous ranks while preserving source tier gaps", () => {

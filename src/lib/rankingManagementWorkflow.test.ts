@@ -351,8 +351,31 @@ describe("ranking management workflow", () => {
       exportedAt: exportedAt.toISOString(),
       sourceRankingSetId: source.id,
     });
-    expect(result.value.document.capabilities).toEqual(source.capabilities);
-    expect(result.value.document.entries).toEqual(source.entries);
+    expect(result.value.document.schemaVersion).toBe(2);
+    expect(result.value.document.tierSemantics).toEqual({
+      sourceTier: {
+        kind: "legacy-ambiguous",
+        sourceScope: "unknown",
+        recommendationEligible: false,
+      },
+      recommendationTier: {
+        kind: "neutral",
+        sourceScope: "position",
+        recommendationEligible: false,
+      },
+    });
+    expect(result.value.document.capabilities).toEqual({
+      ...source.capabilities,
+      tiers: { QB: "defaulted-neutral", RB: "defaulted-neutral" },
+    });
+    expect(result.value.document.entries.map((entry) => ({
+      sourceTier: entry.sourceTier,
+      recommendationTier: entry.recommendationTier,
+    }))).toEqual([
+      { sourceTier: 1, recommendationTier: NEUTRAL_TIER },
+      { sourceTier: 2, recommendationTier: NEUTRAL_TIER },
+      { sourceTier: 4, recommendationTier: NEUTRAL_TIER },
+    ]);
     expect(result.value.text).toBe(JSON.stringify(result.value.document));
     expect(result.value.byteLength).toBe(
       new TextEncoder().encode(result.value.text).byteLength,
@@ -389,7 +412,8 @@ describe("ranking management workflow", () => {
         (entry) =>
           entry.player.team === UNKNOWN_TEAM &&
           entry.adpRank === null &&
-          entry.tier === NEUTRAL_TIER,
+          entry.recommendationTier === NEUTRAL_TIER &&
+          !("tier" in entry),
       ),
     ).toBe(true);
   });

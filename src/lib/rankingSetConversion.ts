@@ -1,6 +1,5 @@
 import { validateRankingSet } from "@/lib/rankingSetValidation";
 import type { Position, RankingEntry } from "@/types/draft";
-import { NEUTRAL_TIER } from "@/types/rankings";
 import type {
   ConvertedRankingSet,
   RankingImportDiagnostic,
@@ -239,9 +238,6 @@ function buildRankingSet(
   const sortedEntries = [...candidate.entries].sort(
     (left, right) => (left.sourceOrder as number) - (right.sourceOrder as number),
   );
-  const isFantasyProsCandidate = sortedEntries.every((entry) =>
-    Object.prototype.hasOwnProperty.call(entry, "sourceTier"),
-  );
   const entries: RankingEntry[] = sortedEntries.map((entry, index) => {
     const position = entry.position as Position;
     const positionRank = (positionCounts.get(position) ?? 0) + 1;
@@ -256,12 +252,12 @@ function buildRankingSet(
       },
       overallRank: index + 1,
       positionRank,
-      tier: isFantasyProsCandidate ? NEUTRAL_TIER : (entry.tier as number),
+      tier: entry.tier as number,
       adpRank: entry.adpRank,
     };
   });
-  const tierSemantics = isFantasyProsCandidate
-    ? buildFantasyProsTierSemantics(sortedEntries, entries)
+  const tierSemantics = candidate.tierSemantics
+    ? buildTierSemantics(candidate, sortedEntries, entries)
     : undefined;
 
   return {
@@ -276,7 +272,8 @@ function buildRankingSet(
   };
 }
 
-function buildFantasyProsTierSemantics(
+function buildTierSemantics(
+  candidate: ValidatedRankingCandidate["candidate"],
   candidateEntries: ValidatedRankingCandidate["candidate"]["entries"],
   entries: readonly RankingEntry[],
 ): RankingTierSemantics {
@@ -294,18 +291,16 @@ function buildFantasyProsTierSemantics(
       },
     ];
   });
-  const recommendation: Partial<Record<Position, "neutral">> = {};
-
-  entries.forEach((entry) => {
-    recommendation[entry.player.position] = "neutral";
-  });
+  const semantics = candidate.tierSemantics as NonNullable<
+    ValidatedRankingCandidate["candidate"]["tierSemantics"]
+  >;
 
   return {
     source:
       sourceValues.length === 0
-        ? { kind: "none" }
-        : { kind: "source-overall", values: sourceValues },
-    recommendation,
+        ? { kind: semantics.sourceKind }
+        : { kind: semantics.sourceKind, values: sourceValues },
+    recommendation: { ...semantics.recommendation },
   };
 }
 

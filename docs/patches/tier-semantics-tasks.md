@@ -51,7 +51,7 @@ Each slice should be planned in `docs/current-slice.md` and implemented separate
 
 ## Slice 1 - Canonical Ranking JSON Compatibility
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -296,4 +296,11 @@ Recommendation neutralization validation:
 - `npm test`
 - `npx tsc --noEmit`
 
-Previously completed compatibility coverage includes ranking-set semantics persistence and legacy persisted-draft tier neutralization. The five remaining slices close the portable-format, new-snapshot, scenario, UI-language, and exit-validation gaps.
+Canonical Ranking JSON compatibility validation:
+
+- `npm test -- src/lib/rankingImportPreflight.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/canonicalRankingJsonExporter.test.ts src/lib/rankingImportWorkflow.test.ts` (7 files, 135 tests passed)
+- `npm test -- src/app/actions/rankingActions.test.ts src/lib/rankingManagementWorkflow.test.ts` (2 files, 23 tests passed)
+- `npm test` (44 files, 638 tests passed, 1 skipped)
+- `npx tsc --noEmit`
+
+Previously completed compatibility coverage includes ranking-set semantics persistence, legacy persisted-draft tier neutralization, and canonical ranking portability. The four remaining slices close the new-snapshot, scenario, UI-language, and exit-validation gaps.

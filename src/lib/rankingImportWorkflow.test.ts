@@ -94,7 +94,34 @@ describe("ranking import workflow", () => {
     expect(result.rankingSet.id).toBe("local-created-id");
     expect(result.rankingSet).not.toHaveProperty("sourceRankingSetId");
     expect(result.rankingSet.entries[0]?.player.id).toBe("portable-qb");
+    expect(result.rankingSet.tierSemantics).toEqual({
+      source: { kind: "none" },
+      recommendation: { QB: "recommendation-position" },
+    });
     expect(fake.records).toHaveLength(1);
+  });
+
+  it("keeps legacy Canonical V1 readable with recommendation-neutral tiers", async () => {
+    const fake = createFakeRepository();
+
+    const result = await importRankingSet(createLegacyCanonicalInput(), {
+      repository: fake.repository,
+      generateRankingSetId: () => "legacy-local-id",
+      now: () => importedAt,
+    });
+
+    expectSuccess(result);
+    expect(result.rankingSet.entries[0]?.tier).toBe(1);
+    expect(result.rankingSet.capabilities.tiers).toEqual({
+      QB: "defaulted-neutral",
+    });
+    expect(result.rankingSet.tierSemantics).toEqual({
+      source: {
+        kind: "legacy-ambiguous",
+        values: [{ playerId: "legacy-qb", overallRank: 1, tier: 4 }],
+      },
+      recommendation: { QB: "neutral" },
+    });
   });
 
   it("returns normalization warnings for permitted missing optional CSV fields", async () => {
@@ -274,6 +301,46 @@ describe("ranking import workflow", () => {
     expect(fake.replaceCount).toBe(0);
   });
 
+  it("does not replace an existing set when V2 tier semantics are malformed", async () => {
+    const fake = createFakeRepository();
+    const existing = createExistingSet();
+    const before = structuredClone(existing);
+    fake.records.push(existing);
+    const input = createCanonicalInput();
+    const document = JSON.parse(input.text) as {
+      tierSemantics: {
+        recommendationTier: { recommendationEligible: boolean };
+      };
+    };
+    document.tierSemantics.recommendationTier.recommendationEligible = false;
+
+    const result = await importRankingSet(
+      {
+        ...input,
+        text: JSON.stringify(document),
+        intent: { kind: "replace", rankingSetId: existing.id },
+      },
+      {
+        repository: fake.repository,
+        now: () => importedAt,
+      },
+    );
+
+    expectFailure(result);
+    expect(result.errors[0]).toEqual(
+      expect.objectContaining({
+        code: "invalid-tier-semantics",
+        stage: "normalize",
+        location: {
+          path: "tierSemantics.recommendationTier",
+          field: "recommendationTier",
+        },
+      }),
+    );
+    expect(fake.records).toEqual([before]);
+    expect(fake.replaceCount).toBe(0);
+  });
+
   it("returns not-found diagnostics for missing replacement targets before and after conversion", async () => {
     const missingBefore = createFakeRepository();
 
@@ -399,11 +466,23 @@ function createCsvInput(
 function createCanonicalInput(): Parameters<typeof importRankingSet>[0] {
   return {
     text: JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       metadata: {
         name: "Portable Rankings",
         exportedAt: "2026-06-29T12:00:00.000Z",
         sourceRankingSetId: "portable-id",
+      },
+      tierSemantics: {
+        sourceTier: {
+          kind: "absent",
+          sourceScope: "unknown",
+          recommendationEligible: false,
+        },
+        recommendationTier: {
+          kind: "recommendation-eligible",
+          sourceScope: "position",
+          recommendationEligible: true,
+        },
       },
       capabilities: {
         team: "complete",
@@ -423,13 +502,50 @@ function createCanonicalInput(): Parameters<typeof importRankingSet>[0] {
           },
           overallRank: 1,
           positionRank: 1,
-          tier: 1,
+          sourceTier: null,
+          recommendationTier: 1,
           adpRank: null,
         },
       ],
     }),
     formatId: "canonical-ranking-json",
     name: "Imported Portable",
+  };
+}
+
+function createLegacyCanonicalInput(): Parameters<typeof importRankingSet>[0] {
+  return {
+    text: JSON.stringify({
+      schemaVersion: 1,
+      metadata: {
+        name: "Legacy Portable Rankings",
+        exportedAt: "2026-06-29T12:00:00.000Z",
+      },
+      capabilities: {
+        team: "complete",
+        playerIdentity: "provided",
+        overallOrder: "explicit",
+        positionRank: "derived",
+        adp: "none",
+        tiers: { QB: "source" },
+      },
+      entries: [
+        {
+          player: {
+            id: "legacy-qb",
+            name: "Legacy QB",
+            team: "KC",
+            position: "QB",
+          },
+          overallRank: 1,
+          positionRank: 1,
+          tier: 4,
+          adpRank: null,
+        },
+      ],
+    }),
+    formatId: "canonical-ranking-json",
+    name: "Imported Legacy Portable",
   };
 }
 
@@ -576,6 +692,25 @@ function cloneRankingSet(rankingSet: RankingSet): RankingSet {
       ...rankingSet.capabilities,
       tiers: { ...rankingSet.capabilities.tiers },
     },
+    ...(rankingSet.tierSemantics === undefined
+      ? {}
+      : {
+          tierSemantics: {
+            source: {
+              kind: rankingSet.tierSemantics.source.kind,
+              ...(rankingSet.tierSemantics.source.values === undefined
+                ? {}
+                : {
+                    values: rankingSet.tierSemantics.source.values.map(
+                      (value) => ({ ...value }),
+                    ),
+                  }),
+            },
+            recommendation: {
+              ...rankingSet.tierSemantics.recommendation,
+            },
+          },
+        }),
     entries: rankingSet.entries.map(cloneEntry),
     createdAt: new Date(rankingSet.createdAt),
     updatedAt: new Date(rankingSet.updatedAt),

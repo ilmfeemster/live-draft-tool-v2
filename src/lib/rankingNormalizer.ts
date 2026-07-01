@@ -8,6 +8,7 @@ import type {
   NormalizedRankingCandidate,
   NormalizedRankingCandidateEntry,
   NormalizedRankingCandidateField,
+  NormalizedRankingTierSemantics,
   ParsedRankingField,
   ParsedRankingSourceDocument,
   ParsedRankingSourceRecord,
@@ -22,6 +23,7 @@ import {
   type RankingDataAvailability,
   type RankingSetCapabilities,
   type RankingSetSource,
+  type RankingSourceTierSemantics,
 } from "@/types/rankings";
 
 export type RankingNormalizerDiagnosticCode =
@@ -30,6 +32,7 @@ export type RankingNormalizerDiagnosticCode =
   | "missing-name"
   | "invalid-metadata"
   | "invalid-capabilities"
+  | "invalid-tier-semantics"
   | "missing-required-value"
   | "invalid-text"
   | "invalid-position"
@@ -230,12 +233,21 @@ function normalizeFantasyPros(
     adp: availability(entries.map((entry) => entry.adpState === "source")),
     tiers: tierCapabilities,
   };
+  const recommendation: NormalizedRankingTierSemantics["recommendation"] =
+    Object.fromEntries(
+      Object.keys(tierCapabilities).map((position) => [position, "neutral"]),
+    );
 
   return success(
     {
       name: normalizedContext.name as string,
       source,
       capabilities,
+      tierSemantics: {
+        sourceKind:
+          suppliedSourceTierCount > 0 ? "source-overall" : "none",
+        recommendation,
+      },
       entries: entries.map(toCandidateEntry),
     },
     warnings,
@@ -335,12 +347,22 @@ function normalizeCanonical(
   const errors: NormalizerDiagnostic[] = [];
   const normalizedContext = normalizeContext(context, false, errors);
   const metadataWrapper = asRecord(document.metadata);
+  const schemaVersionField = metadataWrapper
+    ? asParsedField(metadataWrapper.schemaVersion)
+    : null;
   const documentMetadataField = metadataWrapper
     ? asParsedField(metadataWrapper.documentMetadata)
     : null;
   const capabilitiesField = metadataWrapper
     ? asParsedField(metadataWrapper.capabilities)
     : null;
+  const tierSemanticsField = metadataWrapper
+    ? asParsedField(metadataWrapper.tierSemantics)
+    : null;
+  const schemaVersion = normalizeCanonicalSchemaVersion(
+    schemaVersionField,
+    errors,
+  );
 
   if (!documentMetadataField || !asRecord(documentMetadataField.value)) {
     errors.push(
@@ -383,12 +405,31 @@ function normalizeCanonical(
     normalizedContext.importedAt,
     errors,
   );
-  const capabilities = capabilitiesField
+  let capabilities = capabilitiesField
     ? normalizeCanonicalCapabilities(capabilitiesField, errors)
     : null;
   const entries = document.records.map((record) =>
-    normalizeCanonicalRecord(record, errors),
+    normalizeCanonicalRecord(record, schemaVersion ?? 1, errors),
   );
+  let tierSemantics: NormalizedRankingTierSemantics | null = null;
+
+  if (capabilities) {
+    if (schemaVersion === 1) {
+      const legacy = normalizeLegacyCanonicalTierSemantics(
+        entries,
+        capabilities,
+      );
+      capabilities = legacy.capabilities;
+      tierSemantics = legacy.tierSemantics;
+    } else if (schemaVersion === 2) {
+      tierSemantics = normalizeExplicitCanonicalTierSemantics(
+        tierSemanticsField,
+        entries,
+        capabilities,
+        errors,
+      );
+    }
+  }
 
   if (errors.length > 0) {
     return failure(errors);
@@ -398,12 +439,14 @@ function normalizeCanonical(
     name: name as string,
     source: source as RankingSetSource,
     capabilities: capabilities as RankingSetCapabilities,
+    ...(tierSemantics === null ? {} : { tierSemantics }),
     entries: entries.map(toCandidateEntry),
   });
 }
 
 function normalizeCanonicalRecord(
   record: ParsedRankingSourceRecord,
+  schemaVersion: 1 | 2,
   errors: NormalizerDiagnostic[],
 ): WorkingEntry {
   const location = { path: `entries[${record.sourceIndex}]` };
@@ -480,17 +523,49 @@ function normalizeCanonicalRecord(
     fields.sourcePositionRank?.location ?? canonicalFieldLocation(record.sourceIndex, "sourcePositionRank"),
   );
 
-  entry.tier = normalizeCanonicalPositiveInteger(
-    fields.tier,
-    "tier",
-    canonicalFieldLocation(record.sourceIndex, "tier"),
-    recordErrors,
-  );
+  const sourceTierLocation =
+    fields.sourceTier?.location ??
+    (schemaVersion === 1
+      ? { path: `entries[${record.sourceIndex}].tier`, field: "sourceTier" }
+      : canonicalFieldLocation(record.sourceIndex, "sourceTier"));
+  entry.sourceTier =
+    schemaVersion === 1
+      ? normalizeCanonicalPositiveInteger(
+          fields.sourceTier,
+          "legacy tier",
+          sourceTierLocation,
+          recordErrors,
+        )
+      : normalizeCanonicalNullablePositiveInteger(
+          fields.sourceTier,
+          "source tier",
+          sourceTierLocation,
+          recordErrors,
+        );
   setLocation(
     entry,
-    "tier",
-    fields.tier?.location ?? canonicalFieldLocation(record.sourceIndex, "tier"),
+    "sourceTier",
+    sourceTierLocation,
   );
+
+  const tierLocation =
+    fields.tier?.location ??
+    (schemaVersion === 1
+      ? { path: `entries[${record.sourceIndex}].tier`, field: "tier" }
+      : {
+          path: `entries[${record.sourceIndex}].recommendationTier`,
+          field: "tier",
+        });
+  entry.tier =
+    schemaVersion === 1
+      ? NEUTRAL_TIER
+      : normalizeCanonicalPositiveInteger(
+          fields.tier,
+          "recommendation tier",
+          tierLocation,
+          recordErrors,
+        );
+  setLocation(entry, "tier", tierLocation);
 
   entry.adpRank = normalizeCanonicalAdp(
     fields.adpRank,
@@ -505,6 +580,370 @@ function normalizeCanonicalRecord(
 
   errors.push(...recordErrors);
   return entry;
+}
+
+function normalizeCanonicalSchemaVersion(
+  field: ParsedRankingField | null,
+  errors: NormalizerDiagnostic[],
+): 1 | 2 | null {
+  if (field?.value === 1 || field?.value === 2) {
+    return field.value;
+  }
+
+  errors.push(
+    diagnostic(
+      "invalid-metadata",
+      "error",
+      "Canonical ranking schemaVersion must be 1 or 2.",
+      field?.location ?? { path: "schemaVersion", field: "schemaVersion" },
+    ),
+  );
+  return null;
+}
+
+function normalizeLegacyCanonicalTierSemantics(
+  entries: readonly WorkingEntry[],
+  capabilities: RankingSetCapabilities,
+): {
+  capabilities: RankingSetCapabilities;
+  tierSemantics: NormalizedRankingTierSemantics;
+} {
+  const tiers = { ...capabilities.tiers };
+  const recommendation: Partial<
+    Record<Position, "neutral">
+  > = {};
+
+  entries.forEach((entry) => {
+    if (!POSITIONS.includes(entry.position as Position)) {
+      return;
+    }
+
+    const position = entry.position as Position;
+    tiers[position] = "defaulted-neutral";
+    recommendation[position] = "neutral";
+  });
+
+  return {
+    capabilities: { ...capabilities, tiers },
+    tierSemantics: {
+      sourceKind: "legacy-ambiguous",
+      recommendation,
+    },
+  };
+}
+
+function normalizeExplicitCanonicalTierSemantics(
+  field: ParsedRankingField | null,
+  entries: readonly WorkingEntry[],
+  capabilities: RankingSetCapabilities,
+  errors: NormalizerDiagnostic[],
+): NormalizedRankingTierSemantics | null {
+  const value = field ? asRecord(field.value) : null;
+  const location = field?.location ?? {
+    path: "tierSemantics",
+    field: "tierSemantics",
+  };
+
+  if (!value) {
+    errors.push(
+      diagnostic(
+        "invalid-tier-semantics",
+        "error",
+        "Canonical ranking V2 tierSemantics must be an object.",
+        location,
+      ),
+    );
+    return null;
+  }
+
+  Object.keys(value)
+    .filter(
+      (key) =>
+        key !== "sourceTier" &&
+        key !== "recommendationTier" &&
+        key !== "legacyTier",
+    )
+    .sort()
+    .forEach((key) => {
+      errors.push(
+        diagnostic(
+          "invalid-tier-semantics",
+          "error",
+          `Canonical ranking tier semantic ${key} is unsupported.`,
+          childLocation(location, key),
+        ),
+      );
+    });
+
+  const sourceContract = normalizeTierSemanticContract(
+    value.sourceTier,
+    childLocation(location, "sourceTier"),
+    errors,
+  );
+  const recommendationContract = normalizeTierSemanticContract(
+    value.recommendationTier,
+    childLocation(location, "recommendationTier"),
+    errors,
+  );
+
+  if (value.legacyTier !== undefined) {
+    const legacyContract = normalizeTierSemanticContract(
+      value.legacyTier,
+      childLocation(location, "legacyTier"),
+      errors,
+    );
+
+    if (
+      legacyContract &&
+      (legacyContract.kind !== "legacy-ambiguous" ||
+        legacyContract.sourceScope !== "unknown" ||
+        legacyContract.recommendationEligible !== false)
+    ) {
+      errors.push(
+        diagnostic(
+          "invalid-tier-semantics",
+          "error",
+          "Canonical ranking legacyTier semantics must be legacy-ambiguous, unknown-scope, and recommendation-ineligible.",
+          childLocation(location, "legacyTier"),
+        ),
+      );
+    }
+  }
+
+  const sourceKind = normalizeExplicitSourceKind(
+    sourceContract,
+    childLocation(location, "sourceTier"),
+    errors,
+  );
+  const recommendationKind = normalizeExplicitRecommendationKind(
+    recommendationContract,
+    childLocation(location, "recommendationTier"),
+    errors,
+  );
+
+  if (!sourceKind || !recommendationKind) {
+    return null;
+  }
+
+  if (sourceKind === "none") {
+    entries.forEach((entry) => {
+      if (entry.sourceTier !== null) {
+        errors.push(
+          diagnostic(
+            "invalid-tier-semantics",
+            "error",
+            "Canonical ranking sourceTier must be null when source tier semantics are absent.",
+            entry.fieldLocations.sourceTier,
+          ),
+        );
+      }
+    });
+  }
+
+  const recommendation: Partial<
+    Record<Position, "neutral" | "recommendation-position">
+  > = {};
+  const representedPositions = new Set<Position>();
+
+  entries.forEach((entry) => {
+    if (POSITIONS.includes(entry.position as Position)) {
+      representedPositions.add(entry.position as Position);
+    }
+  });
+
+  representedPositions.forEach((position) => {
+    const capability = capabilities.tiers[position];
+    let semantic: "neutral" | "recommendation-position" | null = null;
+
+    if (recommendationKind === "neutral") {
+      if (capability !== "defaulted-neutral") {
+        errors.push(
+          diagnostic(
+            "invalid-tier-semantics",
+            "error",
+            `${position} tier capability must be defaulted-neutral when V2 recommendation tiers are neutral.`,
+            {
+              path: `capabilities.tiers.${position}`,
+              field: position,
+            },
+          ),
+        );
+      } else {
+        semantic = "neutral";
+      }
+    } else if (capability === "source") {
+      semantic = "recommendation-position";
+    } else if (capability === "defaulted-neutral") {
+      semantic = "neutral";
+    }
+
+    if (sourceKind === "legacy-ambiguous" && semantic === "recommendation-position") {
+      errors.push(
+        diagnostic(
+          "invalid-tier-semantics",
+          "error",
+          `${position} legacy ambiguous tiers are not recommendation-eligible by default.`,
+          {
+            path: `capabilities.tiers.${position}`,
+            field: position,
+          },
+        ),
+      );
+      semantic = null;
+    }
+
+    if (semantic === "neutral") {
+      entries
+        .filter((entry) => entry.position === position)
+        .forEach((entry) => {
+          if (entry.tier !== NEUTRAL_TIER) {
+            errors.push(
+              diagnostic(
+                "invalid-tier-semantics",
+                "error",
+                `${position} neutral recommendation tiers must equal ${NEUTRAL_TIER}.`,
+                entry.fieldLocations.tier,
+              ),
+            );
+          }
+        });
+    }
+
+    if (semantic) {
+      recommendation[position] = semantic;
+    }
+  });
+
+  return { sourceKind, recommendation };
+}
+
+function normalizeTierSemanticContract(
+  value: unknown,
+  location: RankingImportDiagnosticLocation,
+  errors: NormalizerDiagnostic[],
+): {
+  kind: unknown;
+  sourceScope: unknown;
+  recommendationEligible: unknown;
+} | null {
+  const contract = asRecord(value);
+
+  if (!contract) {
+    errors.push(
+      diagnostic(
+        "invalid-tier-semantics",
+        "error",
+        "Canonical ranking tier semantic contract must be an object.",
+        location,
+      ),
+    );
+    return null;
+  }
+
+  Object.keys(contract)
+    .filter(
+      (key) =>
+        key !== "kind" &&
+        key !== "sourceScope" &&
+        key !== "recommendationEligible",
+    )
+    .sort()
+    .forEach((key) => {
+      errors.push(
+        diagnostic(
+          "invalid-tier-semantics",
+          "error",
+          `Canonical ranking tier semantic field ${key} is unsupported.`,
+          childLocation(location, key),
+        ),
+      );
+    });
+
+  return {
+    kind: contract.kind,
+    sourceScope: contract.sourceScope,
+    recommendationEligible: contract.recommendationEligible,
+  };
+}
+
+function normalizeExplicitSourceKind(
+  contract: ReturnType<typeof normalizeTierSemanticContract>,
+  location: RankingImportDiagnosticLocation,
+  errors: NormalizerDiagnostic[],
+): RankingSourceTierSemantics | null {
+  if (!contract) {
+    return null;
+  }
+
+  if (
+    contract.kind === "source-only" &&
+    contract.sourceScope === "overall" &&
+    contract.recommendationEligible === false
+  ) {
+    return "source-overall";
+  }
+
+  if (
+    contract.kind === "legacy-ambiguous" &&
+    contract.sourceScope === "unknown" &&
+    contract.recommendationEligible === false
+  ) {
+    return "legacy-ambiguous";
+  }
+
+  if (
+    contract.kind === "absent" &&
+    contract.sourceScope === "unknown" &&
+    contract.recommendationEligible === false
+  ) {
+    return "none";
+  }
+
+  errors.push(
+    diagnostic(
+      "invalid-tier-semantics",
+      "error",
+      "Canonical ranking sourceTier semantics are unsupported or contradictory.",
+      location,
+    ),
+  );
+  return null;
+}
+
+function normalizeExplicitRecommendationKind(
+  contract: ReturnType<typeof normalizeTierSemanticContract>,
+  location: RankingImportDiagnosticLocation,
+  errors: NormalizerDiagnostic[],
+): "neutral" | "recommendation-eligible" | null {
+  if (!contract) {
+    return null;
+  }
+
+  if (
+    contract.kind === "neutral" &&
+    contract.sourceScope === "position" &&
+    contract.recommendationEligible === false
+  ) {
+    return "neutral";
+  }
+
+  if (
+    contract.kind === "recommendation-eligible" &&
+    contract.sourceScope === "position" &&
+    contract.recommendationEligible === true
+  ) {
+    return "recommendation-eligible";
+  }
+
+  errors.push(
+    diagnostic(
+      "invalid-tier-semantics",
+      "error",
+      "Canonical ranking recommendationTier semantics are unsupported or contradictory.",
+      location,
+    ),
+  );
+  return null;
 }
 
 function normalizeContext(
@@ -1247,6 +1686,36 @@ function normalizeCanonicalPositiveInteger(
         "invalid-number",
         "error",
         `Canonical ${label} must be a positive integer number.`,
+        field.location,
+      ),
+    );
+    return null;
+  }
+
+  return field.value as number;
+}
+
+function normalizeCanonicalNullablePositiveInteger(
+  field: ParsedRankingField | undefined,
+  label: string,
+  fallbackLocation: RankingImportDiagnosticLocation,
+  errors: NormalizerDiagnostic[],
+): number | null {
+  if (!field) {
+    errors.push(missingCanonicalValue(label, fallbackLocation));
+    return null;
+  }
+
+  if (field.value === null) {
+    return null;
+  }
+
+  if (!Number.isInteger(field.value) || (field.value as number) <= 0) {
+    errors.push(
+      diagnostic(
+        "invalid-number",
+        "error",
+        `Canonical ${label} must be null or a positive integer number.`,
         field.location,
       ),
     );

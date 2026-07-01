@@ -28,6 +28,7 @@ export type CanonicalRankingJsonParsedMetadata = Readonly<{
   schemaVersion: ParsedRankingField;
   documentMetadata: ParsedRankingField;
   capabilities: ParsedRankingField;
+  tierSemantics?: ParsedRankingField;
 }>;
 
 type ParserDiagnostic =
@@ -46,10 +47,18 @@ const SCENARIO_FIELDS = [
   "replayTarget",
 ] as const;
 
-const ENTRY_FIELD_MAPPINGS = [
+const V1_ENTRY_FIELD_MAPPINGS = [
   ["overallRank", "overallOrder"],
   ["positionRank", "sourcePositionRank"],
-  ["tier", "tier"],
+  ["tier", "sourceTier"],
+  ["adpRank", "adpRank"],
+] as const;
+
+const V2_ENTRY_FIELD_MAPPINGS = [
+  ["overallRank", "overallOrder"],
+  ["positionRank", "sourcePositionRank"],
+  ["sourceTier", "sourceTier"],
+  ["recommendationTier", "tier"],
   ["adpRank", "adpRank"],
 ] as const;
 
@@ -117,20 +126,18 @@ export function parseCanonicalRankingJson(
     ]);
   }
 
-  if (
-    parsed.schemaVersion !==
-    CANONICAL_RANKING_JSON_V1_PROFILE.schemaVersion
-  ) {
+  if (parsed.schemaVersion !== 1 && parsed.schemaVersion !== 2) {
     return failure([
       error(
         "unsupported-schema-version",
-        "Canonical ranking JSON schemaVersion must be the number 1.",
+        "Canonical ranking JSON schemaVersion must be the number 1 or 2.",
         { path: "schemaVersion" },
       ),
     ]);
   }
 
-  const envelopeErrors = validateEnvelope(parsed);
+  const schemaVersion = parsed.schemaVersion;
+  const envelopeErrors = validateEnvelope(parsed, schemaVersion);
 
   if (envelopeErrors.length > 0) {
     return failure(envelopeErrors);
@@ -182,6 +189,15 @@ export function parseCanonicalRankingJson(
       "capabilities",
       "capabilities",
     ),
+    ...(schemaVersion === 2
+      ? {
+          tierSemantics: parsedField(
+            parsed.tierSemantics,
+            "tierSemantics",
+            "tierSemantics",
+          ),
+        }
+      : {}),
   };
 
   return {
@@ -189,17 +205,27 @@ export function parseCanonicalRankingJson(
     value: {
       format: document.format,
       metadata,
-      tierSemantics: CANONICAL_RANKING_JSON_V1_PROFILE.tierSemantics,
-      records: (entries as JsonObject[]).map(mapEntry),
+      ...(schemaVersion === 1
+        ? { tierSemantics: CANONICAL_RANKING_JSON_V1_PROFILE.tierSemantics }
+        : {}),
+      records: (entries as JsonObject[]).map((entry, index) =>
+        mapEntry(entry, index, schemaVersion),
+      ),
     },
     warnings: [],
   };
 }
 
-function validateEnvelope(root: JsonObject): ParserDiagnostic[] {
+function validateEnvelope(
+  root: JsonObject,
+  schemaVersion: 1 | 2,
+): ParserDiagnostic[] {
   const errors: ParserDiagnostic[] = [];
 
   validateEnvelopeField(root, "metadata", isJsonObject, errors);
+  if (schemaVersion === 2) {
+    validateEnvelopeField(root, "tierSemantics", isJsonObject, errors);
+  }
   validateEnvelopeField(root, "capabilities", isJsonObject, errors);
   validateEnvelopeField(root, "entries", Array.isArray, errors);
 
@@ -208,7 +234,7 @@ function validateEnvelope(root: JsonObject): ParserDiagnostic[] {
 
 function validateEnvelopeField(
   root: JsonObject,
-  field: "metadata" | "capabilities" | "entries",
+  field: "metadata" | "tierSemantics" | "capabilities" | "entries",
   isValid: (value: unknown) => boolean,
   errors: ParserDiagnostic[],
 ): void {
@@ -235,11 +261,19 @@ function validateEnvelopeField(
   }
 }
 
-function mapEntry(entry: JsonObject, index: number): ParsedRankingSourceRecord {
+function mapEntry(
+  entry: JsonObject,
+  index: number,
+  schemaVersion: 1 | 2,
+): ParsedRankingSourceRecord {
   const fields: Record<string, ParsedRankingField> = {};
   const basePath = entryPath(index);
+  const mappings =
+    schemaVersion === 1
+      ? V1_ENTRY_FIELD_MAPPINGS
+      : V2_ENTRY_FIELD_MAPPINGS;
 
-  for (const [sourceField, semanticField] of ENTRY_FIELD_MAPPINGS) {
+  for (const [sourceField, semanticField] of mappings) {
     if (hasOwn(entry, sourceField)) {
       fields[semanticField] = parsedField(
         entry[sourceField],

@@ -15,7 +15,6 @@ import { normalizeRankingSource } from "@/lib/rankingNormalizer";
 import { convertValidatedRankingCandidate } from "@/lib/rankingSetConversion";
 import type { Position, RankingEntry } from "@/types/draft";
 import type {
-  CanonicalRankingSetDocumentV1,
   CanonicalRankingSetDocumentV2,
 } from "@/types/rankingImport";
 import {
@@ -28,7 +27,7 @@ import {
 const exportedAt = new Date("2026-06-28T15:00:00.000Z");
 
 describe("exportCanonicalRankingSetJson", () => {
-  it("exposes an explicit tier-semantics export contract for future V2 mapping", () => {
+  it("exposes the explicit tier-semantics V2 export contract", () => {
     const document: CanonicalRankingSetDocumentV2 = {
       schemaVersion: 2,
       metadata: {
@@ -75,7 +74,7 @@ describe("exportCanonicalRankingSetJson", () => {
     expect(document.entries[0]).not.toHaveProperty("tier");
   });
 
-  it("produces exact compact V1 JSON in frozen property order", () => {
+  it("produces exact compact V2 JSON in frozen property order", () => {
     const rankingSet = createCompleteSet();
     const result = exportCanonicalRankingSetJson(rankingSet, {
       exportedAt,
@@ -84,7 +83,7 @@ describe("exportCanonicalRankingSetJson", () => {
 
     expectSuccess(result);
     const expected =
-      '{"schemaVersion":1,"metadata":{"name":"Complete Rankings","exportedAt":"2026-06-28T15:00:00.000Z","sourceRankingSetId":"local-set-1","source":{"kind":"external","formatId":"fantasypros-csv","formatVersion":1,"label":"rankings.csv","importedAt":"2026-06-27T12:00:00.000Z"}},"capabilities":{"team":"complete","playerIdentity":"provided","overallOrder":"explicit","positionRank":"derived","adp":"complete","tiers":{"QB":"source","RB":"source"}},"entries":[{"player":{"id":"qb-1","name":"Player qb-1","team":"SEA","position":"QB"},"overallRank":1,"positionRank":1,"tier":1,"adpRank":1.5},{"player":{"id":"rb-1","name":"Player rb-1","team":"BUF","position":"RB"},"overallRank":2,"positionRank":1,"tier":2,"adpRank":2.5},{"player":{"id":"qb-2","name":"Player qb-2","team":"KC","position":"QB"},"overallRank":3,"positionRank":2,"tier":5,"adpRank":3.5}]}';
+      '{"schemaVersion":2,"metadata":{"name":"Complete Rankings","exportedAt":"2026-06-28T15:00:00.000Z","sourceRankingSetId":"local-set-1","source":{"kind":"external","formatId":"fantasypros-csv","formatVersion":1,"label":"rankings.csv","importedAt":"2026-06-27T12:00:00.000Z"}},"tierSemantics":{"sourceTier":{"kind":"source-only","sourceScope":"overall","recommendationEligible":false},"recommendationTier":{"kind":"recommendation-eligible","sourceScope":"position","recommendationEligible":true}},"capabilities":{"team":"complete","playerIdentity":"provided","overallOrder":"explicit","positionRank":"derived","adp":"complete","tiers":{"QB":"source","RB":"source"}},"entries":[{"player":{"id":"qb-1","name":"Player qb-1","team":"SEA","position":"QB"},"overallRank":1,"positionRank":1,"sourceTier":1,"recommendationTier":1,"adpRank":1.5},{"player":{"id":"rb-1","name":"Player rb-1","team":"BUF","position":"RB"},"overallRank":2,"positionRank":1,"sourceTier":2,"recommendationTier":2,"adpRank":2.5},{"player":{"id":"qb-2","name":"Player qb-2","team":"KC","position":"QB"},"overallRank":3,"positionRank":2,"sourceTier":5,"recommendationTier":5,"adpRank":3.5}]}';
 
     expect(result.value.text).toBe(expected);
     expect(result.value.document).toEqual(JSON.parse(expected));
@@ -92,6 +91,7 @@ describe("exportCanonicalRankingSetJson", () => {
     expect(Object.keys(result.value.document)).toEqual([
       "schemaVersion",
       "metadata",
+      "tierSemantics",
       "capabilities",
       "entries",
     ]);
@@ -99,7 +99,7 @@ describe("exportCanonicalRankingSetJson", () => {
       "QB",
       "RB",
     ]);
-    expectTypeOf(result.value.document).toMatchTypeOf<CanonicalRankingSetDocumentV1>();
+    expectTypeOf(result.value.document).toMatchTypeOf<CanonicalRankingSetDocumentV2>();
   });
 
   it("omits source identity unless explicitly requested", () => {
@@ -126,8 +126,10 @@ describe("exportCanonicalRankingSetJson", () => {
     const result = exportCanonicalRankingSetJson(rankingSet, { exportedAt });
 
     expectSuccess(result);
-    expect(result.value.document.entries).toEqual(rankingSet.entries);
-    expect(result.value.document.entries.map((entry) => entry.tier)).toEqual([
+    expect(result.value.document.entries.map((entry) => entry.sourceTier)).toEqual([
+      1, 2, 5,
+    ]);
+    expect(result.value.document.entries.map((entry) => entry.recommendationTier)).toEqual([
       1, 2, 5,
     ]);
     expect(result.value.document.entries.map((entry) => entry.player.id)).toEqual([
@@ -158,12 +160,14 @@ describe("exportCanonicalRankingSetJson", () => {
       expect.objectContaining({
         player: expect.objectContaining({ team: UNKNOWN_TEAM }),
         adpRank: null,
-        tier: NEUTRAL_TIER,
+        sourceTier: null,
+        recommendationTier: NEUTRAL_TIER,
       }),
       expect.objectContaining({
         player: expect.objectContaining({ team: UNKNOWN_TEAM }),
         adpRank: null,
-        tier: NEUTRAL_TIER,
+        sourceTier: null,
+        recommendationTier: NEUTRAL_TIER,
       }),
     ]);
   });
@@ -292,6 +296,10 @@ describe("exportCanonicalRankingSetJson", () => {
           adp: "none",
           tiers: { QB: "source" },
         }),
+        tierSemantics: {
+          source: { kind: "none" },
+          recommendation: { QB: "recommendation-position" },
+        },
       }),
       { exportedAt },
     );
@@ -341,6 +349,7 @@ describe("exportCanonicalRankingSetJson", () => {
     expect(roundTrip.name).toBe(source.name);
     expect(roundTrip.source).toEqual(source.source);
     expect(roundTrip.capabilities).toEqual(source.capabilities);
+    expect(roundTrip.tierSemantics).toEqual(source.tierSemantics);
     expect(roundTrip.entries).toEqual(source.entries);
   });
 
@@ -352,6 +361,7 @@ describe("exportCanonicalRankingSetJson", () => {
     const roundTrip = importExport(exported.value.text, "degraded-copy");
 
     expect(roundTrip.capabilities).toEqual(source.capabilities);
+    expect(roundTrip.tierSemantics).toEqual(source.tierSemantics);
     expect(roundTrip.entries).toEqual(source.entries);
     expect(roundTrip.entries.every((entry) => entry.player.team === UNKNOWN_TEAM)).toBe(
       true,
@@ -377,6 +387,82 @@ describe("exportCanonicalRankingSetJson", () => {
     const roundTrip = importExport(exported.value.text, "explicit-new-id");
     expect(roundTrip.id).toBe("explicit-new-id");
   });
+
+  it("round-trips mixed eligible and neutral recommendation positions", () => {
+    const source = createCompleteSet({
+      capabilities: createCapabilities({
+        tiers: { QB: "source", RB: "defaulted-neutral" },
+      }),
+      tierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: [
+            { playerId: "qb-1", overallRank: 1, tier: 1 },
+            { playerId: "rb-1", overallRank: 2, tier: 2 },
+            { playerId: "qb-2", overallRank: 3, tier: 5 },
+          ],
+        },
+        recommendation: {
+          QB: "recommendation-position",
+          RB: "neutral",
+        },
+      },
+      entries: [
+        createEntry("qb-1", 1, "QB", 1, 1, "SEA", 1.5),
+        createEntry("rb-1", 2, "RB", 1, NEUTRAL_TIER, "BUF", 2.5),
+        createEntry("qb-2", 3, "QB", 2, 5, "KC", 3.5),
+      ],
+    });
+    const result = exportCanonicalRankingSetJson(source, { exportedAt });
+
+    expectSuccess(result);
+    expect(result.value.document.capabilities.tiers).toEqual({
+      QB: "source",
+      RB: "defaulted-neutral",
+    });
+    expect(
+      result.value.document.entries.map((entry) => entry.recommendationTier),
+    ).toEqual([1, NEUTRAL_TIER, 5]);
+
+    const roundTrip = importExport(result.value.text, "mixed-copy");
+    expect(roundTrip.tierSemantics).toEqual(source.tierSemantics);
+    expect(roundTrip.entries).toEqual(source.entries);
+  });
+
+  it("exports missing domain semantics as legacy ambiguous and recommendation-neutral", () => {
+    const source = createCompleteSet({ tierSemantics: undefined });
+    const result = exportCanonicalRankingSetJson(source, { exportedAt });
+
+    expectSuccess(result);
+    expect(result.value.document.tierSemantics).toEqual({
+      sourceTier: {
+        kind: "legacy-ambiguous",
+        sourceScope: "unknown",
+        recommendationEligible: false,
+      },
+      recommendationTier: {
+        kind: "neutral",
+        sourceScope: "position",
+        recommendationEligible: false,
+      },
+    });
+    expect(result.value.document.capabilities.tiers).toEqual({
+      QB: "defaulted-neutral",
+      RB: "defaulted-neutral",
+    });
+    expect(result.value.document.entries.map((entry) => entry.sourceTier)).toEqual([
+      1, 2, 5,
+    ]);
+    expect(
+      result.value.document.entries.map((entry) => entry.recommendationTier),
+    ).toEqual([NEUTRAL_TIER, NEUTRAL_TIER, NEUTRAL_TIER]);
+
+    const roundTrip = importExport(result.value.text, "legacy-copy");
+    expect(roundTrip.tierSemantics?.source.kind).toBe("legacy-ambiguous");
+    expect(roundTrip.entries.every((entry) => entry.tier === NEUTRAL_TIER)).toBe(
+      true,
+    );
+  });
 });
 
 function createCompleteSet(overrides: Partial<RankingSet> = {}): RankingSet {
@@ -391,6 +477,20 @@ function createCompleteSet(overrides: Partial<RankingSet> = {}): RankingSet {
       importedAt: new Date("2026-06-27T12:00:00.000Z"),
     },
     capabilities: createCapabilities(),
+    tierSemantics: {
+      source: {
+        kind: "source-overall",
+        values: [
+          { playerId: "qb-1", overallRank: 1, tier: 1 },
+          { playerId: "rb-1", overallRank: 2, tier: 2 },
+          { playerId: "qb-2", overallRank: 3, tier: 5 },
+        ],
+      },
+      recommendation: {
+        QB: "recommendation-position",
+        RB: "recommendation-position",
+      },
+    },
     entries: [
       createEntry("qb-1", 1, "QB", 1, 1, "SEA", 1.5),
       createEntry("rb-1", 2, "RB", 1, 2, "BUF", 2.5),
@@ -417,6 +517,10 @@ function createDegradedSet(): RankingSet {
         QB: "defaulted-neutral",
         RB: "defaulted-neutral",
       },
+    },
+    tierSemantics: {
+      source: { kind: "none" },
+      recommendation: { QB: "neutral", RB: "neutral" },
     },
     entries: [
       createEntry(

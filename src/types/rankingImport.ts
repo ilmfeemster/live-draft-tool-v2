@@ -1,9 +1,11 @@
-import type { RankingEntry } from "@/types/draft";
+import type { Position, RankingEntry } from "@/types/draft";
 import type {
+  RankingRecommendationTierSemantics,
   RankingSet,
   RankingSetCapabilities,
   RankingSetSource,
   RankingSetSourceKind,
+  RankingSourceTierSemantics,
 } from "@/types/rankings";
 
 export type RankingImportFormatId =
@@ -133,10 +135,18 @@ export type NormalizedRankingCandidateEntry = Readonly<{
   adpRank: number | null;
 }>;
 
+export type NormalizedRankingTierSemantics = Readonly<{
+  sourceKind: RankingSourceTierSemantics;
+  recommendation: Readonly<
+    Partial<Record<Position, RankingRecommendationTierSemantics>>
+  >;
+}>;
+
 export type NormalizedRankingCandidate = Readonly<{
   name: string;
   source: RankingSetSource;
   capabilities: RankingSetCapabilities;
+  tierSemantics?: NormalizedRankingTierSemantics;
   entries: readonly NormalizedRankingCandidateEntry[];
 }>;
 

@@ -325,7 +325,14 @@ describe("normalizeRankingSource Canonical Ranking JSON", () => {
       importedAt: new Date("2026-06-27T10:00:00.000Z"),
     });
     expect(result.value).not.toHaveProperty("sourceRankingSetId");
-    expect(result.value.capabilities).toEqual(completeCapabilities());
+    expect(result.value.capabilities).toEqual({
+      ...completeCapabilities(),
+      tiers: { QB: "defaulted-neutral" },
+    });
+    expect(result.value.tierSemantics).toEqual({
+      sourceKind: "legacy-ambiguous",
+      recommendation: { QB: "neutral" },
+    });
     expect(result.value.entries[0]).toEqual({
       sourceIndex: 0,
       location: { path: "entries[0]" },
@@ -339,6 +346,7 @@ describe("normalizeRankingSource Canonical Ranking JSON", () => {
           path: "entries[0].positionRank",
           field: "sourcePositionRank",
         },
+        sourceTier: { path: "entries[0].tier", field: "sourceTier" },
         tier: { path: "entries[0].tier", field: "tier" },
         adpRank: { path: "entries[0].adpRank", field: "adpRank" },
       },
@@ -348,7 +356,8 @@ describe("normalizeRankingSource Canonical Ranking JSON", () => {
       position: "QB",
       sourceOrder: 3,
       sourcePositionRank: 1,
-      tier: 2,
+      sourceTier: 2,
+      tier: NEUTRAL_TIER,
       adpRank: null,
     });
   });
@@ -510,6 +519,146 @@ describe("normalizeRankingSource Canonical Ranking JSON", () => {
     });
   });
 
+  it("normalizes V2 source tiers and mixed per-position recommendation eligibility", () => {
+    const result = normalizeRankingSource(
+      parseCanonical({
+        schemaVersion: 2,
+        metadata: {
+          name: "Explicit Tiers",
+          exportedAt: "2026-06-28T10:00:00.000Z",
+        },
+        tierSemantics: {
+          sourceTier: {
+            kind: "source-only",
+            sourceScope: "overall",
+            recommendationEligible: false,
+          },
+          recommendationTier: {
+            kind: "recommendation-eligible",
+            sourceScope: "position",
+            recommendationEligible: true,
+          },
+        },
+        capabilities: {
+          team: "complete",
+          playerIdentity: "provided",
+          overallOrder: "explicit",
+          positionRank: "derived",
+          adp: "none",
+          tiers: { QB: "source", RB: "defaulted-neutral" },
+        },
+        entries: [
+          canonicalV2Entry({
+            player: { id: "qb-1", name: "QB One", team: "KC", position: "QB" },
+            overallRank: 1,
+            sourceTier: 3,
+            recommendationTier: 2,
+          }),
+          canonicalV2Entry({
+            player: { id: "rb-1", name: "RB One", team: "BUF", position: "RB" },
+            overallRank: 2,
+            sourceTier: null,
+            recommendationTier: NEUTRAL_TIER,
+          }),
+        ],
+      }),
+      { importedAt },
+    );
+
+    expectSuccess(result);
+    expect(result.value.tierSemantics).toEqual({
+      sourceKind: "source-overall",
+      recommendation: {
+        QB: "recommendation-position",
+        RB: "neutral",
+      },
+    });
+    expect(result.value.entries.map((entry) => ({
+      sourceTier: entry.sourceTier,
+      tier: entry.tier,
+    }))).toEqual([
+      { sourceTier: 3, tier: 2 },
+      { sourceTier: null, tier: NEUTRAL_TIER },
+    ]);
+  });
+
+  it("rejects contradictory V2 tier semantics with exact locations", () => {
+    const malformedContract = normalizeRankingSource(
+      parseCanonical({
+        schemaVersion: 2,
+        metadata: {
+          name: "Bad Semantics",
+          exportedAt: "2026-06-28T10:00:00.000Z",
+        },
+        tierSemantics: {
+          sourceTier: {
+            kind: "source-only",
+            sourceScope: "position",
+            recommendationEligible: true,
+          },
+          recommendationTier: {
+            kind: "neutral",
+            sourceScope: "position",
+            recommendationEligible: false,
+          },
+        },
+        capabilities: {
+          ...completeCapabilities(),
+          tiers: { QB: "defaulted-neutral" },
+        },
+        entries: [canonicalV2Entry()],
+      }),
+      { importedAt },
+    );
+    const nonNeutralFallback = normalizeRankingSource(
+      parseCanonical({
+        schemaVersion: 2,
+        metadata: {
+          name: "Bad Neutral Tier",
+          exportedAt: "2026-06-28T10:00:00.000Z",
+        },
+        tierSemantics: {
+          sourceTier: {
+            kind: "absent",
+            sourceScope: "unknown",
+            recommendationEligible: false,
+          },
+          recommendationTier: {
+            kind: "neutral",
+            sourceScope: "position",
+            recommendationEligible: false,
+          },
+        },
+        capabilities: {
+          ...completeCapabilities(),
+          tiers: { QB: "defaulted-neutral" },
+        },
+        entries: [
+          canonicalV2Entry({ sourceTier: null, recommendationTier: 2 }),
+        ],
+      }),
+      { importedAt },
+    );
+
+    expectFailure(malformedContract);
+    expect(malformedContract.errors).toEqual([
+      expect.objectContaining({
+        code: "invalid-tier-semantics",
+        location: { path: "tierSemantics.sourceTier", field: "sourceTier" },
+      }),
+    ]);
+    expectFailure(nonNeutralFallback);
+    expect(nonNeutralFallback.errors).toEqual([
+      expect.objectContaining({
+        code: "invalid-tier-semantics",
+        location: {
+          path: "entries[0].recommendationTier",
+          field: "tier",
+        },
+      }),
+    ]);
+  });
+
   it("requires a valid context date only when portable source is absent", () => {
     const value = {
       schemaVersion: 1,
@@ -538,7 +687,7 @@ describe("normalizeRankingSource Canonical Ranking JSON", () => {
 });
 
 describe("normalizeRankingSource boundaries", () => {
-  it("keeps FantasyPros source tiers separate without broadening Canonical V1", () => {
+  it("keeps FantasyPros and legacy Canonical V1 tiers out of recommendation tiers", () => {
     const csv = normalizeRankingSource(
       parseCsv("RK,TIER,PLAYER NAME,TEAM,POS,ECR VS ADP\n3,2,Player One,KC,QB1,-"),
       { name: "Equivalent", importedAt },
@@ -582,12 +731,20 @@ describe("normalizeRankingSource boundaries", () => {
       sourceTier: 2,
       tier: NEUTRAL_TIER,
     });
-    expect(canonical.value.entries[0]).not.toHaveProperty("sourceTier");
-    expect(canonical.value.entries[0]?.tier).toBe(2);
+    expect(canonical.value.entries[0]).toMatchObject({
+      sourceTier: 2,
+      tier: NEUTRAL_TIER,
+    });
     expect(csv.value.capabilities.tiers).toEqual({
       QB: "defaulted-neutral",
     });
-    expect(canonical.value.capabilities.tiers).toEqual({ QB: "source" });
+    expect(canonical.value.capabilities.tiers).toEqual({
+      QB: "defaulted-neutral",
+    });
+    expect(canonical.value.tierSemantics).toEqual({
+      sourceKind: "legacy-ambiguous",
+      recommendation: { QB: "neutral" },
+    });
   });
 
   it("does not mutate parsed input", () => {
@@ -663,6 +820,27 @@ function canonicalEntry() {
     positionRank: 1,
     tier: 2,
     adpRank: null,
+  };
+}
+
+function canonicalV2Entry(
+  overrides: Partial<{
+    player: { id: string; name: string; team: string; position: string };
+    overallRank: number;
+    positionRank: number;
+    sourceTier: number | null;
+    recommendationTier: number;
+    adpRank: number | null;
+  }> = {},
+) {
+  return {
+    player: { id: "qb-1", name: "QB One", team: "KC", position: "QB" },
+    overallRank: 1,
+    positionRank: 1,
+    sourceTier: 3,
+    recommendationTier: NEUTRAL_TIER,
+    adpRank: null,
+    ...overrides,
   };
 }
 
