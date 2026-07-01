@@ -1,6 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PrismaClient, type Prisma } from "@/generated/prisma/client";
+import { Prisma, PrismaClient } from "@/generated/prisma/client";
 import {
   createRankingSetRepository,
 } from "@/lib/rankingSetRepository";
@@ -63,6 +63,93 @@ describe("ranking set repository", () => {
     ).toBe(true);
   });
 
+  it("round-trips FantasyPros source tiers separately from neutral recommendation tiers", async () => {
+    const fake = createFakeRankingSetDb();
+    const repository = createRankingSetRepository(fake.db);
+    const source = createSourceTierSet();
+    const created = await repository.createRankingSet(source);
+
+    expect(created).toEqual({ ok: true, rankingSet: source });
+    expect(fake.records[0]?.tierSemantics).toEqual(source.tierSemantics);
+    expect(fake.records[0]?.tierSemantics).not.toBe(source.tierSemantics);
+    await expect(repository.getRankingSetById(source.id)).resolves.toEqual(source);
+
+    const replacement = createSourceTierSet({
+      name: "Updated Source Tiers",
+      updatedAt: new Date("2026-06-29T12:00:00.000Z"),
+    });
+
+    await expect(repository.replaceRankingSet(replacement)).resolves.toEqual({
+      ok: true,
+      rankingSet: replacement,
+    });
+    await expect(repository.getRankingSetById(source.id)).resolves.toEqual(
+      replacement,
+    );
+  });
+
+  it("persists omitted semantics as database null and returns conservative legacy values", async () => {
+    const fake = createFakeRankingSetDb();
+    const repository = createRankingSetRepository(fake.db);
+    const source = createCompleteSet({ tierSemantics: undefined });
+    const created = await repository.createRankingSet(source);
+
+    expect(fake.records[0]?.tierSemantics).toBeNull();
+    expect(created).toMatchObject({
+      ok: true,
+      rankingSet: {
+        tierSemantics: { source: { kind: "legacy-ambiguous" } },
+        capabilities: {
+          tiers: { QB: "defaulted-neutral", RB: "defaulted-neutral" },
+        },
+      },
+    });
+
+    const replacement = createCompleteSet({
+      name: "Legacy Replacement",
+      tierSemantics: undefined,
+      updatedAt: new Date("2026-06-29T12:00:00.000Z"),
+    });
+    const replaced = await repository.replaceRankingSet(replacement);
+
+    expect(fake.records[0]?.tierSemantics).toBeNull();
+    expect(replaced).toMatchObject({
+      ok: true,
+      rankingSet: {
+        tierSemantics: { source: { kind: "legacy-ambiguous" } },
+      },
+    });
+  });
+
+  it("loads missing persisted semantics as preserved legacy metadata with neutral entries", async () => {
+    const fake = createFakeRankingSetDb();
+    const repository = createRankingSetRepository(fake.db);
+    const source = createCompleteSet();
+    await repository.createRankingSet(source);
+    fake.records[0].tierSemantics = null;
+
+    const loaded = await repository.getRankingSetById(source.id);
+
+    expect(loaded?.tierSemantics).toEqual({
+      source: {
+        kind: "legacy-ambiguous",
+        values: [
+          { playerId: "qb-1", overallRank: 1, tier: 1 },
+          { playerId: "rb-1", overallRank: 2, tier: 2 },
+          { playerId: "qb-2", overallRank: 3, tier: 4 },
+        ],
+      },
+      recommendation: { QB: "neutral", RB: "neutral" },
+    });
+    expect(loaded?.capabilities.tiers).toEqual({
+      QB: "defaulted-neutral",
+      RB: "defaulted-neutral",
+    });
+    expect(loaded?.entries.every((entry) => entry.tier === NEUTRAL_TIER)).toBe(
+      true,
+    );
+  });
+
   it("returns independently owned domain values", async () => {
     const fake = createFakeRankingSetDb();
     const repository = createRankingSetRepository(fake.db);
@@ -78,6 +165,10 @@ describe("ranking set repository", () => {
     expect(loaded.source.importedAt).not.toBe(source.source.importedAt);
     expect(loaded.capabilities).not.toBe(source.capabilities);
     expect(loaded.capabilities.tiers).not.toBe(source.capabilities.tiers);
+    expect(loaded.tierSemantics).not.toBe(source.tierSemantics);
+    expect(loaded.tierSemantics?.recommendation).not.toBe(
+      source.tierSemantics?.recommendation,
+    );
     expect(loaded.entries).not.toBe(source.entries);
     expect(loaded.entries[0]).not.toBe(source.entries[0]);
     expect(loaded.entries[0]?.player).not.toBe(source.entries[0]?.player);
@@ -423,6 +514,13 @@ describe("ranking set repository", () => {
       path: "capabilities.tiers.QB",
     },
     {
+      name: "malformed explicit tier semantics JSON",
+      mutate(record: FakeRecord) {
+        record.tierSemantics = {};
+      },
+      path: "tierSemantics.source",
+    },
+    {
       name: "invalid canonical order",
       mutate(record: FakeRecord) {
         record.entries[0].overallRank = 2;
@@ -448,7 +546,7 @@ describe("ranking set repository", () => {
     });
   });
 
-  it("lists lightweight summaries without selecting entry rows", async () => {
+  it("lists lightweight summaries without selecting entry rows or tier semantics", async () => {
     const fake = createFakeRankingSetDb();
     const repository = createRankingSetRepository(fake.db);
     const older = createCompleteSet({
@@ -473,6 +571,7 @@ describe("ranking set repository", () => {
     const summaries = await repository.listRankingSetSummaries();
 
     expect(fake.summarySelectedEntries).toBe(false);
+    expect(fake.summarySelectedTierSemantics).toBe(false);
     expect(fake.summarySelectedCount).toBe(true);
     expect(fake.summaryOrder).toEqual([
       { updatedAt: "desc" },
@@ -692,6 +791,7 @@ function createFakeRankingSetDb() {
     corruptNextUpdateResult: false,
     nextError: undefined as unknown,
     summarySelectedEntries: false,
+    summarySelectedTierSemantics: false,
     summarySelectedCount: false,
     summaryOrder: undefined as unknown,
   };
@@ -734,6 +834,9 @@ function createFakeRankingSetDb() {
         overallOrderCapability: args.data.overallOrderCapability,
         adpCapability: args.data.adpCapability,
         tierCapabilities: structuredClone(args.data.tierCapabilities),
+        tierSemantics: normalizePersistedTierSemantics(
+          args.data.tierSemantics,
+        ),
         entries: [],
         createdAt: new Date(args.data.createdAt),
         updatedAt: new Date(args.data.updatedAt),
@@ -799,6 +902,9 @@ function createFakeRankingSetDb() {
         overallOrderCapability: args.data.overallOrderCapability,
         adpCapability: args.data.adpCapability,
         tierCapabilities: structuredClone(args.data.tierCapabilities),
+        tierSemantics: normalizePersistedTierSemantics(
+          args.data.tierSemantics,
+        ),
         entries: [],
         createdAt: new Date(args.data.createdAt),
         updatedAt: new Date(args.data.updatedAt),
@@ -858,6 +964,7 @@ function createFakeRankingSetDb() {
 
     async findMany(args) {
       state.summarySelectedEntries = "entries" in args.select;
+      state.summarySelectedTierSemantics = "tierSemantics" in args.select;
       state.summarySelectedCount = "_count" in args.select;
       state.summaryOrder = args.orderBy;
 
@@ -921,6 +1028,9 @@ function createFakeRankingSetDb() {
     get summarySelectedEntries() {
       return state.summarySelectedEntries;
     },
+    get summarySelectedTierSemantics() {
+      return state.summarySelectedTierSemantics;
+    },
     get summarySelectedCount() {
       return state.summarySelectedCount;
     },
@@ -950,6 +1060,12 @@ function cloneRecord(record: FakeRecord, reverseEntries: boolean): FakeRecord {
   return cloned;
 }
 
+function normalizePersistedTierSemantics(value: unknown): unknown | null {
+  return value === undefined || value === Prisma.DbNull
+    ? null
+    : structuredClone(value);
+}
+
 function prismaError(code: string, target: string[]) {
   return { code, meta: { target } };
 }
@@ -966,6 +1082,13 @@ function createCompleteSet(overrides: Partial<RankingSet> = {}): RankingSet {
       importedAt: new Date("2026-06-27T12:00:00.000Z"),
     },
     capabilities: createCapabilities(),
+    tierSemantics: {
+      source: { kind: "none" },
+      recommendation: {
+        QB: "recommendation-position",
+        RB: "recommendation-position",
+      },
+    },
     entries: [
       createEntry("qb-1", 1, "QB", 1, 1, "SEA", 1.5),
       createEntry("rb-1", 2, "RB", 1, 2, "BUF", 2.5),
@@ -993,6 +1116,10 @@ function createDegradedSet(overrides: Partial<RankingSet> = {}): RankingSet {
         RB: "defaulted-neutral",
       },
     },
+    tierSemantics: {
+      source: { kind: "none" },
+      recommendation: { QB: "neutral", RB: "neutral" },
+    },
     entries: [
       createEntry("generated-qb", 1, "QB", 1, 1, UNKNOWN_TEAM, null),
       createEntry("generated-rb", 2, "RB", 1, 1, UNKNOWN_TEAM, null),
@@ -1001,6 +1128,35 @@ function createDegradedSet(overrides: Partial<RankingSet> = {}): RankingSet {
     updatedAt: new Date("2026-06-28T12:00:00.000Z"),
     ...overrides,
   };
+}
+
+function createSourceTierSet(
+  overrides: Partial<RankingSet> = {},
+): RankingSet {
+  return createCompleteSet({
+    id: "source-tier-set",
+    name: "Source Tier Rankings",
+    capabilities: createCapabilities({
+      tiers: { QB: "defaulted-neutral", RB: "defaulted-neutral" },
+    }),
+    tierSemantics: {
+      source: {
+        kind: "source-overall",
+        values: [
+          { playerId: "qb-1", overallRank: 1, tier: 1 },
+          { playerId: "rb-1", overallRank: 2, tier: 2 },
+          { playerId: "qb-2", overallRank: 3, tier: 4 },
+        ],
+      },
+      recommendation: { QB: "neutral", RB: "neutral" },
+    },
+    entries: [
+      createEntry("qb-1", 1, "QB", 1, NEUTRAL_TIER, "SEA", 1.5),
+      createEntry("rb-1", 2, "RB", 1, NEUTRAL_TIER, "BUF", 2.5),
+      createEntry("qb-2", 3, "QB", 2, NEUTRAL_TIER, "KC", 3.5),
+    ],
+    ...overrides,
+  });
 }
 
 function createCapabilities(

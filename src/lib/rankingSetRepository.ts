@@ -1,16 +1,19 @@
 import { getPrismaClient } from "@/lib/prisma";
 import { validateRankingSet } from "@/lib/rankingSetValidation";
+import { Prisma } from "@/generated/prisma/client";
 import type { Position, RankingEntry } from "@/types/draft";
-import type {
-  RankingDataAvailability,
-  RankingOverallOrderCapability,
-  RankingPlayerIdentityCapability,
-  RankingSet,
-  RankingSetCapabilities,
-  RankingSetSource,
-  RankingSetSourceKind,
-  RankingSetSummary,
-  RankingTierCapability,
+import {
+  NEUTRAL_TIER,
+  type RankingDataAvailability,
+  type RankingOverallOrderCapability,
+  type RankingPlayerIdentityCapability,
+  type RankingSet,
+  type RankingSetCapabilities,
+  type RankingSetSource,
+  type RankingSetSourceKind,
+  type RankingSetSummary,
+  type RankingTierCapability,
+  type RankingTierSemantics,
 } from "@/types/rankings";
 
 export type CreateRankingSetError = Readonly<{
@@ -86,6 +89,7 @@ type PersistedRankingSetRecord = {
   overallOrderCapability: PersistedOrderCapability;
   adpCapability: PersistedAvailability;
   tierCapabilities: unknown;
+  tierSemantics: unknown | null;
   entries: PersistedRankingSetEntryRecord[];
   createdAt: Date;
   updatedAt: Date;
@@ -98,6 +102,7 @@ type PersistedRankingSetSummaryRecord = Omit<
   | "sourceFormatVersion"
   | "sourceLabel"
   | "sourceImportedAt"
+  | "tierSemantics"
   | "entries"
 > & {
   _count: { entries: number };
@@ -110,12 +115,18 @@ type RankingSetEntryCreateData = Omit<
 
 type RankingSetCreateData = Omit<
   PersistedRankingSetRecord,
-  "entries" | "sourceFormatId" | "sourceFormatVersion" | "sourceLabel" | "sourceImportedAt"
+  | "entries"
+  | "sourceFormatId"
+  | "sourceFormatVersion"
+  | "sourceLabel"
+  | "sourceImportedAt"
+  | "tierSemantics"
 > & {
   sourceFormatId?: string;
   sourceFormatVersion?: number;
   sourceLabel?: string;
   sourceImportedAt?: Date;
+  tierSemantics?: unknown;
   entries: { create: RankingSetEntryCreateData[] };
 };
 
@@ -126,12 +137,14 @@ type RankingSetUpdateData = Omit<
   | "sourceFormatVersion"
   | "sourceLabel"
   | "sourceImportedAt"
+  | "tierSemantics"
   | "entries"
 > & {
   sourceFormatId: string | null;
   sourceFormatVersion: number | null;
   sourceLabel: string | null;
   sourceImportedAt: Date | null;
+  tierSemantics: unknown;
   entries: {
     deleteMany: Record<string, never>;
     create: RankingSetEntryCreateData[];
@@ -419,6 +432,9 @@ function mapRankingSetToCreateData(rankingSet: RankingSet): RankingSetCreateData
     ),
     adpCapability: mapAvailabilityToPersisted(rankingSet.capabilities.adp),
     tierCapabilities: mapTierCapabilitiesToJson(rankingSet.capabilities.tiers),
+    ...(rankingSet.tierSemantics === undefined
+      ? {}
+      : { tierSemantics: copyTierSemantics(rankingSet.tierSemantics) }),
     entries: {
       create: rankingSet.entries.map((entry) => ({
         playerId: entry.player.id,
@@ -457,6 +473,10 @@ function mapRankingSetToUpdateData(rankingSet: RankingSet): RankingSetUpdateData
     ),
     adpCapability: mapAvailabilityToPersisted(rankingSet.capabilities.adp),
     tierCapabilities: mapTierCapabilitiesToJson(rankingSet.capabilities.tiers),
+    tierSemantics:
+      rankingSet.tierSemantics === undefined
+        ? Prisma.DbNull
+        : copyTierSemantics(rankingSet.tierSemantics),
     entries: {
       deleteMany: {},
       create: rankingSet.entries.map(mapEntryToCreateData),
@@ -480,14 +500,27 @@ function mapEntryToCreateData(entry: RankingEntry): RankingSetEntryCreateData {
 }
 
 function mapRecordToRankingSet(record: PersistedRankingSetRecord): RankingSet {
+  const mappedEntries = [...record.entries]
+    .sort((left, right) => left.overallRank - right.overallRank)
+    .map(mapRecordToEntry);
+  const mappedCapabilities = mapRecordToCapabilities(record);
+  const tierState =
+    record.tierSemantics === null
+      ? mapLegacyTierState(mappedEntries, mappedCapabilities)
+      : {
+          capabilities: mappedCapabilities,
+          entries: mappedEntries,
+          tierSemantics: structuredClone(
+            record.tierSemantics,
+          ) as RankingTierSemantics,
+        };
   const rankingSet: RankingSet = {
     id: record.id,
     name: record.name,
     source: mapRecordToSource(record),
-    capabilities: mapRecordToCapabilities(record),
-    entries: [...record.entries]
-      .sort((left, right) => left.overallRank - right.overallRank)
-      .map(mapRecordToEntry),
+    capabilities: tierState.capabilities,
+    tierSemantics: tierState.tierSemantics,
+    entries: tierState.entries,
     createdAt: parseDate(record.createdAt, "createdAt"),
     updatedAt: parseDate(record.updatedAt, "updatedAt"),
   };
@@ -502,6 +535,46 @@ function mapRecordToRankingSet(record: PersistedRankingSetRecord): RankingSet {
   }
 
   return validation.rankingSet;
+}
+
+function mapLegacyTierState(
+  entries: readonly RankingEntry[],
+  capabilities: RankingSetCapabilities,
+): Readonly<{
+  capabilities: RankingSetCapabilities;
+  entries: readonly RankingEntry[];
+  tierSemantics: RankingTierSemantics;
+}> {
+  const tiers: Partial<Record<Position, "defaulted-neutral">> = {};
+  const recommendation: Partial<Record<Position, "neutral">> = {};
+
+  entries.forEach((entry) => {
+    tiers[entry.player.position] = "defaulted-neutral";
+    recommendation[entry.player.position] = "neutral";
+  });
+
+  return {
+    capabilities: {
+      ...capabilities,
+      tiers,
+    },
+    entries: entries.map((entry) => ({
+      ...entry,
+      player: { ...entry.player },
+      tier: NEUTRAL_TIER,
+    })),
+    tierSemantics: {
+      source: {
+        kind: "legacy-ambiguous",
+        values: entries.map((entry) => ({
+          playerId: entry.player.id,
+          overallRank: entry.overallRank,
+          tier: entry.tier,
+        })),
+      },
+      recommendation,
+    },
+  };
 }
 
 function mapRecordToSource(record: PersistedRankingSetRecord): RankingSetSource {
@@ -720,6 +793,10 @@ function mapTierCapabilitiesToJson(
       return capability === undefined ? [] : [[position, capability]];
     }),
   );
+}
+
+function copyTierSemantics(value: RankingTierSemantics): RankingTierSemantics {
+  return structuredClone(value);
 }
 
 function parseTierCapabilities(

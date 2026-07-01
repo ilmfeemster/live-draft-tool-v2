@@ -92,6 +92,7 @@ model RankingSet {
   overallOrderCapability   RankingOverallOrderCapability
   adpCapability            RankingDataAvailability
   tierCapabilities         Json
+  tierSemantics            Json?
   entries                  RankingSetEntry[]
   createdAt                DateTime
   updatedAt                DateTime

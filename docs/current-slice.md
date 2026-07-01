@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Implementation has not begun.
+Complete. Focused tests, the full automated suite, Prisma validation and client generation, lint, and TypeScript validation pass. The optional PostgreSQL integration suite was not run because `RANKING_SET_TEST_DATABASE_URL` is not configured.
 
 ## Source Context
 
@@ -142,7 +142,7 @@ Persist explicit `RankingSet.tierSemantics` for new and replaced ranking sets, a
    npx tsc --noEmit
    ```
 
-   If `TEST_DATABASE_URL` is configured, also run the existing PostgreSQL repository integration suite with `RUN_RANKING_SET_DB_TESTS=1`. If it is unavailable, report that the unit repository boundary, Prisma schema validation, generated client, and type checking passed; do not add an external database dependency to the slice.
+   If `RANKING_SET_TEST_DATABASE_URL` is configured, also run the existing PostgreSQL repository integration suite with `RUN_RANKING_SET_DB_TESTS=1`. If it is unavailable, report that the unit repository boundary, Prisma schema validation, generated client, and type checking passed; do not add an external database dependency to the slice.
 
 8. Finalize this slice.
 
