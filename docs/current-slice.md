@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Implementation has not begun.
+Complete. Focused tests, the full automated suite, and TypeScript validation pass.
 
 ## Source Context
 
@@ -30,7 +30,7 @@ Make neutral recommendation tiers explicitly produce no tier-drop score, score c
 
 - Add an explicit neutral-tier guard to the modern tier-drop component calculation.
 - Return a deterministic zero-delta result with inspectable neutral-tier evidence from the pure calculation helper.
-- Omit zero-delta `tier_cliff` components from final `PlayerRecommendation.components`.
+- Omit explicit neutral-tier `tier_cliff` components from final `PlayerRecommendation.components`.
 - Preserve the existing rule that reasons are created only from positive score components.
 - Add an explicit neutral-tier guard to the legacy tier-drop modifier helper.
 - Preserve positive tier-pressure behavior for existing non-neutral recommendation-tier test inputs.
@@ -68,13 +68,14 @@ Make neutral recommendation tiers explicitly produce no tier-drop score, score c
 
 2. Stop emitting non-scoring tier components.
 
-   In `generatePlayerRecommendations`, continue calculating the tier component before urgency totals, but include it in `PlayerRecommendation.components` only when `tierCliffComponent.delta !== 0`.
+   In `generatePlayerRecommendations`, continue calculating the tier component before urgency totals, but omit it from `PlayerRecommendation.components` only when its threshold is `"neutral_recommendation_tiers"`.
 
    Required behavior:
 
    - a neutral tier component contributes zero to urgency and context scoring;
    - it is absent from the final component list;
    - it cannot produce a reason because reason selection only sees emitted score components;
+   - existing zero-delta diagnostics for non-neutral tier inputs remain available;
    - positive tier components remain emitted exactly as today;
    - score reconciliation remains exact.
 

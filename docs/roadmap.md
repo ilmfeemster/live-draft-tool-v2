@@ -285,6 +285,51 @@ Rankings can evolve without code changes.
 
 ---
 
+# Phase 5.5 — Overall Tier Recommendations
+
+## Purpose
+
+Incorporate overall/source tiers into the Recommendation Engine using their correct semantics.
+
+## Product Goals
+
+Improve recommendation quality by considering overall tiers alongside overall rankings.
+
+## Technical Goals
+
+- Overall tier recommendation signal
+- Recommendation scoring integration
+- Recommendation explanations
+- Validation
+
+## Major Deliverables
+
+- Overall tier signal
+- Updated recommendation scoring
+- Recommendation reasons for overall tiers
+
+## Architecture Changes
+
+Expand the Recommendation Engine to consume overall/source tier data as a recommendation signal instead of position-tier pressure.
+
+## Future Enables
+
+Projection-based recommendation signals.
+
+## Non-Goals
+
+- Position tiers
+- Projection models
+- VORP
+- Strategy engine changes
+- Additional ranking sources
+
+## Exit Criteria
+
+Overall/source tiers contribute appropriately to recommendations without being interpreted as position-tier pressure.
+
+---
+
 # Phase 6 — Strategy & Insight Engine
 
 ## Purpose

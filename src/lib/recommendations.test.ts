@@ -6,6 +6,7 @@ import {
   calculateBasePlayerValueScore,
   calculatePositionalRunComponent,
   calculatePositionalScarcityComponent,
+  calculateTierDropModifier,
   calculateTierDropRiskComponent,
   calculateValueOpportunityComponent,
   defaultRecommendationTuningConfig,
@@ -21,6 +22,7 @@ import type {
   RankingEntry,
   RecommendationScoreComponent,
 } from "@/types/draft";
+import { NEUTRAL_TIER } from "@/types/rankings";
 
 function expectScoreToReconcile(recommendation: PlayerRecommendation) {
   const componentTotal = recommendation.components.reduce((total, component) => {
@@ -281,6 +283,20 @@ describe("generateTopRecommendations", () => {
 
     expect(recommendations[0].ranking.player.id).toBe("player-rb-tier-drop");
     expect(recommendations[0].reasons).toContain("Tier drop after this RB");
+  });
+
+  it("returns no legacy tier modifier for neutral recommendation tiers", () => {
+    const ranking = createRanking("neutral-rb-1", 20, "RB", "neutral-rb-1", {
+      tier: NEUTRAL_TIER,
+    });
+    const result = calculateTierDropModifier(ranking, [
+      ranking,
+      createRanking("neutral-rb-2", 30, "RB", "neutral-rb-2", {
+        tier: NEUTRAL_TIER,
+      }),
+    ]);
+
+    expect(result).toEqual({ modifier: 0, reason: null });
   });
 
   it("prioritizes a scarce position over a slightly higher-ranked player", () => {
@@ -928,6 +944,72 @@ describe("generatePlayerRecommendations", () => {
         thresholdMatched: "mild_tier_pressure",
       }),
     });
+  });
+
+  it("treats neutral recommendation tiers as an explicit no-op", () => {
+    const ranking = createRanking("neutral-rb-1", 20, "RB", "neutral-rb-1", {
+      tier: NEUTRAL_TIER,
+    });
+    const availableRankings = [
+      ranking,
+      createRanking("neutral-rb-2", 30, "RB", "neutral-rb-2", {
+        tier: NEUTRAL_TIER,
+      }),
+    ];
+    const tierComponent = calculateTierDropRiskComponent({
+      ranking,
+      availableRankings,
+      distanceToNextUserPick: 12,
+      rosterFitDelta: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(tierComponent).toEqual({
+      id: "tier_cliff",
+      delta: 0,
+      direction: "neutral",
+      priority: 18,
+      evidence: {
+        position: "RB",
+        currentTier: NEUTRAL_TIER,
+        sameTierRemaining: 2,
+        nextTier: null,
+        tierGap: null,
+        distanceToNextUserPick: 12,
+        rosterFitDelta: 10,
+        thresholdMatched: "neutral_recommendation_tiers",
+      },
+    });
+  });
+
+  it("omits neutral tier components and reasons from recommendations", () => {
+    const rankings = [
+      createRanking("neutral-rb-1", 20, "RB", "neutral-rb-1", {
+        tier: NEUTRAL_TIER,
+      }),
+      createRanking("neutral-rb-2", 30, "RB", "neutral-rb-2", {
+        tier: NEUTRAL_TIER,
+      }),
+    ];
+    const input = createRecommendationInput({ rankings });
+    const first = generatePlayerRecommendations(input);
+    const repeated = generatePlayerRecommendations(input);
+    const recommendation = first.find((entry) => {
+      return entry.playerId === "neutral-rb-1";
+    });
+
+    expect(recommendation).toBeDefined();
+    expect(
+      recommendation?.components.some((component) => component.id === "tier_cliff"),
+    ).toBe(false);
+    expect(
+      recommendation?.reasons.some((reason) => reason.sourceComponentId === "tier_cliff"),
+    ).toBe(false);
+    expect(first).toEqual(repeated);
+
+    if (recommendation) {
+      expectScoreToReconcile(recommendation);
+    }
   });
 
   it("adds major tier pressure before a multi-tier drop at a needed position", () => {

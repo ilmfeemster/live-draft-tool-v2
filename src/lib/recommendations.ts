@@ -12,6 +12,7 @@ import type {
   RecommendationTuningConfig,
   UserRosterPlayer,
 } from "@/types/draft";
+import { NEUTRAL_TIER } from "@/types/rankings";
 
 const DEFAULT_RECOMMENDATION_LIMIT = 5;
 const DIRECT_STARTER_NEED_BONUS = 15;
@@ -435,10 +436,34 @@ export function calculateTierDropRiskComponent({
   const samePositionRankings = availableRankings
     .filter((candidate) => candidate.player.position === position)
     .sort(compareRankingsByStableDraftOrder);
-  const bestAvailableTier = Math.min(...samePositionRankings.map((candidate) => candidate.tier));
   const sameTierRemaining = samePositionRankings.filter((candidate) => {
     return candidate.tier === ranking.tier;
   }).length;
+
+  if (
+    ranking.tier === NEUTRAL_TIER &&
+    samePositionRankings.length > 0 &&
+    samePositionRankings.every((candidate) => candidate.tier === NEUTRAL_TIER)
+  ) {
+    return {
+      id: "tier_cliff",
+      delta: 0,
+      direction: "neutral",
+      priority: TIER_CLIFF_COMPONENT_PRIORITY,
+      evidence: {
+        position,
+        currentTier: ranking.tier,
+        sameTierRemaining,
+        nextTier: null,
+        tierGap: null,
+        distanceToNextUserPick,
+        rosterFitDelta,
+        thresholdMatched: "neutral_recommendation_tiers",
+      },
+    };
+  }
+
+  const bestAvailableTier = Math.min(...samePositionRankings.map((candidate) => candidate.tier));
   const nextTier =
     samePositionRankings
       .map((candidate) => candidate.tier)
@@ -1047,7 +1072,10 @@ export function generatePlayerRecommendations(
           },
         },
         rosterFitComponent,
-        tierCliffComponent,
+        ...(tierCliffComponent.evidence?.thresholdMatched ===
+          "neutral_recommendation_tiers"
+          ? []
+          : [tierCliffComponent]),
         positionalScarcityComponent,
         positionalRunComponent,
         valueOpportunityComponent,
@@ -1172,6 +1200,15 @@ export function calculateTierDropModifier(
   const samePositionRankings = availableRankings
     .filter((candidate) => candidate.player.position === ranking.player.position)
     .sort((a, b) => a.overallRank - b.overallRank);
+
+  if (
+    ranking.tier === NEUTRAL_TIER &&
+    samePositionRankings.length > 0 &&
+    samePositionRankings.every((candidate) => candidate.tier === NEUTRAL_TIER)
+  ) {
+    return { modifier: 0, reason: null };
+  }
+
   const bestAvailableTier = Math.min(...samePositionRankings.map((candidate) => candidate.tier));
 
   if (ranking.tier !== bestAvailableTier) {

@@ -606,10 +606,11 @@ describe("recommendation urgency scenarios", () => {
         thresholdMatched: "major_tier_cliff",
       }),
     });
-    expect(getScoreComponent(controlWideReceiver, "tier_cliff")).toMatchObject({
-      delta: 0,
-      direction: "neutral",
-    });
+    expect(
+      controlWideReceiver.components.find((component) => {
+        return component.id === "tier_cliff";
+      }),
+    ).toBeUndefined();
     expect(tierReason).toEqual(
       expect.objectContaining({ text: "A major RB tier drop follows." }),
     );
