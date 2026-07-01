@@ -1,240 +1,246 @@
-# Current Slice: Tier Semantics Task 5 - Correct FantasyPros Tier Normalization and Conversion
+# Current Slice: Tier Semantics Task 6a - Persist Ranking-Set Tier Semantics
 
 ## Completion Status
 
-Complete. Focused tests, the full automated test suite, and TypeScript validation pass.
+Planned. Implementation has not begun.
 
 ## Source Context
 
-- Patch project: `docs/patches/tier-semantics-project.md`
 - Patch task plan: `docs/patches/tier-semantics-tasks.md`
 - Approved design: `docs/design/tier-semantics.md`
-- Completed prerequisite: Task 4 added optional `RankingSet.tierSemantics`, optional `RankingSnapshot.tierSemantics`, and domain validation for source, neutral, recommendation-position, and legacy ambiguous tier semantics.
-- Relevant files:
-  - `src/types/rankingImport.ts`
-  - `src/lib/rankingNormalizer.ts`
-  - `src/lib/rankingSetConversion.ts`
-  - `src/lib/rankingNormalizer.test.ts`
-  - `src/lib/rankingSetConversion.test.ts`
-  - `src/lib/rankingImportWorkflow.test.ts`, only for import failure-isolation or warning propagation coverage if needed
+- Relevant decision: FantasyPros tiers are source tiers; legacy ambiguous tier values remain loadable but are neutralized for recommendation pressure by default.
+- Completed prerequisite: Task 5 creates corrected FantasyPros `RankingSet` values with explicit `tierSemantics`, preserved source tiers, neutral engine-facing tiers, and `defaulted-neutral` tier capabilities.
+- Current persistence boundary:
+  - `RankingSet` stores capabilities on the parent row and canonical `tier` values on entry rows.
+  - `RankingSet.tierSemantics` is not persisted.
+  - Existing rows therefore have no trusted way to distinguish recommendation tiers from legacy ambiguous tiers.
+  - `validateRankingSet` already validates explicit source, neutral, recommendation-position, and legacy-ambiguous semantics.
 
-Task 5 corrects the FantasyPros import pipeline so FantasyPros `TIERS` are preserved as source-tier metadata while engine-facing `RankingEntry.tier` values become neutral recommendation tiers. This slice must not add repository, export, snapshot, scenario, Recommendation Engine, or UI compatibility behavior; those remain later patch tasks.
+Task 6 covers repository, portable export, snapshot, and scenario compatibility. That is too broad for one reviewable slice. This slice implements only ranking-set repository compatibility so Task 5 semantics survive persistence and legacy ranking-set rows load conservatively. Canonical JSON, snapshots, and scenarios remain separate follow-up slices under Task 6.
 
 ## Goal
 
-Make FantasyPros CSV normalization and domain conversion preserve valid `TIERS` as source-overall tier metadata while materializing neutral recommendation tiers for all FantasyPros-derived engine-facing entries.
+Persist explicit `RankingSet.tierSemantics` for new and replaced ranking sets, and load existing rows without semantics as legacy ambiguous data with neutral engine-facing recommendation tiers.
 
 ## Scope
 
 ### Goals
 
-- Preserve FantasyPros `TIERS` separately from `NormalizedRankingCandidateEntry.tier` and final `RankingEntry.tier`.
-- Treat FantasyPros source tiers as overall/source metadata, not position-local recommendation tiers.
-- Materialize neutral recommendation tiers for every represented FantasyPros position.
-- Set FantasyPros tier capabilities to align with neutral recommendation semantics.
-- Populate final converted `RankingSet.tierSemantics` for FantasyPros imports:
-  - `source.kind: "source-overall"` with source-tier values when valid source tiers are supplied;
-  - `source.kind: "none"` when FantasyPros tier data is absent;
-  - `recommendation[position]: "neutral"` for every represented position.
-- Preserve malformed supplied FantasyPros tier failures at the normalization boundary.
-- Add focused tests for valid supplied tiers, absent tiers, malformed tiers, conversion output, and import failure isolation.
+- Add nullable ranking-set storage for explicit tier semantics without rewriting existing rows.
+- Round-trip valid explicit source-tier and recommendation-tier semantics through create, load, and replace repository operations.
+- Treat a persisted `null` tier-semantics value as the legacy compatibility signal.
+- Preserve legacy entry tier values as `legacy-ambiguous` source metadata.
+- Neutralize engine-facing `RankingEntry.tier` values for legacy rows.
+- Set every represented legacy position to:
+  - `capabilities.tiers[position] === "defaulted-neutral"`;
+  - `tierSemantics.recommendation[position] === "neutral"`.
+- Continue validating every mapped aggregate with `validateRankingSet`.
+- Fail loudly for malformed persisted explicit tier-semantics JSON.
+- Keep summary queries and summary domain values unchanged.
 
 ### Non-Goals
 
-- Do not update ranking-set repository persistence mapping.
-- Do not update canonical JSON import/export behavior beyond type-boundary adjustments forced by shared types.
-- Do not update snapshot creation, snapshot readers, scenario serialization, or replay behavior.
+- Do not update Canonical Ranking Set JSON parsing, normalization, conversion, or export.
+- Do not update snapshot creation, snapshot repository mapping, snapshot hydration, or draft creation.
+- Do not update Scenario V1 parsing, serialization, fixtures, or replay.
 - Do not change Recommendation Engine scoring or reason generation.
-- Do not update UI labels, warnings, or manual QA.
-- Do not add user-authored recommendation-tier mapping.
-- Do not derive position tiers from rank, position rank, ADP, source tiers, or overall order.
+- Do not update ranking editing semantics or UI labels.
+- Do not backfill or rewrite existing ranking-set rows.
+- Do not add a general migration framework.
 - Do not update `docs/tasks.md`.
+- Do not mark patch Task 6 complete; later Task 6 slices remain.
 
 ## Implementation Steps
 
-1. Inspect the current FantasyPros normalization and conversion contract.
+1. Add nullable persistence storage.
 
-   Review:
+   In `prisma/schema.prisma`, add a nullable JSON field on `RankingSet`:
 
-   - `src/types/rankingImport.ts`
-   - `src/lib/rankingNormalizer.ts`
-   - `src/lib/rankingSetConversion.ts`
-   - the focused tests for those files
+   ```prisma
+   tierSemantics Json?
+   ```
 
-   Current important facts:
+   Create one additive Prisma migration that adds the nullable column. Existing rows must remain `NULL`; do not add a default and do not perform a data backfill.
 
-   - `NormalizedRankingCandidateEntry.tier` currently carries the normalized FantasyPros `TIER` value.
-   - `convertValidatedRankingCandidate` copies candidate `tier` directly into final `RankingEntry.tier`.
-   - `RankingSetCapabilities.tiers[position] === "source"` currently means the app sees candidate tiers as non-neutral.
-   - Task 4 validation requires neutral recommendation metadata to align with `capabilities.tiers[position] === "defaulted-neutral"`.
-   - Real repository persistence of `tierSemantics` is not part of this slice.
+2. Extend the repository persistence contract.
 
-2. Add a normalized source-tier carrier.
+   In `src/lib/rankingSetRepository.ts`:
 
-   In `src/types/rankingImport.ts`, add the smallest candidate-level shape needed to carry FantasyPros source tier values through conversion without changing `RankingEntry`.
+   - add `tierSemantics: unknown | null` to the persisted full-record shape;
+   - include the field in create and replace data;
+   - keep it out of summary selection and summary mapping because `RankingSetSummary` does not expose tier semantics;
+   - serialize explicit domain semantics into independently owned JSON-compatible data;
+   - when create input has no `tierSemantics`, omit the optional field so PostgreSQL stores database `NULL`;
+   - when replace input clears or lacks `tierSemantics`, use Prisma's database-null JSON sentinel rather than serializing JSON `null`;
+   - do not infer recommendation eligibility while writing a missing value.
 
-   Preferred minimal approach:
+   Do not add new repository methods or change transaction boundaries.
 
-   - add optional `sourceTier: number | null` to `NormalizedRankingCandidateEntry`;
-   - add `"sourceTier"` to `NormalizedRankingCandidateField` if field-location support is useful for local tests or diagnostics;
-   - keep `tier` as the candidate's engine-facing recommendation tier.
+3. Map explicit persisted semantics without reinterpretation.
 
-   If TypeScript shows a cleaner local shape is needed, preserve these semantics:
+   When `record.tierSemantics` is non-null:
 
-   - candidate `tier` means recommendation tier;
-   - candidate source tier values are separate;
-   - final domain source tier values are built during conversion using final canonical `overallRank`.
+   - copy it into the mapped `RankingSet.tierSemantics` value;
+   - preserve stored entry tiers and tier capabilities exactly;
+   - rely on the final `validateRankingSet` call to reject malformed JSON, mismatched source references, invalid recommendation metadata, or capability/value contradictions;
+   - surface failures through the existing `RankingSetRepositoryMappingError` with the domain error path.
 
-3. Update FantasyPros normalization.
+   Do not repair malformed explicit semantics and do not silently downgrade them to legacy behavior.
 
-   In `src/lib/rankingNormalizer.ts`, update only the FantasyPros path so:
+4. Add the legacy compatibility mapper.
 
-   - valid `TIERS` values populate `sourceTier`;
-   - `entry.tier` is always `NEUTRAL_TIER` for FantasyPros entries;
-   - every represented FantasyPros position has `capabilities.tiers[position] === "defaulted-neutral"`;
-   - when the `TIERS` column is absent for all records, no source-tier values are produced;
-   - when the `TIERS` column is present with some valid blanks, preserve the supplied valid source-tier values and keep recommendation tiers neutral;
-   - malformed supplied `TIERS` still fail normalization with the existing stable diagnostic code/path behavior;
-   - add or reuse a warning/capability note that makes the preserved-but-not-used behavior inspectable through existing import diagnostics.
+   When `record.tierSemantics === null`:
 
-   Keep team, ADP, identity, order, and position-rank normalization unchanged.
+   - first map and canonically sort the persisted entries;
+   - preserve each entry's original positive `tier` as a source value containing its `playerId`, canonical `overallRank`, and tier;
+   - set `tierSemantics.source.kind` to `"legacy-ambiguous"` and attach those preserved values;
+   - replace every mapped engine-facing entry tier with `NEUTRAL_TIER`;
+   - derive the represented positions from the mapped entries;
+   - set each represented position's tier capability to `"defaulted-neutral"`;
+   - set each represented position's recommendation semantic to `"neutral"`;
+   - discard tier-capability keys for unrepresented positions through this compatibility mapping;
+   - pass the resulting aggregate through `validateRankingSet` before returning it.
 
-4. Preserve source-tier metadata during conversion.
+   This compatibility behavior applies uniformly to old rows regardless of source label or format. Missing metadata is ambiguous; the mapper must not guess that old values were recommendation-eligible.
 
-   In `src/lib/rankingSetConversion.ts`, build `RankingSet.tierSemantics` for FantasyPros-derived candidates.
+5. Keep new writes explicit when callers provide semantics.
 
-   Required conversion behavior:
+   Ensure Task 5-style ranking sets with:
 
-   - sort by source order as today;
-   - create final `RankingEntry[]` with `tier: NEUTRAL_TIER` for FantasyPros entries;
-   - create `tierSemantics.source.values` from each converted entry with a valid `sourceTier`, using the final canonical `overallRank`;
-   - use `source.kind: "source-overall"` when any source-tier values exist;
-   - use `source.kind: "none"` when no source-tier values exist;
-   - create `tierSemantics.recommendation` entries of `"neutral"` for every represented position;
-   - preserve existing final `validateRankingSet` invariant checking.
+   - `source.kind: "source-overall"` and source values;
+   - neutral recommendation metadata;
+   - neutral entry tiers;
+   - `defaulted-neutral` tier capabilities
 
-   Do not add repository or snapshot mapping here. If preserving `tierSemantics` through actual persistence requires repository schema or mapper changes, stop and report that this belongs to Task 6.
+   round-trip exactly through create, load, and replace.
 
-5. Keep canonical JSON behavior scoped.
+   A caller that still supplies a `RankingSet` without `tierSemantics` may be persisted with `NULL`; the repository response and later reads must then use the conservative legacy mapping. Do not invent eligibility during write mapping.
 
-   Do not implement Canonical JSON V2, explicit export semantics, or legacy ambiguous compatibility in this slice.
+6. Update focused repository tests.
 
-   If shared type changes force local canonical normalization or conversion adjustments, choose the smallest compatibility-preserving change and keep existing Canonical JSON V1 tests passing. Do not mark old Canonical JSON V1 as corrected or recommendation-eligible in this slice.
+   In `src/lib/rankingSetRepository.test.ts`, update the fake persisted record and helpers for the nullable JSON field, including normalization of Prisma's database-null JSON sentinel to persisted `null`, then add or adjust tests proving:
 
-6. Update focused tests.
+   - explicit source-overall plus neutral recommendation semantics round-trip without value loss;
+   - explicit recommendation-position semantics also round-trip without reinterpretation;
+   - create and replace send independently owned tier-semantics JSON to persistence;
+   - a legacy `NULL` row loads with original tier values preserved under `source.kind: "legacy-ambiguous"`;
+   - that same legacy row returns neutral entry tiers, neutral recommendation metadata, and `defaulted-neutral` capabilities for every represented position;
+   - malformed non-null tier-semantics JSON throws `RankingSetRepositoryMappingError` at the relevant `tierSemantics` path;
+   - summary queries do not select or expose tier-semantics JSON;
+   - existing create, replace, delete, atomicity, and independent snapshot-isolation tests remain valid.
 
-   Update or add tests proving:
-
-   - FantasyPros normalization with valid `TIERS` preserves source tiers separately and sets candidate recommendation tiers to `NEUTRAL_TIER`;
-   - FantasyPros normalization with valid `TIERS` reports the preserved-but-neutralized behavior through warnings or candidate metadata;
-   - FantasyPros normalization with absent `TIERS` succeeds with no source-tier values and neutral recommendation tiers;
-   - malformed supplied FantasyPros `TIERS` still fails at the normalization boundary;
-   - conversion from a valid FantasyPros candidate produces neutral `RankingEntry.tier` values and `RankingSet.tierSemantics.source.kind === "source-overall"` when source tiers exist;
-   - conversion from a FantasyPros candidate without source tiers produces `source.kind === "none"` and neutral recommendation metadata;
-   - import workflow failure isolation still prevents repository writes for malformed supplied `TIERS`;
-   - existing Canonical JSON V1 normalization and conversion tests still pass without broad compatibility work.
+   Prefer adding explicit semantics to ordinary non-legacy test fixtures so only dedicated compatibility tests exercise the `NULL` path.
 
 7. Run focused validation.
 
    Run:
 
    ```text
-   npm test -- src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/rankingImportWorkflow.test.ts
+   npm test -- src/lib/rankingSetRepository.test.ts src/lib/rankingSetValidation.test.ts src/lib/rankingImportWorkflow.test.ts
+   npm run prisma:validate
+   npm run prisma:generate
    npx tsc --noEmit
    ```
 
-   If TypeScript shows a narrower affected test set is sufficient because `rankingCandidateValidation` or `rankingImportWorkflow` were not touched, still run the listed tests unless they are clearly unrelated and report the reason for skipping.
+   If `TEST_DATABASE_URL` is configured, also run the existing PostgreSQL repository integration suite with `RUN_RANKING_SET_DB_TESTS=1`. If it is unavailable, report that the unit repository boundary, Prisma schema validation, generated client, and type checking passed; do not add an external database dependency to the slice.
 
-8. Finalize the slice.
+8. Finalize this slice.
 
-   If all acceptance criteria and focused validation pass:
+   If validation passes:
 
-   - update `docs/patches/tier-semantics-tasks.md` to mark Task 5 complete;
    - update this file's Completion Status to complete;
-   - do not update `docs/tasks.md`.
+   - do not mark Task 6 complete in `docs/patches/tier-semantics-tasks.md`;
+   - do not update `docs/tasks.md`;
+   - report that Canonical JSON, snapshot, and scenario compatibility remain under Task 6.
 
 ## Expected Files
 
-- `src/types/rankingImport.ts`
+- `prisma/schema.prisma`
+- `prisma/migrations/<timestamp>_add_ranking_set_tier_semantics/migration.sql`
+- `src/lib/rankingSetRepository.ts`
+- `src/lib/rankingSetRepository.test.ts`
+- `docs/current-slice.md`, after validation, to record completion status
+- Prisma-generated client artifacts only if the repository tracks changes produced by `npm run prisma:generate`
+
+Do not touch these files in this slice:
+
+- `src/types/rankings.ts`
 - `src/lib/rankingNormalizer.ts`
 - `src/lib/rankingSetConversion.ts`
-- `src/lib/rankingNormalizer.test.ts`
-- `src/lib/rankingSetConversion.test.ts`
-- `src/lib/rankingImportWorkflow.test.ts`, only if needed for failure-isolation or warning propagation coverage
-- `docs/patches/tier-semantics-tasks.md`, after validation, to mark Task 5 complete
-- `docs/current-slice.md`, after validation, to record completion status
-
-Do not touch these files in this slice unless implementation proves the type change cannot compile without a narrowly scoped adjustment:
-
-- `src/lib/rankingSetRepository.ts`
 - `src/lib/canonicalRankingJsonParser.ts`
 - `src/lib/canonicalRankingJsonExporter.ts`
 - `src/lib/rankingSnapshot.ts`
-- `src/lib/recommendationEngine.ts`
+- Draft repository or draft creation files
 - Scenario or replay files
+- `src/lib/recommendationEngine.ts`
 - UI components
 - fixtures or data files
 - `docs/tasks.md`
+- `docs/patches/tier-semantics-tasks.md`
 
 ## Tests
 
 Required focused validation:
 
 ```text
-npm test -- src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/rankingImportWorkflow.test.ts
+npm test -- src/lib/rankingSetRepository.test.ts src/lib/rankingSetValidation.test.ts src/lib/rankingImportWorkflow.test.ts
+npm run prisma:validate
+npm run prisma:generate
 npx tsc --noEmit
 ```
 
 Expected result:
 
-- FantasyPros source tiers are preserved outside engine-facing recommendation tiers.
-- FantasyPros engine-facing tiers are neutralized.
-- FantasyPros represented positions declare neutral tier capability state.
-- FantasyPros malformed supplied tiers still fail before persistence.
-- Converted FantasyPros ranking sets pass `validateRankingSet` with explicit tier semantics.
-- Existing Canonical JSON V1 tests still pass without implementing Task 6 compatibility behavior.
+- Task 5 tier semantics survive actual ranking-set repository create, load, and replace mapping.
+- Legacy rows remain loadable without making ambiguous tiers recommendation-eligible.
+- Legacy source values remain inspectable after engine-facing tiers are neutralized.
+- Explicit malformed semantics fail at the repository mapping boundary.
+- Ranking-set summaries remain lightweight and unchanged.
+- Existing import workflow behavior still compiles and passes its focused regression tests.
 
 ## Manual QA
 
-No app manual QA is required for this normalization/conversion slice.
+No app manual QA is required for this repository-only slice.
 
 Manual review should confirm:
 
-- no Recommendation Engine code changed;
-- no repository, export, snapshot, scenario, replay, or UI behavior changed;
-- FantasyPros source-tier values are modeled separately from `RankingEntry.tier`;
-- new warnings or metadata use existing import diagnostic boundaries.
+- the migration is nullable and additive;
+- there is no data backfill or destructive schema operation;
+- no export, snapshot, scenario, recommendation, or UI code changed;
+- the mapper preserves legacy tier values before neutralizing engine-facing entries;
+- explicit semantics and legacy compatibility both finish at `validateRankingSet`.
 
 ## Acceptance Criteria
 
-- FantasyPros imports with valid `TIERS` preserve source-tier values before persistence.
-- FantasyPros imports with absent `TIERS` succeed with `source.kind: "none"` and neutral recommendation tiers.
-- FantasyPros imports with malformed supplied `TIERS` fail without repository writes.
-- Converted FantasyPros ranking entries used by engines contain neutral recommendation tiers.
-- Converted FantasyPros ranking sets include tier semantics that distinguish source-overall tiers from neutral recommendation tiers.
-- Import diagnostics or metadata make the preserved-but-neutralized behavior inspectable.
-- Canonical JSON V1 compatibility behavior is not broadened in this slice.
-- No repository, export, snapshot, scenario, recommendation, UI, dependency, data-file, or `docs/tasks.md` changes are introduced.
-- Focused tests and `npx tsc --noEmit` pass.
-- `docs/patches/tier-semantics-tasks.md` marks Task 5 complete only after validation passes.
+- New and replaced ranking sets with explicit tier semantics round-trip those semantics without value loss.
+- Task 5 FantasyPros source-tier metadata survives ranking-set persistence.
+- Existing rows with no tier-semantics column value load as `legacy-ambiguous` source data.
+- Legacy engine-facing entry tiers equal `NEUTRAL_TIER` after mapping.
+- Every represented legacy position declares neutral recommendation semantics and `defaulted-neutral` capability state.
+- Legacy tier values remain preserved with canonical player IDs and overall ranks.
+- Malformed explicit persisted semantics fail loudly through `RankingSetRepositoryMappingError`.
+- Summary behavior and repository transaction semantics remain unchanged.
+- The schema change is nullable, additive, and does not rewrite existing data.
+- No canonical JSON, snapshot, scenario, recommendation, UI, dependency, data-file, `docs/tasks.md`, or patch-task-status changes are introduced.
+- Focused tests, Prisma validation/generation, and `npx tsc --noEmit` pass.
 
 ## Failure Handling
 
-- If preserving FantasyPros source-tier metadata requires repository schema or persistence mapper changes, stop and report that Task 5 needs to be split or coordinated with Task 6.
-- If canonical import/export compatibility must change broadly to compile, stop and report that Task 6 should be promoted before or with this work.
-- If neutralizing FantasyPros `RankingEntry.tier` requires Recommendation Engine changes, stop and report the conflict because scoring behavior belongs to Task 7.
-- If validation fails outside the touched import/conversion surface, report the failure rather than broadening the slice.
-- If unrelated worktree changes appear in target files, preserve them and edit around them.
+- If Prisma cannot represent the semantics as one nullable JSON field without broader schema changes, stop and report the required design change.
+- If loading a valid legacy row cannot produce a `validateRankingSet`-valid neutral aggregate without changing domain types, stop and report the contradiction rather than weakening validation.
+- If compatibility requires changing Recommendation Engine behavior in this slice, stop; that belongs to Task 7.
+- If migration generation requires an unavailable database, create or validate the additive migration using the existing project convention, report the unavailable integration environment, and do not broaden scope.
+- If unrelated worktree changes overlap repository or schema files, preserve them and report any conflict that prevents a safe edit.
 
 ## Follow-Up
 
-After this slice is complete, the next slice should implement Task 6 from `docs/patches/tier-semantics-tasks.md`: preserve ranking-set, export, snapshot, and scenario compatibility so persisted data and portable formats can carry or conservatively neutralize tier semantics.
+After this slice, plan the next Task 6 increment for Canonical Ranking Set JSON compatibility: read legacy V1 as ambiguous and export a versioned explicit tier-semantics contract. Do not begin it automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. This slice corrects FantasyPros normalization and conversion without taking on persistence/export/snapshot compatibility.
-- Executable by a lower-reasoning pass: yes. Target files, expected semantics, tests, non-goals, and stop conditions are explicit.
-- Avoids unnecessary architecture changes: yes. The existing staged import pipeline remains intact and `RankingEntry[]` remains the engine boundary.
-- Blast radius reasonable: yes. Runtime changes should stay in import types, normalizer, and conversion.
-- Review/revert comfort: yes. The slice can be reviewed independently from repository/export/snapshot and Recommendation Engine changes.
-- Observable/testable acceptance criteria: yes. Focused tests can prove source-tier preservation, neutral recommendation tiers, malformed-tier failure isolation, and TypeScript compatibility.
+- Smallest meaningful increment: yes. Corrected imports become durably safe without combining portable formats or immutable draft history.
+- Executable by a lower-reasoning pass: yes. The storage shape, explicit mapping, legacy mapping, validation boundary, tests, and stop conditions are specified.
+- Avoids unnecessary architecture changes: yes. One nullable JSON column extends the existing repository mapper; no new service or abstraction is introduced.
+- Blast radius reasonable: yes. Runtime changes are limited to the Prisma ranking-set schema/migration and one repository module, with one focused test file.
+- Review/revert comfort: yes. The additive column and mapper behavior can be reviewed and reverted independently from export, snapshot, scenario, and engine work.
+- Observable/testable acceptance criteria: yes. Repository round trips and direct legacy-record fixtures can prove every behavior without UI or external services.
