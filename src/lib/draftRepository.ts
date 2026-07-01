@@ -10,11 +10,13 @@ import {
 } from "@/lib/leagueSettingsSnapshot";
 import { getPrismaClient } from "@/lib/prisma";
 import { serializeRankingSnapshot } from "@/lib/rankingSnapshot";
+import type { RankingSnapshot } from "@/types/rankings";
 
 export type CreateDraftWorkspaceInput = {
   name?: string;
   leagueSettings: LeagueSettings;
   rankings: RankingEntry[];
+  rankingSnapshotMetadata?: Omit<RankingSnapshot, "rankings">;
   userTeamId: string;
 };
 
@@ -191,7 +193,10 @@ export function createDraftRepository(db: DraftRepositoryDb) {
           userTeamId: input.userTeamId,
           rankingSnapshot: {
             create: {
-              rankings: serializeRankingSnapshot(input.rankings),
+              rankings: serializeRankingSnapshot({
+                rankings: input.rankings,
+                ...input.rankingSnapshotMetadata,
+              }),
             },
           },
         },

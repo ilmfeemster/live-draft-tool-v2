@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { defaultLeagueSetupInput } from "@/lib/leagueSetup";
 import {
+  parsePersistedDraftRankingSnapshotJson,
+  serializeRankingSnapshot,
+} from "@/lib/rankingSnapshot";
+import {
   createConfiguredDraftFromRankingSet,
   type DraftCreationWorkflowDependencies,
 } from "@/lib/draftCreationWorkflow";
@@ -145,7 +149,130 @@ describe("createConfiguredDraftFromRankingSet", () => {
     expect(persistedInput.rankings[0].player).not.toBe(
       rankingSet.entries[0].player,
     );
+    expect(persistedInput.rankingSnapshotMetadata).toEqual({
+      capabilities: rankingSet.capabilities,
+      tierSemantics: rankingSet.tierSemantics,
+      sourceRankingSetId: rankingSet.id,
+      sourceRankingSetName: rankingSet.name,
+      capturedAt: new Date("2026-06-30T12:00:00.000Z"),
+    });
+    expect(persistedInput.rankingSnapshotMetadata?.capabilities).not.toBe(
+      rankingSet.capabilities,
+    );
+    expect(persistedInput.rankingSnapshotMetadata?.tierSemantics).not.toBe(
+      rankingSet.tierSemantics,
+    );
     expect(result.workspace).toEqual(fake.createdWorkspaces[0]);
+  });
+
+  it("keeps source-only tiers as metadata while persisted entries remain neutral", async () => {
+    const entries = createEntries("source-only", { tier: NEUTRAL_TIER });
+    const rankingSet = createRankingSet("source-only", {
+      capabilities: createCapabilities({
+        tiers: {
+          QB: "defaulted-neutral",
+          RB: "defaulted-neutral",
+          WR: "defaulted-neutral",
+          TE: "defaulted-neutral",
+        },
+      }),
+      tierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: entries.map((entry, index) => ({
+            playerId: entry.player.id,
+            overallRank: entry.overallRank,
+            tier: index + 2,
+          })),
+        },
+        recommendation: {
+          QB: "neutral",
+          RB: "neutral",
+          WR: "neutral",
+          TE: "neutral",
+        },
+      },
+      entries,
+    });
+    const fake = createFakeDependencies({
+      rankingSets: { "source-only": rankingSet },
+    });
+
+    const result = await createConfiguredDraftFromRankingSet(
+      {
+        leagueSetup: createSmallSetupInput(),
+        rankingSetId: "source-only",
+        capturedAt: new Date("2026-07-01T12:00:00.000Z"),
+      },
+      fake.dependencies,
+    );
+
+    expect(result.ok).toBe(true);
+    const input = fake.createdDraftInputs[0];
+    const hydrated = parsePersistedDraftRankingSnapshotJson(
+      serializeRankingSnapshot({
+        rankings: input.rankings,
+        ...input.rankingSnapshotMetadata,
+      }),
+    );
+    expect(hydrated.rankings.every((entry) => entry.tier === NEUTRAL_TIER)).toBe(
+      true,
+    );
+    expect(hydrated.tierSemantics?.source.values?.map((value) => value.tier)).toEqual([
+      2, 3, 4, 5,
+    ]);
+  });
+
+  it("preserves mixed recommendation eligibility through simulated hydration", async () => {
+    const entries = createEntries("mixed").map((entry) =>
+      entry.player.position === "QB" ? { ...entry, tier: 2 } : entry,
+    );
+    const rankingSet = createRankingSet("mixed", {
+      capabilities: createCapabilities({
+        tiers: {
+          QB: "source",
+          RB: "defaulted-neutral",
+          WR: "defaulted-neutral",
+          TE: "defaulted-neutral",
+        },
+      }),
+      tierSemantics: {
+        source: { kind: "none" },
+        recommendation: {
+          QB: "recommendation-position",
+          RB: "neutral",
+          WR: "neutral",
+          TE: "neutral",
+        },
+      },
+      entries,
+    });
+    const fake = createFakeDependencies({ rankingSets: { mixed: rankingSet } });
+
+    const result = await createConfiguredDraftFromRankingSet(
+      {
+        leagueSetup: createSmallSetupInput(),
+        rankingSetId: "mixed",
+        capturedAt: new Date("2026-07-01T12:00:00.000Z"),
+      },
+      fake.dependencies,
+    );
+
+    expect(result.ok).toBe(true);
+    const input = fake.createdDraftInputs[0];
+    const hydrated = parsePersistedDraftRankingSnapshotJson(
+      serializeRankingSnapshot({
+        rankings: input.rankings,
+        ...input.rankingSnapshotMetadata,
+      }),
+    );
+    expect(hydrated.rankings.map((entry) => entry.tier)).toEqual([2, 1, 1, 1]);
+    expect(hydrated.tierSemantics?.recommendation).toEqual({
+      QB: "recommendation-position",
+      RB: "neutral",
+      WR: "neutral",
+      TE: "neutral",
+    });
   });
 
   it("creates drafts with distinct snapshots for distinct selected ranking sets", async () => {
@@ -206,11 +333,20 @@ describe("createConfiguredDraftFromRankingSet", () => {
 
     const createdDraftId = result.workspace.draft.id;
     const beforeStoredRankings = structuredClone(fake.createdDraftInputs[0].rankings);
+    const beforeStoredMetadata = structuredClone(
+      fake.createdDraftInputs[0].rankingSnapshotMetadata,
+    );
     rankingSet.entries[0].player.name = "Edited Source Player";
     rankingSet.entries[0].overallRank = 99;
+    (
+      rankingSet.tierSemantics?.recommendation as Record<string, string>
+    ).QB = "neutral";
     delete fake.rankingSets["rankings-1"];
 
     expect(fake.createdDraftInputs[0].rankings).toEqual(beforeStoredRankings);
+    expect(fake.createdDraftInputs[0].rankingSnapshotMetadata).toEqual(
+      beforeStoredMetadata,
+    );
     await expect(fake.getDraftWorkspaceById(createdDraftId)).resolves.toEqual(
       result.workspace,
     );
@@ -266,6 +402,15 @@ describe("createConfiguredDraftFromRankingSet", () => {
         adpRank: null,
         tier: NEUTRAL_TIER,
       }),
+      tierSemantics: {
+        source: { kind: "none" },
+        recommendation: {
+          QB: "neutral",
+          RB: "neutral",
+          WR: "neutral",
+          TE: "neutral",
+        },
+      },
     });
     const fake = createFakeDependencies({
       rankingSets: {
@@ -444,6 +589,15 @@ function createRankingSet(
     name: `Rankings ${id}`,
     source: { kind: "manual" },
     capabilities: createCapabilities(),
+    tierSemantics: {
+      source: { kind: "none" },
+      recommendation: {
+        QB: "recommendation-position",
+        RB: "recommendation-position",
+        WR: "recommendation-position",
+        TE: "recommendation-position",
+      },
+    },
     entries: createEntries(id),
     createdAt,
     updatedAt: createdAt,

@@ -12,6 +12,7 @@ import {
   UNKNOWN_TEAM,
   type RankingSet,
   type RankingSetCapabilities,
+  type RankingSnapshot,
 } from "@/types/rankings";
 
 describe("ranking snapshot mappers", () => {
@@ -27,6 +28,7 @@ describe("ranking snapshot mappers", () => {
     expect(result.snapshot).toEqual({
       rankings: rankingSet.entries,
       capabilities: rankingSet.capabilities,
+      tierSemantics: rankingSet.tierSemantics,
       sourceRankingSetId: rankingSet.id,
       sourceRankingSetName: rankingSet.name,
       capturedAt,
@@ -39,6 +41,10 @@ describe("ranking snapshot mappers", () => {
     expect(result.snapshot.capabilities).not.toBe(rankingSet.capabilities);
     expect(result.snapshot.capabilities?.tiers).not.toBe(
       rankingSet.capabilities.tiers,
+    );
+    expect(result.snapshot.tierSemantics).not.toBe(rankingSet.tierSemantics);
+    expect(result.snapshot.tierSemantics?.source.values).not.toBe(
+      rankingSet.tierSemantics?.source.values,
     );
     expect(result.snapshot.capturedAt).not.toBe(capturedAt);
   });
@@ -154,20 +160,30 @@ describe("ranking snapshot mappers", () => {
     const serialized = serializeRankingSnapshot(rankings);
     const parsed = parsePersistedDraftRankingSnapshotJson(serialized);
 
-    expect(parsed).toEqual([
+    expect(parsed.rankings).toEqual([
       { ...rankings[0], player: { ...rankings[0].player }, tier: NEUTRAL_TIER },
       { ...rankings[1], player: { ...rankings[1].player }, tier: NEUTRAL_TIER },
     ]);
-    expect(parsed).not.toBe(rankings);
-    expect(parsed[0]).not.toBe(rankings[0]);
-    expect(parsed[0].player).not.toBe(rankings[0].player);
+    expect(parsed.tierSemantics).toEqual({
+      source: {
+        kind: "legacy-ambiguous",
+        values: [
+          { playerId: "player-1", overallRank: 1, tier: 2 },
+          { playerId: "player-2", overallRank: 2, tier: 4 },
+        ],
+      },
+      recommendation: { WR: "neutral", RB: "neutral" },
+    });
+    expect(parsed.rankings).not.toBe(rankings);
+    expect(parsed.rankings[0]).not.toBe(rankings[0]);
+    expect(parsed.rankings[0].player).not.toBe(rankings[0].player);
     expect(rankings.map((entry) => entry.tier)).toEqual([2, 4]);
   });
 
   it("keeps persisted draft parser errors aligned with generic parsing", () => {
     expect(() =>
       parsePersistedDraftRankingSnapshotJson({ rankings: [] }),
-    ).toThrow("Ranking snapshot must be an array.");
+    ).toThrow("Ranking snapshot schemaVersion must be 2.");
   });
 
   it("preserves null ADP ranks", () => {
@@ -199,6 +215,169 @@ describe("ranking snapshot mappers", () => {
 
     expect(firstRanking).not.toBe(rankings[0]);
     expect(player).not.toBe(rankings[0].player);
+  });
+
+  it("round-trips source-only semantics in a V2 envelope without recommendation pressure", () => {
+    const rankingSet = createManagedRankingSet({
+      capabilities: createCapabilities({
+        tiers: { QB: "defaulted-neutral", RB: "defaulted-neutral" },
+      }),
+      tierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: [
+            { playerId: "player-qb", overallRank: 1, tier: 2 },
+            { playerId: "player-rb", overallRank: 2, tier: 3 },
+            { playerId: "player-qb-2", overallRank: 3, tier: 4 },
+          ],
+        },
+        recommendation: { QB: "neutral", RB: "neutral" },
+      },
+      entries: [
+        createRanking("player-qb", 1, "QB", {
+          positionRank: 1,
+          tier: 1,
+          adpRank: 1.5,
+        }),
+        createRanking("player-rb", 2, "RB", {
+          positionRank: 1,
+          tier: 1,
+          adpRank: 2.5,
+        }),
+        createRanking("player-qb-2", 3, "QB", {
+          positionRank: 2,
+          tier: 1,
+          adpRank: 3.5,
+        }),
+      ],
+    });
+    const created = createRankingSnapshotFromRankingSet(rankingSet, {
+      capturedAt: new Date("2026-06-29T12:00:00.000Z"),
+    });
+
+    expectSuccess(created);
+    const serialized = serializeRankingSnapshot(created.snapshot);
+    const parsed = parsePersistedDraftRankingSnapshotJson(serialized);
+
+    expect(serialized.schemaVersion).toBe(2);
+    expect(serialized.tierSemantics.source.values?.map((value) => value.tier)).toEqual([
+      2, 3, 4,
+    ]);
+    expect(serialized.rankings.every((entry) => entry.tier === NEUTRAL_TIER)).toBe(
+      true,
+    );
+    expect(parsed).toEqual(created.snapshot);
+  });
+
+  it("round-trips mixed eligible and neutral recommendation positions", () => {
+    const rankingSet = createManagedRankingSet({
+      capabilities: createCapabilities({
+        tiers: { QB: "source", RB: "defaulted-neutral" },
+      }),
+      tierSemantics: {
+        source: { kind: "none" },
+        recommendation: {
+          QB: "recommendation-position",
+          RB: "neutral",
+        },
+      },
+      entries: [
+        createRanking("player-qb", 1, "QB", {
+          positionRank: 1,
+          tier: 1,
+          adpRank: 1.5,
+        }),
+        createRanking("player-rb", 2, "RB", {
+          positionRank: 1,
+          tier: 1,
+          adpRank: 2.5,
+        }),
+        createRanking("player-qb-2", 3, "QB", {
+          positionRank: 2,
+          tier: 3,
+          adpRank: 3.5,
+        }),
+      ],
+    });
+    const created = createRankingSnapshotFromRankingSet(rankingSet, {
+      capturedAt: new Date("2026-06-29T12:00:00.000Z"),
+    });
+
+    expectSuccess(created);
+    const parsed = parsePersistedDraftRankingSnapshotJson(
+      serializeRankingSnapshot(created.snapshot),
+    );
+
+    expect(parsed.rankings.map((entry) => entry.tier)).toEqual([1, 1, 3]);
+    expect(parsed.tierSemantics?.recommendation).toEqual({
+      QB: "recommendation-position",
+      RB: "neutral",
+    });
+  });
+
+  it("materializes missing semantics as legacy ambiguous and neutral", () => {
+    const rankingSet = createManagedRankingSet({ tierSemantics: undefined });
+    const created = createRankingSnapshotFromRankingSet(rankingSet, {
+      capturedAt: new Date("2026-06-29T12:00:00.000Z"),
+    });
+
+    expectSuccess(created);
+    expect(created.snapshot.rankings.map((entry) => entry.tier)).toEqual([
+      NEUTRAL_TIER,
+      NEUTRAL_TIER,
+      NEUTRAL_TIER,
+    ]);
+    expect(created.snapshot.capabilities?.tiers).toEqual({
+      QB: "defaulted-neutral",
+      RB: "defaulted-neutral",
+    });
+    expect(created.snapshot.tierSemantics).toEqual({
+      source: {
+        kind: "legacy-ambiguous",
+        values: [
+          { playerId: "player-qb", overallRank: 1, tier: 1 },
+          { playerId: "player-rb", overallRank: 2, tier: 2 },
+          { playerId: "player-qb-2", overallRank: 3, tier: 3 },
+        ],
+      },
+      recommendation: { QB: "neutral", RB: "neutral" },
+    });
+  });
+
+  it("rejects malformed or contradictory V2 tier metadata", () => {
+    const snapshot = createExplicitSnapshot();
+    const missingPosition = structuredClone(serializeRankingSnapshot(snapshot));
+    const nonNeutralFallback = structuredClone(serializeRankingSnapshot(snapshot));
+    const invalidSourceReference = structuredClone(
+      serializeRankingSnapshot(snapshot),
+    );
+
+    delete (missingPosition.tierSemantics.recommendation as Partial<
+      Record<Position, string>
+    >).RB;
+    (nonNeutralFallback.tierSemantics.recommendation as Partial<
+      Record<Position, string>
+    >).QB = "neutral";
+    if (nonNeutralFallback.capabilities) {
+      (nonNeutralFallback.capabilities.tiers as Partial<
+        Record<Position, string>
+      >).QB = "defaulted-neutral";
+    }
+    const sourceValue = invalidSourceReference.tierSemantics.source.values?.[0];
+    if (!sourceValue) {
+      throw new Error("Expected a source tier fixture value.");
+    }
+    (sourceValue as { playerId: string }).playerId = "missing-player";
+
+    expect(() =>
+      parsePersistedDraftRankingSnapshotJson(missingPosition),
+    ).toThrow("RB recommendation tier semantics are unsupported");
+    expect(() =>
+      parsePersistedDraftRankingSnapshotJson(nonNeutralFallback),
+    ).toThrow("defaulted-neutral tiers must all equal");
+    expect(() =>
+      parsePersistedDraftRankingSnapshotJson(invalidSourceReference),
+    ).toThrow("does not match a canonical entry");
   });
 
   it("rejects non-array snapshots", () => {
@@ -300,6 +479,20 @@ function createManagedRankingSet(
       importedAt: createdAt,
     },
     capabilities: createCapabilities(),
+    tierSemantics: {
+      source: {
+        kind: "source-overall",
+        values: [
+          { playerId: "player-qb", overallRank: 1, tier: 1 },
+          { playerId: "player-rb", overallRank: 2, tier: 2 },
+          { playerId: "player-qb-2", overallRank: 3, tier: 3 },
+        ],
+      },
+      recommendation: {
+        QB: "recommendation-position",
+        RB: "recommendation-position",
+      },
+    },
     entries: [
       createRanking("player-qb", 1, "QB", {
         positionRank: 1,
@@ -321,6 +514,15 @@ function createManagedRankingSet(
     updatedAt: createdAt,
     ...overrides,
   };
+}
+
+function createExplicitSnapshot(): RankingSnapshot {
+  const created = createRankingSnapshotFromRankingSet(createManagedRankingSet(), {
+    capturedAt: new Date("2026-06-29T12:00:00.000Z"),
+  });
+
+  expectSuccess(created);
+  return created.snapshot;
 }
 
 function createCapabilities(

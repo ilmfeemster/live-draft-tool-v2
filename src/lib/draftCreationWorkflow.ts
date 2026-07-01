@@ -97,10 +97,16 @@ export async function createConfiguredDraftFromRankingSet(
     };
   }
 
+  const {
+    rankings: snapshotRankings,
+    ...rankingSnapshotMetadata
+  } = snapshot.snapshot;
+
   const workspace = await dependencies.createDraftWorkspace({
     name: input.name,
     leagueSettings: setup.leagueSettings,
-    rankings: copyRankingEntries(snapshot.snapshot.rankings),
+    rankings: copyRankingEntries(snapshotRankings),
+    rankingSnapshotMetadata,
     userTeamId: setup.userTeamId,
   });
 

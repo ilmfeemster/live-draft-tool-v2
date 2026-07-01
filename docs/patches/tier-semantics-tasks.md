@@ -93,7 +93,7 @@ Make portable ranking exports preserve explicit tier meanings while keeping lega
 
 ## Slice 2 - New Draft Snapshot Semantics
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -303,4 +303,11 @@ Canonical Ranking JSON compatibility validation:
 - `npm test` (44 files, 638 tests passed, 1 skipped)
 - `npx tsc --noEmit`
 
-Previously completed compatibility coverage includes ranking-set semantics persistence, legacy persisted-draft tier neutralization, and canonical ranking portability. The four remaining slices close the new-snapshot, scenario, UI-language, and exit-validation gaps.
+New draft snapshot semantics validation:
+
+- `npm test -- src/lib/rankingSnapshot.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/draftRepository.test.ts src/lib/draftCreationWorkflow.test.ts src/lib/recommendations.test.ts` (5 files, 118 tests passed)
+- `npm test` (44 files, 646 tests passed, 1 skipped)
+- `npx tsc --noEmit`
+- `npm run lint` (no errors; one pre-existing unused-helper warning in `src/lib/rankingNormalizer.test.ts`)
+
+Previously completed compatibility coverage includes ranking-set semantics persistence, legacy persisted-draft tier neutralization, canonical ranking portability, and explicit new-snapshot semantics. The three remaining slices close the scenario, UI-language, and exit-validation gaps.

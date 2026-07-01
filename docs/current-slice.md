@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Awaiting implementation approval.
+Complete. New V2 snapshot envelopes, explicit tier-semantics hydration, legacy array compatibility, focused validation, the full automated suite, and TypeScript validation pass.
 
 ## Source Context
 
@@ -248,6 +248,13 @@ Expected result:
 - Legacy arrays continue loading with conservative neutral behavior.
 - Source changes or deletion do not affect stored snapshot behavior.
 - Existing draft persistence and recommendation regressions remain green.
+
+Completed result:
+
+- Required focused validation passed: 5 test files and 118 tests.
+- Full automated validation passed: 44 test files, 646 tests passed, and 1 test skipped.
+- `npx tsc --noEmit` passed.
+- ESLint completed with no errors and one pre-existing unused-helper warning in `src/lib/rankingNormalizer.test.ts`.
 
 ## Manual QA
 

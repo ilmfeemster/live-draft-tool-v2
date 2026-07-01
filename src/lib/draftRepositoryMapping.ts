@@ -27,7 +27,7 @@ export function mapDraftRecordToWorkspace(
   record: PersistedDraftWorkspaceRecord,
 ): DraftWorkspace {
   const leagueSettings = parseLeagueSettingsSnapshotJson(record.leagueSettings);
-  const rankings = parsePersistedDraftRankingSnapshotJson(
+  const rankingSnapshot = parsePersistedDraftRankingSnapshotJson(
     record.rankingSnapshot.rankings,
   );
   const pickHistory = mapPickHistory(record.picks);
@@ -40,7 +40,7 @@ export function mapDraftRecordToWorkspace(
 
   return {
     draft,
-    rankings,
+    rankings: [...rankingSnapshot.rankings],
     leagueSettings,
   };
 }

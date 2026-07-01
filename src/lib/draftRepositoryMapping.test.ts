@@ -130,6 +130,43 @@ describe("mapDraftRecordToWorkspace", () => {
     ]);
   });
 
+  it("preserves explicitly eligible tiers from a V2 snapshot envelope", () => {
+    const rankings = [
+      createRanking("player-1", 1, "QB", {
+        positionRank: 1,
+        tier: 1,
+      }),
+      createRanking("player-2", 2, "QB", {
+        positionRank: 2,
+        tier: 3,
+      }),
+    ];
+    const record = createDraftRecord({
+      rankings: serializeRankingSnapshot({
+        rankings,
+        capabilities: {
+          team: "complete",
+          playerIdentity: "provided",
+          overallOrder: "explicit",
+          positionRank: "derived",
+          adp: "none",
+          tiers: { QB: "source" },
+        },
+        tierSemantics: {
+          source: { kind: "none" },
+          recommendation: { QB: "recommendation-position" },
+        },
+        sourceRankingSetId: "rankings-1",
+        sourceRankingSetName: "Rankings One",
+        capturedAt: new Date("2026-07-01T12:00:00.000Z"),
+      }),
+    });
+
+    const workspace = mapDraftRecordToWorkspace(record);
+
+    expect(workspace.rankings.map((entry) => entry.tier)).toEqual([1, 3]);
+  });
+
   it("rejects invalid league settings before hydration", () => {
     const record = createDraftRecord({
       leagueSettings: {
@@ -149,7 +186,7 @@ describe("mapDraftRecordToWorkspace", () => {
     });
 
     expect(() => mapDraftRecordToWorkspace(record)).toThrow(
-      "Ranking snapshot must be an array.",
+      "Ranking snapshot schemaVersion must be 2.",
     );
   });
 

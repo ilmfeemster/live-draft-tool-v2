@@ -41,12 +41,65 @@ describe("draft repository", () => {
       picks: [],
     });
     expect(db.rankingSnapshots[0].rankings).toEqual(
-      serializeRankingSnapshot(rankings),
+      expect.objectContaining({
+        schemaVersion: 2,
+        rankings,
+        tierSemantics: {
+          source: {
+            kind: "legacy-ambiguous",
+            values: [
+              { playerId: "player-1", overallRank: 1, tier: 1 },
+              { playerId: "player-2", overallRank: 2, tier: 1 },
+            ],
+          },
+          recommendation: { WR: "neutral", RB: "neutral" },
+        },
+        capturedAt: expect.any(String),
+      }),
     );
     expect(workspace.draft.currentPickNumber).toBe(1);
     expect(workspace.draft.picks).toHaveLength(192);
     expect(workspace.rankings).toEqual(rankings);
     expect(isValidDraftState({ draft: workspace.draft })).toBe(true);
+  });
+
+  it("persists and hydrates explicit managed snapshot metadata", async () => {
+    const db = createFakeDraftDb();
+    const repository = createDraftRepository(db);
+    const rankings = [
+      createRanking("qb-1", 1, "QB"),
+      { ...createRanking("qb-2", 2, "QB"), tier: 3 },
+    ];
+    const capturedAt = new Date("2026-07-01T12:00:00.000Z");
+    const rankingSnapshotMetadata = {
+      capabilities: {
+        team: "complete",
+        playerIdentity: "provided",
+        overallOrder: "explicit",
+        positionRank: "derived",
+        adp: "none",
+        tiers: { QB: "source" },
+      } as const,
+      tierSemantics: {
+        source: { kind: "none" },
+        recommendation: { QB: "recommendation-position" },
+      } as const,
+      sourceRankingSetId: "managed-rankings",
+      sourceRankingSetName: "Managed Rankings",
+      capturedAt,
+    };
+
+    const workspace = await repository.createDraftWorkspace({
+      leagueSettings: defaultLeagueSettings,
+      rankings,
+      rankingSnapshotMetadata,
+      userTeamId: "team-2",
+    });
+
+    expect(db.rankingSnapshots[0].rankings).toEqual(
+      serializeRankingSnapshot({ rankings, ...rankingSnapshotMetadata }),
+    );
+    expect(workspace.rankings.map((entry) => entry.tier)).toEqual([1, 3]);
   });
 
   it("round-trips a generated non-default draft workspace", async () => {
