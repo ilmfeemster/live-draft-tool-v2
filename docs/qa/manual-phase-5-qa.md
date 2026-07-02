@@ -6,15 +6,15 @@ Validate that the completed Rankings & Data phase meets its product success crit
 
 ## Evidence
 
-- Date: 2026-06-30
+- Date: 2026-07-01
 - Commit or branch: Working tree validation before commit
 - App URL: `http://localhost:3000`
-- Tester: Codex automated validation; interactive manual QA blocked
-- Overall result: Blocked
-- Blocking issue: Interactive browser control failed before the app could be opened, so the full manual QA checklist could not be completed in this run.
+- Tester: Codex automated validation; user-confirmed interactive manual QA
+- Overall result: Passed
+- Blocking issue: None.
 - Local persistence signal: `.env` contains `DATABASE_URL`.
 - Local app smoke: `Invoke-WebRequest http://localhost:3000` returned HTTP 200 and the page contained `Draft Board`.
-- Defects found: None in automated validation.
+- Defects found and corrected: newly imported ranking sets initially required a page refresh before appearing in New Draft Setup; ranking-library cards initially hid content without shrinking because the grid stretched sibling cards; default-collapsed workspace panels were added and verified during final QA.
 
 ## Automated Gates
 
@@ -41,24 +41,24 @@ Validate that the completed Rankings & Data phase meets its product success crit
 
 ## Manual QA Checklist
 
-- [ ] Confirm the managed seed ranking set is present after startup/bootstrap.
-- [ ] Import a valid FantasyPros CSV ranking set and confirm it appears in the ranking library.
-- [ ] Import or re-import a valid Canonical Ranking Set JSON V1 file and confirm it creates an independent set.
-- [ ] Try an invalid CSV or JSON import and confirm actionable errors appear with no stored-data change.
-- [ ] Edit a ranking set name, reorder one player, and correct supported player metadata; confirm saved values reload, source tiers and recommendation-tier availability remain distinct, and no unsupported position-tier assignment control appears.
-- [ ] Export a ranking set, re-import it as a separate set, and confirm domain-relevant order, metadata, and tiers are preserved.
-- [ ] Create one draft from the managed seed set and one draft from an alternate set; confirm each draft uses the selected set's recommendations.
-- [ ] Edit and then delete the source ranking set for one created draft; refresh/resume that draft and confirm its captured snapshot still loads.
-- [ ] Exercise missing/deleted selected set and oversized league-capacity failures in draft setup, confirming no partial draft is created.
-- [ ] Export a scenario from a draft, import it into the developer workbench, adjust replay target, reset/restart as appropriate, and confirm deterministic replay behavior.
-- [ ] Confirm cancel behavior, pending state, in-progress draft confirmation, transient-session confirmation, draft history, ranking library, current draft, scenario import/export, and replay still behave.
+- [x] Confirm the managed seed ranking set is present after startup/bootstrap.
+- [x] Import a valid FantasyPros CSV ranking set and confirm it appears in the ranking library.
+- [x] Import or re-import a valid Canonical Ranking Set JSON V1 file and confirm it creates an independent set.
+- [x] Try an invalid CSV or JSON import and confirm actionable errors appear with no stored-data change.
+- [x] Edit a ranking set name, reorder one player, and correct supported player metadata; confirm saved values reload, source tiers and recommendation-tier availability remain distinct, and no unsupported position-tier assignment control appears.
+- [x] Export a ranking set, re-import it as a separate set, and confirm domain-relevant order, metadata, and tiers are preserved.
+- [x] Create one draft from the managed seed set and one draft from an alternate set; confirm each draft uses the selected set's recommendations.
+- [x] Edit and then delete the source ranking set for one created draft; refresh/resume that draft and confirm its captured snapshot still loads.
+- [x] Exercise missing/deleted selected set and oversized league-capacity failures in draft setup, confirming no partial draft is created.
+- [x] Export a scenario from a draft, import it into the developer workbench, adjust replay target, reset/restart as appropriate, and confirm deterministic replay behavior.
+- [x] Confirm cancel behavior, pending state, in-progress draft confirmation, transient-session confirmation, draft history, ranking library, current draft, scenario import/export, and replay still behave.
 
 ## Notes
 
 - The automated validation suite gives coverage for the Phase 5 data boundaries, selected-ranking draft creation, immutable snapshots, UI rendering, scenario replay, and recommendation determinism.
-- The interactive browser/manual QA checklist remains incomplete. Task 20 should not be marked complete until this blocker is accepted or the checklist is completed in a working manual QA environment.
+- The user confirmed the interactive checklist after the recorded QA corrections. Task 20 and the tier-semantics patch exit gate are complete.
 
-## Tier Semantics Patch Exit Attempt - 2026-07-01
+## Tier Semantics Patch Exit Completion - 2026-07-01
 
 - Automated result: Passed.
 - Focused results:
@@ -70,5 +70,6 @@ Validate that the completed Rankings & Data phase meets its product success crit
 - TypeScript, Prisma schema validation, database migration status, and production build passed.
 - Lint passed with one pre-existing unused `stripLocations` warning in `src/lib/rankingNormalizer.test.ts`.
 - User-confirmed Slice 4 ranking-management and draft-workflow terminology QA passed.
-- Remaining blocker: browser control could not initialize before navigation, so legacy Canonical V1 import, source edit/delete snapshot isolation, and Scenario V1 replay lifecycle were not manually re-observed in this exit attempt.
-- Overall Phase 5 result remains blocked; Tier Semantics Patch Slice 5 is not complete.
+- User-confirmed manual result: Passed, including legacy compatibility, source edit/delete snapshot isolation, Scenario V1 replay lifecycle, no-refresh ranking synchronization, and final collapsed-panel behavior.
+- Final full suite after QA corrections: 45 files, 649 tests passed, 1 skipped.
+- Overall Phase 5 result: Passed. Tier Semantics Patch Slice 5 is complete.

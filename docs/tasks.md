@@ -2,9 +2,9 @@
 
 ## Current Focus
 
-Phase 5: Rankings & Data.
+Phase 5: Rankings & Data - complete.
 
-Phase 5 makes rankings first-class managed data while preserving the existing immutable snapshot boundary. Work begins with canonical domain invariants and staged import contracts, then adds format-specific parsing, normalization, validation, domain conversion, persistence, application workflows, snapshot integration, and focused UI.
+Phase 5 made rankings first-class managed data while preserving the immutable snapshot boundary. All twenty tasks, the tier-semantics correction, automated exit gates, and user-confirmed manual QA are complete. No subsequent phase has been promoted into active scope.
 
 The source documents for this task plan are:
 
@@ -931,7 +931,7 @@ Allow the user to choose which managed ranking set will anchor a new draft.
 
 ## Task 20 - Complete Phase 5 Regression and Exit Validation
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -988,7 +988,7 @@ Phase 1 manual simulator, Phase 2 persistence, Phase 3 recommendation, and Phase
 
 Phase 4 exit validation passed 27 automated test files and 305 tests, ESLint, TypeScript no-emit validation, Prisma schema validation, the production build, and the recorded manual QA in `docs/qa/manual-phase-4-qa.md`.
 
-Phase 5 testing is planned through Tasks 1-20. Each implementation task includes focused validation; Task 20 is the cross-feature regression and manual exit gate.
+Phase 5 exit validation is complete. The final worktree passed 45 automated test files with 649 tests passed and 1 skipped, TypeScript, production build, Prisma schema validation, database migration status, and lint with one recorded pre-existing unused-helper warning. User-confirmed manual QA covered ranking management, draft creation and snapshot isolation, scenario compatibility, synchronization corrections, and final panel behavior. See `docs/qa/manual-phase-5-qa.md`.
 
 ---
 

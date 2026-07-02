@@ -2,9 +2,9 @@
 
 ## Active Phase
 
-Phase 5 - Rankings & Data
+No active implementation phase.
 
-The current project phase is focused on decoupling rankings from application code so ranking data can be imported, validated, managed, selected, and snapshotted without regenerating typed seed files or changing the application.
+Phase 5 - Rankings & Data is complete. Ranking data can be imported, validated, managed, selected, and snapshotted without regenerating typed seed files or changing application code. No subsequent roadmap phase has been promoted into active scope.
 
 Phase 1 established the manual Draft State Engine, Phase 2 added durable draft persistence and ranking snapshots, Phase 3 added deterministic recommendations anchored to those snapshots, and Phase 4 added replay and simulator tooling. Phase 5 should preserve those workflows while making ranking sets first-class product data.
 

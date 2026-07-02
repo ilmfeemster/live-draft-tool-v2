@@ -250,6 +250,8 @@ Developers can recreate any draft state in seconds.
 
 # Phase 5 — Rankings & Data
 
+Status: Complete (2026-07-01)
+
 ## Purpose
 
 Decouple rankings from application code.

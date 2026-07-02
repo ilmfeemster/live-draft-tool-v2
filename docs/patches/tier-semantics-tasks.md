@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-Patch project: Tier Semantics Correction.
+Patch project: Tier Semantics Correction - complete.
 
 This patch is complete when tier meanings are explicit, legacy data remains usable through conservative compatibility behavior, and no supported recommendation path treats overall/source tiers as position-tier pressure.
 
@@ -215,7 +215,7 @@ Remove user-facing language that implies imported overall/source tiers are posit
 
 ## Slice 5 - Regression Coverage and Patch Exit Validation
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -335,6 +335,7 @@ Patch exit validation attempt (2026-07-01):
 - `npm run prisma:validate` passed.
 - `npx prisma migrate status` reported the database schema up to date.
 - `npm run build` passed.
-- Slice 5 remains open because browser control could not initialize for the remaining tier-specific legacy import, snapshot-isolation, and Scenario V1 manual QA matrix.
+- User-confirmed manual QA passed for the remaining ranking-management, legacy compatibility, snapshot-isolation, Scenario V1, synchronization, and panel-behavior checks.
+- Final Phase 5 full suite after QA corrections: 45 files, 649 tests passed, 1 skipped.
 
-Previously completed compatibility coverage includes ranking-set semantics persistence, legacy persisted-draft tier neutralization, canonical ranking portability, explicit new-snapshot semantics, Scenario V1 compatibility, and focused UI terminology. Patch exit manual validation remains.
+Patch exit is complete. Compatibility coverage includes ranking-set semantics persistence, legacy persisted-draft tier neutralization, canonical ranking portability, explicit new-snapshot semantics, Scenario V1 compatibility, focused UI terminology, and user-confirmed manual validation. Future position-tier work remains deferred.
