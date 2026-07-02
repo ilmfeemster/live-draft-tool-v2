@@ -167,6 +167,139 @@ describe("mapDraftRecordToWorkspace", () => {
     expect(workspace.rankings.map((entry) => entry.tier)).toEqual([1, 3]);
   });
 
+  it("preserves complete source-overall context from a V2 snapshot envelope", () => {
+    const rankings = [
+      createRanking("player-1", 1, "WR", { adpRank: 1.5 }),
+      createRanking("player-2", 2, "RB", { adpRank: null }),
+      createRanking("player-3", 3, "QB", { adpRank: 4.5 }),
+    ];
+    const serializedSnapshot = createV2Snapshot(rankings, [1, 1, 3]);
+    const record = createDraftRecord({ rankings: serializedSnapshot });
+    const before = structuredClone(record.rankingSnapshot.rankings);
+
+    const workspace = mapDraftRecordToWorkspace(record);
+    const contextResult = workspace.recommendationRankingContextResult;
+
+    expect(contextResult?.ok).toBe(true);
+    if (!contextResult?.ok) {
+      throw new Error("Expected mapped recommendation context to succeed.");
+    }
+    expect(
+      contextResult.context.rankings.map((ranking) => ({
+        playerId: ranking.player.id,
+        adpRank: ranking.adpRank,
+        overallTier: ranking.overallTier,
+        origin: ranking.overallTierOrigin,
+      })),
+    ).toEqual([
+      { playerId: "player-1", adpRank: 1.5, overallTier: 1, origin: "source" },
+      { playerId: "player-2", adpRank: null, overallTier: 1, origin: "source" },
+      { playerId: "player-3", adpRank: 4.5, overallTier: 3, origin: "source" },
+    ]);
+    expect(record.rankingSnapshot.rankings).toEqual(before);
+  });
+
+  it.each(["none", "legacy-ambiguous"] as const)(
+    "maps explicit %s source semantics to neutral overall tiers",
+    (sourceKind) => {
+      const rankings = [
+        createRanking("player-1", 1, "WR"),
+        createRanking("player-2", 2, "RB"),
+      ];
+      const record = createDraftRecord({
+        rankings: serializeRankingSnapshot({
+          rankings,
+          tierSemantics: {
+            source: { kind: sourceKind },
+            recommendation: createNeutralRecommendationSemantics(rankings),
+          },
+          capturedAt: new Date("2026-07-02T12:00:00.000Z"),
+        }),
+      });
+
+      const workspace = mapDraftRecordToWorkspace(record);
+      const contextResult = workspace.recommendationRankingContextResult;
+
+      expect(contextResult?.ok).toBe(true);
+      if (!contextResult?.ok) {
+        throw new Error("Expected mapped recommendation context to succeed.");
+      }
+      expect(
+        contextResult.context.rankings.map((ranking) => ({
+          tier: ranking.overallTier,
+          origin: ranking.overallTierOrigin,
+        })),
+      ).toEqual([
+        { tier: 1, origin: "defaulted-neutral" },
+        { tier: 1, origin: "defaulted-neutral" },
+      ]);
+    },
+  );
+
+  it.each([
+    ["complete", [1.5, 2.5, 3.5]],
+    ["partial", [1.5, null, 3.5]],
+    ["absent", [null, null, null]],
+  ] as const)("preserves %s ADP through mapped context", (_label, adpRanks) => {
+    const rankings = [
+      createRanking("player-1", 1, "WR", { adpRank: adpRanks[0] }),
+      createRanking("player-2", 2, "RB", { adpRank: adpRanks[1] }),
+      createRanking("player-3", 3, "QB", { adpRank: adpRanks[2] }),
+    ];
+    const record = createDraftRecord({ rankings });
+
+    const workspace = mapDraftRecordToWorkspace(record);
+    const contextResult = workspace.recommendationRankingContextResult;
+
+    expect(contextResult?.ok).toBe(true);
+    if (!contextResult?.ok) {
+      throw new Error("Expected mapped recommendation context to succeed.");
+    }
+    expect(
+      contextResult.context.rankings.map((ranking) => ranking.adpRank),
+    ).toEqual(adpRanks);
+    expect(
+      contextResult.context.rankings.map((ranking) => ({
+        tier: ranking.overallTier,
+        origin: ranking.overallTierOrigin,
+      })),
+    ).toEqual([
+      { tier: 1, origin: "defaulted-neutral" },
+      { tier: 1, origin: "defaulted-neutral" },
+      { tier: 1, origin: "defaulted-neutral" },
+    ]);
+  });
+
+  it("keeps Phase 5-valid partial source tiers loadable as a structured context failure", () => {
+    const rankings = [
+      createRanking("player-1", 1, "WR"),
+      createRanking("player-2", 2, "RB"),
+    ];
+    const serializedSnapshot = createV2Snapshot(rankings, [1]);
+    const record = createDraftRecord({ rankings: serializedSnapshot });
+
+    const workspace = mapDraftRecordToWorkspace(record);
+
+    expect(workspace.draft.id).toBe("draft-1");
+    expect(workspace.rankings.map((ranking) => ranking.player.id)).toEqual([
+      "player-1",
+      "player-2",
+    ]);
+    expect(workspace.recommendationRankingContextResult).toEqual({
+      ok: false,
+      errors: [
+        {
+          code: "partial-overall-tiers",
+          path: "tierSemantics.source.values",
+          message: "Overall tiers are missing for: player-2.",
+        },
+      ],
+    });
+    expect(workspace.recommendationRankingContextResult).not.toHaveProperty(
+      "context",
+    );
+  });
+
   it("rejects invalid league settings before hydration", () => {
     const record = createDraftRecord({
       leagueSettings: {
@@ -268,6 +401,39 @@ function createRanking(
     positionRank: options.positionRank ?? overallRank,
     tier: options.tier ?? 1,
   };
+}
+
+function createV2Snapshot(
+  rankings: readonly RankingEntry[],
+  overallTiers: readonly number[],
+) {
+  return serializeRankingSnapshot({
+    rankings,
+    tierSemantics: {
+      source: {
+        kind: "source-overall",
+        values: overallTiers.map((tier, index) => ({
+          playerId: rankings[index].player.id,
+          overallRank: rankings[index].overallRank,
+          tier,
+        })),
+      },
+      recommendation: createNeutralRecommendationSemantics(rankings),
+    },
+    capturedAt: new Date("2026-07-02T12:00:00.000Z"),
+  });
+}
+
+function createNeutralRecommendationSemantics(
+  rankings: readonly RankingEntry[],
+): Partial<Record<Position, "neutral">> {
+  return rankings.reduce<Partial<Record<Position, "neutral">>>(
+    (semantics, ranking) => {
+      semantics[ranking.player.position] = "neutral";
+      return semantics;
+    },
+    {},
+  );
 }
 
 function isLeagueSettings(value: unknown): value is LeagueSettings {

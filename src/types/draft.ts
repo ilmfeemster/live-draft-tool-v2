@@ -33,6 +33,28 @@ export type RecommendationRankingContext = Readonly<{
   rankings: readonly RecommendationRankingFact[];
 }>;
 
+export type RecommendationRankingContextErrorCode =
+  | "invalid-adp"
+  | "partial-overall-tiers"
+  | "invalid-overall-tiers"
+  | "tier-entry-mismatch";
+
+export type RecommendationRankingContextError = Readonly<{
+  code: RecommendationRankingContextErrorCode;
+  path: string;
+  message: string;
+}>;
+
+export type RecommendationRankingContextResult =
+  | Readonly<{
+      ok: true;
+      context: RecommendationRankingContext;
+    }>
+  | Readonly<{
+      ok: false;
+      errors: readonly RecommendationRankingContextError[];
+    }>;
+
 export type Recommendation = {
   ranking: RankingEntry;
   score: number;
@@ -162,4 +184,5 @@ export type DraftWorkspace = {
   draft: Draft;
   rankings: RankingEntry[];
   leagueSettings: LeagueSettings;
+  recommendationRankingContextResult?: RecommendationRankingContextResult;
 };

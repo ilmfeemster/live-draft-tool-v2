@@ -2,6 +2,8 @@ import type {
   RankingEntry,
   RecommendationOverallTierOrigin,
   RecommendationRankingContext,
+  RecommendationRankingContextError,
+  RecommendationRankingContextResult,
   RecommendationRankingFact,
 } from "@/types/draft";
 import type {
@@ -9,27 +11,11 @@ import type {
   RankingSourceTierValue,
 } from "@/types/rankings";
 
-export type RecommendationRankingContextErrorCode =
-  | "invalid-adp"
-  | "partial-overall-tiers"
-  | "invalid-overall-tiers"
-  | "tier-entry-mismatch";
-
-export type RecommendationRankingContextError = Readonly<{
-  code: RecommendationRankingContextErrorCode;
-  path: string;
-  message: string;
-}>;
-
-export type RecommendationRankingContextResult =
-  | Readonly<{
-      ok: true;
-      context: RecommendationRankingContext;
-    }>
-  | Readonly<{
-      ok: false;
-      errors: readonly RecommendationRankingContextError[];
-    }>;
+export type {
+  RecommendationRankingContextError,
+  RecommendationRankingContextErrorCode,
+  RecommendationRankingContextResult,
+} from "@/types/draft";
 
 const DEFAULT_NEUTRAL_OVERALL_TIER = 1;
 
