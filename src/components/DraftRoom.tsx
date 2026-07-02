@@ -39,6 +39,7 @@ import type {
   Draft,
   LeagueSettings,
   RankingEntry,
+  RecommendationRankingContextResult,
   UserRosterPlayer,
 } from "@/types/draft";
 import type { RankingSetSummary } from "@/types/rankings";
@@ -49,6 +50,7 @@ type DraftRoomProps = {
   defaultRankingSetId: string;
   rankingSummaries: readonly RankingSetSummary[];
   rankings: RankingEntry[];
+  recommendationRankingContextResult: RecommendationRankingContextResult;
 };
 
 type TransientSource =

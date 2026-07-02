@@ -27,6 +27,14 @@ export default async function Home({ searchParams }: HomeProps) {
   const rankingErrors = rankingLibraryResult.ok
     ? []
     : rankingLibraryResult.errors;
+  const recommendationRankingContextResult =
+    workspace.recommendationRankingContextResult;
+
+  if (!recommendationRankingContextResult) {
+    throw new Error(
+      "Persisted draft workspace is missing its recommendation ranking context result.",
+    );
+  }
 
   return (
     <main className="flex min-h-screen flex-col bg-zinc-100 text-zinc-950">
@@ -91,6 +99,9 @@ export default async function Home({ searchParams }: HomeProps) {
           defaultRankingSetId={MANAGED_SEED_RANKING_SET_ID}
           rankingSummaries={rankingSummaries}
           rankings={workspace.rankings}
+          recommendationRankingContextResult={
+            recommendationRankingContextResult
+          }
         />
       </div>
     </main>

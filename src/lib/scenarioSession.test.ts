@@ -25,6 +25,27 @@ describe("transient scenario sessions", () => {
     expect(session.draft.currentPickNumber).toBe(9);
     expect(session.baselineDraft).toBe(session.draft);
     expect(session.isDirty).toBe(false);
+    expect(session.recommendationRankingContextResult.ok).toBe(true);
+    if (!session.recommendationRankingContextResult.ok) {
+      throw new Error("Expected transient recommendation context to succeed.");
+    }
+    expect(
+      session.recommendationRankingContextResult.context.rankings.map(
+        (ranking) => ({
+          playerId: ranking.player.id,
+          adpRank: ranking.adpRank,
+          overallTier: ranking.overallTier,
+          origin: ranking.overallTierOrigin,
+        }),
+      ),
+    ).toEqual(
+      session.rankings.map((ranking) => ({
+        playerId: ranking.player.id,
+        adpRank: ranking.adpRank,
+        overallTier: 1,
+        origin: "defaulted-neutral",
+      })),
+    );
     expect(session.recommendations).toEqual(
       generateRecommendationsForSession(session),
     );
@@ -58,6 +79,9 @@ describe("transient scenario sessions", () => {
     expect(nextSession.recommendations).toEqual(
       generateRecommendationsForSession(nextSession),
     );
+    expect(nextSession.recommendationRankingContextResult).toBe(
+      session.recommendationRankingContextResult,
+    );
     expect(nextSession.isDirty).toBe(true);
   });
 
@@ -77,6 +101,9 @@ describe("transient scenario sessions", () => {
     expect(afterUndo.draft).toEqual(expectedDraft);
     expect(afterUndo.draft).toEqual(session.baselineDraft);
     expect(afterUndo.recommendations).toEqual(session.recommendations);
+    expect(afterUndo.recommendationRankingContextResult).toBe(
+      session.recommendationRankingContextResult,
+    );
     expect(afterUndo.isDirty).toBe(false);
   });
 
@@ -113,6 +140,16 @@ describe("transient scenario sessions", () => {
           playerId: undefined,
         })),
       },
+      recommendationRankingContextResult: {
+        ok: false,
+        errors: [
+          {
+            code: "partial-overall-tiers",
+            path: "tierSemantics.source.values",
+            message: "Corrupted cached result.",
+          },
+        ],
+      },
     };
 
     const result = resetTransientScenarioSession(corrupted);
@@ -124,6 +161,12 @@ describe("transient scenario sessions", () => {
     expect(result.session).toEqual(original);
     expect(result.session).not.toBe(original);
     expect(result.session.draft).not.toBe(original.draft);
+    expect(result.session.recommendationRankingContextResult).toEqual(
+      original.recommendationRankingContextResult,
+    );
+    expect(result.session.recommendationRankingContextResult).not.toBe(
+      corrupted.recommendationRankingContextResult,
+    );
     expect(result.session.isDirty).toBe(false);
   });
 
@@ -155,6 +198,9 @@ describe("transient scenario sessions", () => {
     expect(restarted.draft.currentPickNumber).toBe(1);
     expect(restarted.leagueSettings).toBe(scenarioSession.leagueSettings);
     expect(restarted.rankings).toBe(scenarioSession.rankings);
+    expect(restarted.recommendationRankingContextResult).toBe(
+      scenarioSession.recommendationRankingContextResult,
+    );
     expect(restarted.baselineDraft).toBe(restarted.draft);
     expect(restarted.recommendations).toEqual(
       generateRecommendationsForSession(restarted),
@@ -253,6 +299,17 @@ describe("transient scenario sessions", () => {
       throw new Error("Expected scenario reset to succeed.");
     }
     for (const session of [initial, picked, undone, reset.session, restarted]) {
+      expect(session.recommendationRankingContextResult.ok).toBe(true);
+      if (!session.recommendationRankingContextResult.ok) {
+        throw new Error("Expected transient recommendation context to succeed.");
+      }
+      expect(
+        session.recommendationRankingContextResult.context.rankings.every(
+          (ranking) =>
+            ranking.overallTier === 1 &&
+            ranking.overallTierOrigin === "defaulted-neutral",
+        ),
+      ).toBe(true);
       expect(session.rankings.every(({ tier }) => tier === NEUTRAL_TIER)).toBe(
         true,
       );

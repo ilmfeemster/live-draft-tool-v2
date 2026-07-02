@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. No implementation has started.
+Complete. Persisted workspace context is now required at the page-to-Draft Room boundary, Scenario V1 transient sessions receive deterministic defaulted-neutral overall-tier context with exact nullable ADP, and pick, undo, reset, replay-target recreation, and restart paths preserve or rebuild context as designed. Existing recommendation generation remains unchanged. Focused validation passed with 4 test files and 50 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
 
 ## Goal
 

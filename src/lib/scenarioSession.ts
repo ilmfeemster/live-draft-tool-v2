@@ -4,12 +4,14 @@ import {
   importScenarioV1Json,
   type ImportScenarioV1Result,
 } from "@/lib/scenarioPortability";
+import { createRecommendationRankingContext } from "@/lib/recommendationRankingContext";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import type {
   Draft,
   LeagueSettings,
   PlayerRecommendation,
   RankingEntry,
+  RecommendationRankingContextResult,
 } from "@/types/draft";
 import type { ScenarioV1 } from "@/types/scenario";
 
@@ -21,6 +23,7 @@ export type TransientSessionCore = {
   rankings: RankingEntry[];
   leagueSettings: LeagueSettings;
   recommendations: PlayerRecommendation[];
+  recommendationRankingContextResult: RecommendationRankingContextResult;
   isDirty: boolean;
 };
 
@@ -55,6 +58,11 @@ export function createTransientScenarioSession(
     return imported;
   }
 
+  const recommendationRankingContextResult =
+    createRecommendationRankingContext({
+      rankings: imported.scenario.rankingContext.rankings,
+    });
+
   return {
     ok: true,
     session: {
@@ -66,6 +74,7 @@ export function createTransientScenarioSession(
       rankings: imported.scenario.rankingContext.rankings,
       leagueSettings: imported.scenario.leagueSettings,
       recommendations: imported.recommendations,
+      recommendationRankingContextResult,
       isDirty: false,
     },
   };
@@ -143,6 +152,8 @@ export function restartTransientSession(
       session.rankings,
       session.leagueSettings,
     ),
+    recommendationRankingContextResult:
+      session.recommendationRankingContextResult,
     isDirty: false,
   };
 }

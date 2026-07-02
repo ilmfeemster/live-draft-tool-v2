@@ -9,6 +9,7 @@ import type {
 import { loadDraftWorkspace } from "@/lib/draftWorkspaceLoader";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import { MANAGED_SEED_RANKING_SET_ID } from "@/lib/managedSeedRankingSet";
+import { createRecommendationRankingContext } from "@/lib/recommendationRankingContext";
 import type { DraftWorkspace, Position, RankingEntry } from "@/types/draft";
 import type { RankingSetSummary } from "@/types/rankings";
 
@@ -47,6 +48,12 @@ describe("DraftRoom loaded workspace recommendations", () => {
       repository,
     );
     const { workspace } = result;
+    const recommendationRankingContextResult =
+      workspace.recommendationRankingContextResult;
+
+    if (!recommendationRankingContextResult) {
+      throw new Error("Expected persisted recommendation context result.");
+    }
     const expectedRecommendations = generatePlayerRecommendations({
       draft: workspace.draft,
       rankings: workspace.rankings,
@@ -60,6 +67,9 @@ describe("DraftRoom loaded workspace recommendations", () => {
         rankings={workspace.rankings}
         rankingSummaries={[createRankingSummary()]}
         leagueSettings={workspace.leagueSettings}
+        recommendationRankingContextResult={
+          recommendationRankingContextResult
+        }
       />,
     );
 
@@ -124,6 +134,16 @@ function createPersistedWorkspace(): DraftWorkspace {
   const teamCount = 4;
   const rounds = 3;
   const picks = generateSnakeDraftOrder(teamCount, rounds);
+  const rankings = [
+    createRanking("drafted-player", "Drafted Veteran", "WR", 1, 1, 1),
+    createRanking("receiver-one", "River Stone", "WR", 2, 1, 1),
+    createRanking("quarterback-one", "Quinn Harbor", "QB", 3, 1, 1),
+    createRanking("running-back-one", "Rowan Field", "RB", 4, 1, 1),
+    createRanking("tight-end-one", "Taylor Ridge", "TE", 5, 1, 1),
+    createRanking("receiver-two", "Remy Vale", "WR", 6, 2, 2),
+    createRanking("quarterback-two", "Casey North", "QB", 7, 2, 2),
+    createRanking("defense-one", "Metro Defense", "DST", 8, 1, 1),
+  ];
 
   return {
     draft: {
@@ -139,16 +159,7 @@ function createPersistedWorkspace(): DraftWorkspace {
           : pick;
       }),
     },
-    rankings: [
-      createRanking("drafted-player", "Drafted Veteran", "WR", 1, 1, 1),
-      createRanking("receiver-one", "River Stone", "WR", 2, 1, 1),
-      createRanking("quarterback-one", "Quinn Harbor", "QB", 3, 1, 1),
-      createRanking("running-back-one", "Rowan Field", "RB", 4, 1, 1),
-      createRanking("tight-end-one", "Taylor Ridge", "TE", 5, 1, 1),
-      createRanking("receiver-two", "Remy Vale", "WR", 6, 2, 2),
-      createRanking("quarterback-two", "Casey North", "QB", 7, 2, 2),
-      createRanking("defense-one", "Metro Defense", "DST", 8, 1, 1),
-    ],
+    rankings,
     leagueSettings: {
       teamCount,
       rounds,
@@ -172,6 +183,9 @@ function createPersistedWorkspace(): DraftWorkspace {
         },
       ],
     },
+    recommendationRankingContextResult: createRecommendationRankingContext({
+      rankings,
+    }),
   };
 }
 
