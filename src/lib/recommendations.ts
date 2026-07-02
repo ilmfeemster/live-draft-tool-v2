@@ -9,6 +9,7 @@ import type {
   RecommendationScoreAdjustment,
   RecommendationScoreComponent,
   RecommendationInput,
+  RecommendationRankingFact,
   RecommendationTuningConfig,
   UserRosterPlayer,
 } from "@/types/draft";
@@ -47,6 +48,11 @@ const LAST_PLAYER_TIER_PRESSURE_DELTA = 8;
 const MAJOR_TIER_CLIFF_DELTA = 12;
 const SOLVED_POSITION_TIER_CAP = 3;
 const TIER_CLIFF_COMPONENT_PRIORITY = 18;
+const OVERALL_TIER_MIN_DELTA = 0;
+const OVERALL_TIER_MAX_DELTA = 6;
+const BEST_OVERALL_TIER_DELTA = 3;
+const LAST_IN_BEST_OVERALL_TIER_DELTA = 6;
+const OVERALL_TIER_COMPONENT_PRIORITY = 19;
 const POSITIONAL_SCARCITY_MIN_DELTA = 0;
 const POSITIONAL_SCARCITY_MAX_DELTA = 6;
 const MILD_POSITIONAL_SCARCITY_DELTA = 3;
@@ -132,6 +138,82 @@ export function calculateBasePlayerValueScore(
   const rankDistanceFromTop = Math.max(overallRank - 1, 0);
 
   return Math.max(0, 100 - coefficient * Math.sqrt(rankDistanceFromTop));
+}
+
+export function calculateOverallTierComponent({
+  ranking,
+  availableRankings,
+}: {
+  ranking: RecommendationRankingFact;
+  availableRankings: readonly RecommendationRankingFact[];
+}): RecommendationScoreComponent {
+  if (ranking.overallTierOrigin === "defaulted-neutral") {
+    return {
+      id: "overall_tier",
+      delta: 0,
+      direction: "neutral",
+      priority: OVERALL_TIER_COMPONENT_PRIORITY,
+      evidence: {
+        candidateTier: ranking.overallTier,
+        bestAvailableTier: null,
+        bestTierRemaining: 0,
+        hasLowerTierAvailable: false,
+        overallTierOrigin: ranking.overallTierOrigin,
+        thresholdMatched: "defaulted_neutral_overall_tier",
+      },
+    };
+  }
+
+  const bestAvailableTier =
+    availableRankings.length === 0
+      ? null
+      : Math.min(...availableRankings.map((candidate) => candidate.overallTier));
+  const bestTierRemaining =
+    bestAvailableTier === null
+      ? 0
+      : availableRankings.filter((candidate) => {
+          return candidate.overallTier === bestAvailableTier;
+        }).length;
+  const hasLowerTierAvailable =
+    bestAvailableTier !== null &&
+    availableRankings.some((candidate) => {
+      return candidate.overallTier > bestAvailableTier;
+    });
+  let delta = 0;
+  let thresholdMatched = "no_overall_tier_boundary";
+
+  if (!hasLowerTierAvailable || bestAvailableTier === null) {
+    thresholdMatched = "no_overall_tier_boundary";
+  } else if (ranking.overallTier !== bestAvailableTier) {
+    thresholdMatched = "outside_best_overall_tier";
+  } else if (bestTierRemaining === 1) {
+    delta = LAST_IN_BEST_OVERALL_TIER_DELTA;
+    thresholdMatched = "last_in_best_overall_tier";
+  } else {
+    delta = BEST_OVERALL_TIER_DELTA;
+    thresholdMatched = "best_overall_tier_available";
+  }
+
+  const boundedDelta = clamp(
+    delta,
+    OVERALL_TIER_MIN_DELTA,
+    OVERALL_TIER_MAX_DELTA,
+  );
+
+  return {
+    id: "overall_tier",
+    delta: boundedDelta,
+    direction: boundedDelta > 0 ? "positive" : "neutral",
+    priority: OVERALL_TIER_COMPONENT_PRIORITY,
+    evidence: {
+      candidateTier: ranking.overallTier,
+      bestAvailableTier,
+      bestTierRemaining,
+      hasLowerTierAvailable,
+      overallTierOrigin: ranking.overallTierOrigin,
+      thresholdMatched,
+    },
+  };
 }
 
 function clamp(value: number, min: number, max: number) {

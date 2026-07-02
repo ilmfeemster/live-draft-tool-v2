@@ -124,7 +124,7 @@ Carry the immutable snapshot facts needed by Phase 5.5 from draft creation and h
 
 ## Task 3 - Add the Overall-Tier Score Component
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 

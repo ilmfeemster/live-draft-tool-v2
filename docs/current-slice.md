@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. No implementation has started.
+Complete. Added the pure bounded `overall_tier` score component with exact `+3` and `+6` thresholds, explicit neutral states, cross-position overall-tier semantics, deterministic evidence, tier-gap neutrality, and strict separation from position-local recommendation tiers. The component is not called by recommendation generation, so existing scores and ordering remain unchanged. Focused validation passed with 1 test file and 68 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
 
 ## Goal
 

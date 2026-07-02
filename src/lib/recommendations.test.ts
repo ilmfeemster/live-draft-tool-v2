@@ -4,6 +4,7 @@ import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import { draftPlayerInDraft } from "@/lib/draftState";
 import {
   calculateBasePlayerValueScore,
+  calculateOverallTierComponent,
   calculatePositionalRunComponent,
   calculatePositionalScarcityComponent,
   calculateTierDropModifier,
@@ -20,6 +21,7 @@ import type {
   PlayerRecommendation,
   Position,
   RankingEntry,
+  RecommendationRankingFact,
   RecommendationScoreComponent,
 } from "@/types/draft";
 import { NEUTRAL_TIER } from "@/types/rankings";
@@ -57,6 +59,32 @@ function createRanking(
     adpRank: options.adpRank ?? null,
     positionRank: options.positionRank ?? overallRank,
     tier: options.tier ?? 1,
+  };
+}
+
+function createOverallTierRanking(
+  id: string,
+  overallRank: number,
+  overallTier: number,
+  options: {
+    origin?: RecommendationRankingFact["overallTierOrigin"];
+    position?: Position;
+    recommendationTier?: number;
+  } = {},
+): RecommendationRankingFact {
+  const ranking = createRanking(
+    id,
+    overallRank,
+    options.position ?? "RB",
+    id,
+    { tier: options.recommendationTier ?? 1 },
+  );
+
+  return {
+    ...ranking,
+    player: { ...ranking.player },
+    overallTier,
+    overallTierOrigin: options.origin ?? "source",
   };
 }
 
@@ -164,6 +192,184 @@ describe("calculateBasePlayerValueScore", () => {
   it("clamps invalid low ranks before calculating the curve", () => {
     expect(calculateBasePlayerValueScore(0)).toBe(100);
     expect(calculateBasePlayerValueScore(-10)).toBe(100);
+  });
+});
+
+describe("calculateOverallTierComponent", () => {
+  it("adds the bounded best-tier value when multiple players remain above a lower tier", () => {
+    const ranking = createOverallTierRanking("best-wr", 1, 1, {
+      position: "WR",
+    });
+    const availableRankings = [
+      ranking,
+      createOverallTierRanking("best-qb", 2, 1, { position: "QB" }),
+      createOverallTierRanking("lower-rb", 3, 2, { position: "RB" }),
+    ];
+
+    expect(
+      calculateOverallTierComponent({ ranking, availableRankings }),
+    ).toEqual({
+      id: "overall_tier",
+      delta: 3,
+      direction: "positive",
+      priority: 19,
+      evidence: {
+        candidateTier: 1,
+        bestAvailableTier: 1,
+        bestTierRemaining: 2,
+        hasLowerTierAvailable: true,
+        overallTierOrigin: "source",
+        thresholdMatched: "best_overall_tier_available",
+      },
+    });
+  });
+
+  it("adds the maximum bounded value for the last player in the best tier", () => {
+    const ranking = createOverallTierRanking("last-best", 1, 1);
+    const availableRankings = [
+      ranking,
+      createOverallTierRanking("lower", 2, 2),
+    ];
+
+    expect(
+      calculateOverallTierComponent({ ranking, availableRankings }),
+    ).toMatchObject({
+      id: "overall_tier",
+      delta: 6,
+      direction: "positive",
+      evidence: {
+        bestTierRemaining: 1,
+        thresholdMatched: "last_in_best_overall_tier",
+      },
+    });
+  });
+
+  it("is neutral for a candidate outside the best available tier", () => {
+    const ranking = createOverallTierRanking("lower", 2, 2);
+    const availableRankings = [
+      createOverallTierRanking("best", 1, 1),
+      ranking,
+    ];
+
+    expect(
+      calculateOverallTierComponent({ ranking, availableRankings }),
+    ).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+      evidence: { thresholdMatched: "outside_best_overall_tier" },
+    });
+  });
+
+  it("is neutral when no lower overall tier is available", () => {
+    const ranking = createOverallTierRanking("same-1", 1, 1);
+    const availableRankings = [
+      ranking,
+      createOverallTierRanking("same-2", 2, 1),
+    ];
+
+    expect(
+      calculateOverallTierComponent({ ranking, availableRankings }),
+    ).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+      evidence: {
+        hasLowerTierAvailable: false,
+        thresholdMatched: "no_overall_tier_boundary",
+      },
+    });
+  });
+
+  it("is neutral for defaulted overall tiers", () => {
+    const ranking = createOverallTierRanking("neutral-1", 1, 1, {
+      origin: "defaulted-neutral",
+    });
+    const availableRankings = [
+      ranking,
+      createOverallTierRanking("neutral-2", 2, 1, {
+        origin: "defaulted-neutral",
+      }),
+    ];
+
+    expect(
+      calculateOverallTierComponent({ ranking, availableRankings }),
+    ).toEqual({
+      id: "overall_tier",
+      delta: 0,
+      direction: "neutral",
+      priority: 19,
+      evidence: {
+        candidateTier: 1,
+        bestAvailableTier: null,
+        bestTierRemaining: 0,
+        hasLowerTierAvailable: false,
+        overallTierOrigin: "defaulted-neutral",
+        thresholdMatched: "defaulted_neutral_overall_tier",
+      },
+    });
+  });
+
+  it("does not interpret numeric tier gaps as cliff magnitude", () => {
+    const ranking = createOverallTierRanking("best", 1, 1);
+    const contiguous = [
+      ranking,
+      createOverallTierRanking("lower", 2, 2),
+    ];
+    const gapped = [
+      ranking,
+      createOverallTierRanking("far-lower", 2, 9),
+    ];
+
+    expect(calculateOverallTierComponent({ ranking, availableRankings: gapped })).toEqual(
+      calculateOverallTierComponent({
+        ranking,
+        availableRankings: contiguous,
+      }),
+    );
+  });
+
+  it("ignores position-local recommendation tier values", () => {
+    const first = createOverallTierRanking("best", 1, 1, {
+      recommendationTier: 99,
+    });
+    const second = createOverallTierRanking("best", 1, 1, {
+      recommendationTier: 1,
+    });
+    const lower = createOverallTierRanking("lower", 2, 2, {
+      recommendationTier: 1,
+    });
+
+    expect(
+      calculateOverallTierComponent({
+        ranking: first,
+        availableRankings: [first, lower],
+      }),
+    ).toEqual(
+      calculateOverallTierComponent({
+        ranking: second,
+        availableRankings: [second, lower],
+      }),
+    );
+  });
+
+  it("is deterministic regardless of available-ranking order", () => {
+    const ranking = createOverallTierRanking("best-1", 1, 1);
+    const availableRankings = [
+      ranking,
+      createOverallTierRanking("best-2", 2, 1),
+      createOverallTierRanking("lower", 3, 4),
+    ];
+
+    expect(
+      calculateOverallTierComponent({
+        ranking,
+        availableRankings,
+      }),
+    ).toEqual(
+      calculateOverallTierComponent({
+        ranking,
+        availableRankings: [...availableRankings].reverse(),
+      }),
+    );
   });
 });
 
