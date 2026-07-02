@@ -1,271 +1,258 @@
-# Current Slice: Tier Semantics Patch Slice 5 - Regression Coverage and Patch Exit Validation
+# Current Slice: Phase 5 QA Correction - Ranking Library Synchronization and Collapsible Panels
 
 ## Completion Status
 
-Implemented with every automated exit gate passing, but blocked on the broader tier-specific manual QA matrix. Focused validation passed across import/domain (9 files, 189 tests), persistence/snapshots after one stale pretty-print assertion was corrected (9 files, 163 tests passed, 1 skipped), recommendations/scenarios (8 files, 160 tests), and UI (6 files, 30 tests). The full suite passed (45 files, 648 tests passed, 1 skipped), TypeScript passed, Prisma validation passed, migration status is current, and the production build passed. Lint passed with the recorded pre-existing unused `stripLocations` warning. The user-confirmed Slice 4 UI QA is complete, but browser control could not initialize for the remaining legacy, snapshot-isolation, and Scenario V1 manual workflows, so Slice 5 and the patch remain open.
+Planned and awaiting implementation approval. Tier-semantics automated exit validation passed, and the user reports the remaining QA is good except for one Phase 5 workflow defect: a newly imported ranking set does not appear in New Draft Setup until the browser page is refreshed. The user also explicitly requested independent minimize controls for the `Managed Sets` and `Import Rankings` panels.
 
 ## Source Context
 
-- Patch task plan: `docs/patches/tier-semantics-tasks.md`, Slice 5.
-- Approved design: `docs/design/tier-semantics.md`.
-- Active Phase 5 exit task: `docs/tasks.md`, Task 20.
-- Existing QA record: `docs/qa/manual-phase-5-qa.md`.
-- Completed tier-semantics behavior:
-  - FantasyPros `TIERS` are preserved as source-overall metadata and materialize neutral engine-facing recommendation tiers;
-  - explicit Canonical Ranking JSON and new snapshot semantics round-trip without conflating source and recommendation tiers;
-  - legacy ranking sets, Canonical V1 files, snapshots, and Scenario V1 inputs remain usable with conservative recommendation-neutral behavior;
-  - neutral tiers produce no tier-cliff score component or reason, while explicitly eligible engine inputs retain bounded positive tier pressure;
-  - ranking-management and draft-workflow UI no longer calls imported source tiers position tiers or presents neutral sentinels as authored tier data;
-  - canonical JSON exports are readable, deterministic, and covered by focused round-trip tests.
-- Slice 4A and 4B automated validation passed, and the user confirmed their manual UI QA passed.
-- `docs/qa/manual-phase-5-qa.md` still records an earlier blocked browser run and contains a stale instruction to update a position-tier assignment through UI that no longer exists.
-- Phase 5 Task 20 is broader than this patch. Closing the tier-semantics patch must not mark the full Phase 5 exit task complete unless every separate Phase 5 criterion and manual workflow has also been verified.
+- Active Phase 5 task: `docs/tasks.md`, Task 20 - Complete Phase 5 Regression and Exit Validation.
+- Tier patch tracking: `docs/patches/tier-semantics-tasks.md`, Slice 5.
+- QA record: `docs/qa/manual-phase-5-qa.md`.
+- Current ownership boundary:
+  - `src/app/page.tsx` loads one server-side `rankingSummaries` value;
+  - that value is passed independently to `RankingLibraryPanel` and `DraftRoom`;
+  - `RankingLibraryPanel` owns a separate local `visibleSummaries` state for immediate library updates;
+  - `DraftRoom` continues receiving the server-provided summary prop and passes it to `DraftSetupForm`;
+  - after import, rename, reorder, player correction, delete, or manual library refresh, `refreshSummaries` updates only `RankingLibraryPanel` local state;
+  - therefore sibling `DraftRoom` remains stale until a browser reload or another server navigation reruns `page.tsx`.
+- Existing Next.js client navigation is already used in `DraftRoom`; no new state library or application service is required.
+- Tier-patch automated exit gates passed: focused suites, 45-file full suite with 648 tests passed and 1 skipped, TypeScript, lint with one known warning, Prisma validation, migration status, and production build.
+- Preserve the corrected readable canonical JSON workflow assertion in `src/lib/rankingManagementWorkflow.test.ts`.
 
 ## Goal
 
-Prove every supported ranking-to-recommendation path obeys the corrected tier semantics, record the completed tier-specific QA, and close the tier-semantics patch without adding behavior or prematurely closing the broader Phase 5 exit gate.
+Make successful ranking-library summary changes visible in New Draft Setup immediately, without requiring a hard browser refresh or duplicate ranking state ownership, and let users independently minimize the two primary ranking-library panels without losing in-progress UI state.
 
 ## Scope
 
 ### Goals
 
-- Run the focused tier-semantics regression matrix across import, canonical portability, domain validation, persistence, snapshots, recommendations, Scenario V1, and UI.
-- Run the full automated project suite and required static/build validation.
-- Verify the Prisma schema is valid and the tier-semantics migration is applied in the configured QA database.
-- Complete or confirm the tier-specific manual ranking-to-draft workflow.
-- Correct the stale tier-related item in the Phase 5 QA checklist and record tier-patch evidence separately from the broader Phase 5 result.
-- Mark patch Slices 4 and 5 complete only after every tier-specific gate passes.
-- Record the patch as complete in active task documentation while leaving Phase 5 Task 20 pending.
+- Trigger a Next.js server refresh after the ranking library successfully reloads authoritative summaries.
+- Preserve the library's immediate local summary update and status/error behavior.
+- Synchronize imports, renames, capability-changing edits, deletes, and manual Refresh because they already share `refreshSummaries`.
+- Ensure `page.tsx` reruns and passes current summaries to both `RankingLibraryPanel` and `DraftRoom`.
+- Verify a newly imported set appears when New Draft Setup is opened without a hard reload.
+- Add independent minimize/expand controls for `Managed Sets` and `Import Rankings`.
+- Preserve import form state, library operations, notices, diagnostics, and loaded ranking detail while either panel is minimized.
+- Preserve the completed tier-semantics behavior and exit evidence.
 
 ### Non-Goals
 
-- Do not add or change production behavior during exit validation.
-- Do not add tests merely to increase coverage or duplicate an already-protected boundary.
-- Do not weaken, delete, or broadly rewrite assertions to make a gate pass.
-- Do not derive position tiers, add manual recommendation-tier authoring, tune recommendation weights, or add recommendation factors.
-- Do not rewrite historical data or reset the database.
-- Do not mark Phase 5 Task 20 complete solely because this patch passes.
-- Do not begin the next Phase 5 or roadmap slice automatically.
+- Do not add a global state library, React context, polling, subscriptions, cache framework, or new client wrapper.
+- Do not move ranking persistence or listing into `DraftRoom` or `DraftSetupForm`.
+- Do not reload the whole browser window.
+- Do not change ranking import, validation, repository, snapshot, draft-creation, or recommendation behavior.
+- Do not alter current draft snapshots when mutable ranking summaries change.
+- Do not redesign ranking library or draft setup UI.
+- Do not add per-ranking-set card collapse, drag-and-drop, persisted panel preferences, or animation infrastructure.
+- Do not begin Phase 5.5 overall-tier recommendation work.
 
-## Exit Decisions
+## Implementation Decisions
 
-- Existing focused suites from Slices 1 through 4 already cover every known supported tier-semantics boundary. This slice plans no source or test edits by default.
-- A failing gate is diagnostic evidence, not permission for broad cleanup. Fix only a small defect caused by the tier patch when the correction remains inside the failed boundary; otherwise stop and plan a corrective slice.
-- The full suite is required after focused suites so boundary-specific failures remain easy to locate.
-- `npm run prisma:validate` proves schema validity. `npx prisma migrate status` proves the configured QA database has the existing `tierSemantics` migration; it must not create, reset, or rewrite migrations.
-- The Phase 5 QA document may record a completed tier-semantics subsection while its broader overall result remains pending or blocked.
-- The obsolete manual instruction to update a position-tier assignment must be replaced with read-only verification that source tiers and recommendation-tier availability are presented separately and that no unsupported tier-authoring control exists.
-- Patch completion should be recorded in `docs/tasks.md` as a Task 20 prerequisite, without checking Task 20 complete.
+### Summary Synchronization
+
+- `page.tsx` remains the authoritative cross-component summary loader.
+- `RankingLibraryPanel.refreshSummaries` continues using `listRankingLibraryAction` for its immediate local UI result.
+- After that list succeeds, call `router.refresh()` so the current route's Server Component payload is regenerated and sibling consumers receive the same authoritative summaries.
+- Do not call `router.refresh()` when listing fails; preserve the last valid local and server snapshots with the existing error message.
+- Put the route refresh inside the shared successful `refreshSummaries` branch rather than duplicating it after each mutation. This covers every current summary-changing path consistently.
+- A Next router refresh preserves client component state while replacing updated server props, which is the desired behavior for the open draft and ranking library.
+
+### Collapsible Panels
+
+- `Managed Sets` and `Import Rankings` each own an independent boolean expanded state initialized to `true`.
+- Each panel header gets a visible `Minimize` or `Expand` button with a panel-specific `aria-label`, `aria-expanded`, and `aria-controls` value.
+- Keep the `Managed Sets` Refresh action visible and usable while its content is minimized.
+- Hide panel content with the HTML `hidden` attribute rather than conditional unmounting. This preserves the import format, name, selected file input, and other local DOM state while minimized.
+- Do not move operation notices, management errors, import diagnostics, warnings, or `RankingSetEditorPanel` inside either collapsible region. They remain visible and actionable.
+- Minimize state is intentionally session-local and resets to expanded after a page reload.
 
 ## Implementation Steps
 
-1. Confirm the exit baseline before running gates.
+1. Synchronize server consumers after successful summary refresh.
 
-   - verify the worktree contains only the completed tier patch and intentional user changes;
-   - verify Slices 1 through 4 behavior and tracking are present;
-   - do not edit source or tests before a validation failure demonstrates a tier-specific defect;
-   - preserve unrelated user work.
+   In `src/components/RankingLibraryPanel.tsx`:
 
-2. Run focused import, canonical, and domain validation.
+   - import `useRouter` from `next/navigation`;
+   - create the router once in `RankingLibraryPanel`;
+   - in the successful branch of `refreshSummaries`, retain the existing local summary and error updates;
+   - call `router.refresh()` after applying the successful local result;
+   - keep the existing boolean result and failure path unchanged;
+   - do not add route refresh calls to individual import, edit, delete, or button handlers.
 
-   Run:
+2. Add independent accessible panel controls.
 
-   ```text
-   npm test -- src/lib/rankingSetValidation.test.ts src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/canonicalRankingJsonExporter.test.ts src/lib/rankingImportWorkflow.test.ts
-   ```
+   In `src/components/RankingLibraryPanel.tsx`:
 
-   Confirm:
+   - add separate expanded state for `Managed Sets` and `Import Rankings`, both initially `true`;
+   - add a `Minimize`/`Expand` toggle to each panel header;
+   - give each toggle a panel-specific accessible label, `aria-expanded`, and `aria-controls`;
+   - give each content region a stable matching `id` and toggle its `hidden` attribute;
+   - keep the Managed Sets `Refresh` button in the always-visible header action group;
+   - preserve import form values and file selection when minimizing and reopening Import Rankings;
+   - keep operation notices, errors, warnings, and loaded ranking detail outside both hidden regions;
+   - do not add a reusable collapse abstraction for only two local panels.
 
-   - FantasyPros tiers remain source-only and engine-neutral;
-   - explicit Canonical V2 source and recommendation semantics round-trip;
-   - legacy Canonical V1 remains loadable and recommendation-neutral;
-   - malformed semantics fail atomically through stable diagnostics;
-   - readable JSON formatting remains deterministic and within the measured byte limit.
+3. Keep focused component coverage compatible with the router and panel controls.
 
-3. Run focused persistence and snapshot validation.
+   In `src/components/RankingLibraryPanel.test.tsx`:
 
-   Run:
+   - mock `next/navigation` with a stable `useRouter` result that provides `refresh`;
+   - assert both panel toggles render expanded by default with correct accessible names and content IDs;
+   - assert the initial server-rendered view still contains managed-set content and import controls;
+   - retain all existing library rendering, terminology, diagnostics, export filename, and delete-copy assertions;
+   - do not add trivial implementation-detail assertions solely to check hook setter calls or `router.refresh`;
+   - rely on focused manual QA for toggle interaction, state preservation, and observable sibling synchronization because the current component test environment is server-render-only and has no DOM interaction harness.
 
-   ```text
-   npm test -- src/lib/rankingSetEditing.test.ts src/lib/rankingSetRepository.test.ts src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts src/lib/rankingSnapshot.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/draftRepository.test.ts src/lib/draftCreationWorkflow.test.ts
-   ```
-
-   Confirm:
-
-   - ranking-set semantics persist and hydrate exactly;
-   - legacy stored sets and snapshots neutralize ambiguous values;
-   - new snapshots preserve explicit eligibility and remain immutable;
-   - source edits or deletion do not alter an existing draft snapshot;
-   - invalid create or replace operations remain atomic.
-
-4. Run focused recommendation and scenario validation.
+4. Run focused automated regression validation.
 
    Run:
 
    ```text
-   npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioReplay.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts src/lib/curatedScenarios.test.ts
+   npm test -- src/components/RankingLibraryPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
+   npx tsc --noEmit
+   npm run lint
    ```
 
    Confirm:
 
-   - neutral tiers produce no tier component or reason;
-   - explicitly eligible recommendation tiers retain bounded tier pressure;
-   - score components and totals reconcile deterministically;
-   - Scenario V1 parse, replay, reset, restart, and transient picks remain neutral and deterministic;
-   - no ranking-set or database lookup was added to replay.
+   - ranking library still renders and compiles with the router dependency;
+   - draft setup still renders all supplied summaries and validation states;
+   - ranking import/management actions remain unchanged;
+   - readable canonical export behavior remains green;
+   - only the recorded unrelated `stripLocations` warning is accepted.
 
-5. Run focused UI validation.
-
-   Run:
-
-   ```text
-   npm test -- src/components/RankingLibraryPanel.test.tsx src/components/RankingSetEditorPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/AvailablePlayersTable.test.tsx src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx
-   ```
-
-   Confirm:
-
-   - source, eligible recommendation, neutral, and legacy-compatible states remain distinct in ranking management;
-   - unsupported tier-authoring controls remain absent;
-   - draft setup describes recommendation tier pressure as unavailable for neutral positions;
-   - available players expose no ambiguous tier column;
-   - neutral recommendation cards show no tier-cliff explanation and explicit eligible fixtures retain valid explanations.
-
-6. Run full project gates.
+5. Run full project validation because this changes a shared top-level workflow.
 
    Run:
 
    ```text
    npm test
-   npx tsc --noEmit
-   npm run lint
-   npm run prisma:validate
-   npx prisma migrate status
    npm run build
    ```
 
-   Requirements:
+   Record exact file/test counts and any skipped tests.
 
-   - record exact file/test counts and skipped tests;
-   - record warnings separately from failures;
-   - accept only the already-known unused `stripLocations` lint warning unless the file has since changed;
-   - require migration status to report `20260630211500_add_ranking_set_tier_semantics` applied;
-   - do not run reset, schema push, or migration-creation commands during exit validation.
+6. Complete focused manual QA.
 
-7. Complete the tier-semantics manual QA matrix.
+   Without manually reloading the browser page:
 
-   Confirm and record:
+   - import a valid new ranking set and confirm it appears in the ranking library;
+   - open New Draft Setup and confirm the new set appears immediately;
+   - select it and confirm its name, player count, source kind, and capability warnings are current;
+   - rename the set, reopen New Draft Setup, and confirm the new name appears;
+   - make a supported player correction that changes summary capability state when applicable, reopen setup, and confirm warnings are current;
+   - delete the set, reopen setup, and confirm it is absent;
+   - confirm the active draft and any existing immutable snapshot remain unchanged throughout;
+   - confirm a failed import does not refresh sibling consumers or introduce a phantom set.
+   - minimize Managed Sets and confirm its cards hide while its header and Refresh action remain visible;
+   - expand Managed Sets and confirm the same cards return;
+   - enter an import name and choose a file, minimize Import Rankings, expand it, and confirm the in-progress form state remains intact;
+   - confirm the two panels minimize independently;
+   - confirm notices, import warnings/errors, and loaded ranking detail remain visible when either panel is minimized.
 
-   - importing FantasyPros CSV preserves visible source tiers without position-tier or recommendation-pressure claims;
-   - ranking detail has no unsupported position-tier assignment control;
-   - exporting and re-importing readable Canonical JSON preserves order, source metadata, and explicit recommendation semantics;
-   - legacy Canonical V1 imports with compatibility-neutral recommendation behavior;
-   - draft setup identifies positions without recommendation tier pressure and still permits creation;
-   - available players show no ambiguous tier column;
-   - neutral imported rankings create no tier-cliff component or reason;
-   - an explicitly recommendation-eligible canonical fixture can still produce its valid bounded tier-cliff explanation;
-   - an existing draft remains deterministic after its source ranking set is edited or deleted;
-   - Scenario V1 import, replay, local pick, undo, reset, and restart remain deterministic and tier-neutral.
-
-8. Update QA and patch tracking after all tier-specific gates pass.
+7. Finalize tracking only after the corrective QA passes.
 
    In `docs/qa/manual-phase-5-qa.md`:
 
-   - replace the obsolete position-tier assignment instruction with the approved read-only semantics checks;
-   - add a dated Tier Semantics Patch QA subsection with the automated and user-confirmed manual results;
-   - do not change the broader Phase 5 overall result to passed unless every remaining checklist item was actually completed.
+   - record the stale-summary defect and the successful no-hard-refresh verification;
+   - retain accurate evidence for the tier-semantics and broader Phase 5 checks;
+   - do not claim any workflow that was not observed.
 
    In `docs/patches/tier-semantics-tasks.md`:
 
-   - mark Slice 4 complete and record its 4A/4B focused validation plus manual QA;
-   - mark Slice 5 complete;
-   - append exact focused, full-suite, type, lint, Prisma, migration-status, build, and manual-QA results;
-   - preserve deferred position-tier work as deferred.
+   - mark Slice 5 complete only if the user-confirmed remaining tier QA and this corrective workflow both pass;
+   - record the final correction and validation results without recasting it as tier-scoring behavior.
 
    In `docs/tasks.md`:
 
-   - add a concise note under Task 20 that the Tier Semantics Correction patch passed its exit gate;
-   - leave Task 20 unchecked and preserve all broader Phase 5 acceptance criteria.
+   - add the corrective result under Task 20;
+   - leave Task 20 unchecked unless its full separate checklist is confirmed complete.
 
    In this file:
 
-   - mark Completion Status complete with exact gate results;
-   - record any accepted warning;
+   - update Completion Status with exact automated and manual results;
    - stop without beginning another slice.
 
 ## Expected Files
 
-Documentation only when all gates pass:
+Production:
+
+- `src/components/RankingLibraryPanel.tsx`
+
+Focused test:
+
+- `src/components/RankingLibraryPanel.test.tsx`
+
+Tracking after successful validation:
 
 - `docs/current-slice.md`
-- `docs/patches/tier-semantics-tasks.md`
 - `docs/qa/manual-phase-5-qa.md`
+- `docs/patches/tier-semantics-tasks.md`
 - `docs/tasks.md`
-
-No production or test changes are expected.
 
 Do not touch:
 
-- production source, generated Prisma client files, migrations, dependencies, or data files;
-- test files unless a failing tier-specific gate first demonstrates a real uncovered defect and the scope is re-planned;
-- roadmap, project, architecture, decision, or design documents whose approved semantics are already current;
-- Phase 5 Task 20 completion state.
+- `src/app/page.tsx`, `DraftRoom`, or `DraftSetupForm` unless implementation proves `router.refresh()` does not replace their server props; stop and report before expanding;
+- ranking actions, workflows, repositories, imports, snapshots, recommendations, Prisma, migrations, dependencies, or data files;
+- roadmap, project, architecture, or tier-semantics design documents;
+- Phase 5.5 implementation.
 
 ## Tests
 
 Required focused validation:
 
 ```text
-npm test -- src/lib/rankingSetValidation.test.ts src/lib/rankingImportPreflight.test.ts src/lib/fantasyProsCsvParser.test.ts src/lib/canonicalRankingJsonParser.test.ts src/lib/rankingNormalizer.test.ts src/lib/rankingCandidateValidation.test.ts src/lib/rankingSetConversion.test.ts src/lib/canonicalRankingJsonExporter.test.ts src/lib/rankingImportWorkflow.test.ts
-npm test -- src/lib/rankingSetEditing.test.ts src/lib/rankingSetRepository.test.ts src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts src/lib/rankingSnapshot.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/draftRepository.test.ts src/lib/draftCreationWorkflow.test.ts
-npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioReplay.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts src/lib/curatedScenarios.test.ts
-npm test -- src/components/RankingLibraryPanel.test.tsx src/components/RankingSetEditorPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/AvailablePlayersTable.test.tsx src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx
+npm test -- src/components/RankingLibraryPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
+npx tsc --noEmit
+npm run lint
 ```
 
 Required full validation:
 
 ```text
 npm test
-npx tsc --noEmit
-npm run lint
-npm run prisma:validate
-npx prisma migrate status
 npm run build
 ```
 
 ## Acceptance Criteria
 
-- Focused tests protect every supported tier-semantics path across import, canonical portability, validation, persistence, snapshots, recommendations, Scenario V1, and UI.
-- FantasyPros source tiers never become position-tier recommendation pressure.
-- New canonical exports and snapshots preserve explicit source and recommendation semantics through deterministic round trips.
-- Legacy ranking sets, Canonical V1 files, snapshots, persisted drafts, and Scenario V1 fixtures remain usable with conservative recommendation-neutral behavior.
-- Neutral tiers emit no tier score component or reason; explicitly eligible tiers retain bounded positive coverage.
-- Recommendation totals, components, reasons, ordering, replay, and snapshot behavior remain deterministic.
-- Focused suites, the full automated suite, TypeScript, lint, Prisma validation, migration status, and production build pass, with only explicitly recorded pre-existing warnings.
-- Tier-specific manual QA passes and is recorded without overstating the broader Phase 5 QA result.
-- Patch Slices 4 and 5 and the patch itself are recorded complete.
-- Phase 5 Task 20 remains pending unless its separate full acceptance criteria are completed.
-- Future position-tier derivation and authoring remain explicitly deferred.
-- No new behavior, architecture, dependency, migration, historical-data rewrite, or roadmap work is introduced.
+- A successfully imported ranking set appears in New Draft Setup without a hard browser refresh.
+- Successful rename, capability-changing edit, delete, and manual library refresh also synchronize draft-setup summaries.
+- Failed listing or import leaves the last valid summaries visible and does not trigger a phantom setup option.
+- Ranking library preserves its immediate local update, messages, errors, and warnings.
+- Managed Sets and Import Rankings each have an independent accessible Minimize/Expand control.
+- Both panels render expanded by default, and minimizing one does not minimize the other.
+- Minimizing Managed Sets hides only its cards or empty state; its header and Refresh action remain visible.
+- Minimizing Import Rankings preserves its format, name, selected file, and pending local form state when reopened.
+- Operation notices, diagnostics, warnings, and loaded ranking detail remain visible regardless of panel state.
+- The active draft and immutable ranking snapshot do not change when mutable library summaries refresh.
+- `page.tsx` remains the authoritative cross-component summary source.
+- No global store, polling, full browser reload, new persistence query in draft setup, or unrelated refactor is introduced.
+- Focused tests, TypeScript, lint, full tests, and build pass with only explicitly recorded pre-existing warnings.
+- Manual QA proves the original reproduction no longer requires a browser refresh.
+- Tier-patch and Phase 5 tracking state remain accurate and do not overstate completion.
 
 ## Failure Handling
 
-- If a focused test fails, identify the exact semantic boundary and fix only a defect caused by this patch; otherwise stop and plan a corrective slice.
-- If the full suite fails after focused suites pass, report the unrelated failure without weakening tests or expanding scope.
-- If Prisma migration status is pending or drifted, stop and report the configured database state; do not reset or create a migration.
-- If build validation fails because of an external service or environment dependency, record the exact blocker and keep the patch open.
-- If manual QA reveals behavior beyond terminology or tier eligibility, keep the patch open and plan the smallest corrective slice.
-- If only the known lint warning remains, record it as pre-existing rather than changing the unrelated test helper.
+- If `router.refresh()` does not update the `DraftRoom` prop in manual QA, stop and report before introducing lifted state or a client wrapper.
+- If router refresh resets active draft or transient workbench state, stop; preserving current client state is required.
+- If summary listing fails after a successful mutation, keep the existing last-valid-state behavior and do not refresh server consumers.
+- If hiding panel content clears the selected file or other form state, use retained DOM visibility semantics; do not add a second form-state model.
+- If a test requires adding a DOM environment or dependency solely for this slice, stop and rely on the existing focused tests plus manual observable QA.
+- If validation reveals an unrelated failure, report it rather than changing out-of-scope code.
 - Preserve user work and stop on unsafe overlap.
 
 ## Follow-Up
 
-After this slice passes, return to Phase 5 Task 20 planning. The next slice should address only the remaining broader Phase 5 exit criteria and manual QA; do not begin future position-tier work or another roadmap phase automatically.
+After this correction passes, finish the pending tier-patch/Phase 5 QA tracking based on the actually completed checklist. Then plan only the remaining Phase 5 Task 20 work; do not begin Phase 5.5 automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It validates and closes one completed semantic correction patch without folding in the broader Phase 5 exit task.
-- Executable by a lower-reasoning pass: yes. Exact suites, gates, manual checks, documentation updates, and stop conditions are specified.
-- Avoids unnecessary architecture changes: yes. No production or test changes are expected.
-- Blast radius reasonable: yes. Successful completion changes four documentation files only.
-- Review/revert comfort: yes. Validation is non-mutating and documentation updates are localized.
-- Observable/testable acceptance criteria: yes. Every path, command, QA observation, and tracking result is explicit.
+- Smallest meaningful increment: yes. The explicit user-requested additions remain localized to the same ranking-library component pair as the synchronization correction.
+- Executable by a lower-reasoning pass: yes. The exact hook, success branch, tests, manual reproduction, and stop condition are explicit.
+- Avoids unnecessary architecture changes: yes. Server-loaded props remain authoritative; no new state layer is introduced.
+- Blast radius reasonable: yes. Runtime and automated changes remain limited to one component pair.
+- Review/revert comfort: yes. The change is localized to route revalidation after an already-successful refresh.
+- Observable/testable acceptance criteria: yes. The original import/setup reproduction and related mutation cases are directly visible in manual QA.
