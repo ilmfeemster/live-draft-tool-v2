@@ -125,7 +125,59 @@ When the user asks: `plan and update current-slice.md`
 - Do not scan the repo broadly unless the next slice cannot be planned safely without it.
 - Update only `docs/current-slice.md` unless the user explicitly asks for other files.
 
-### 6.3 Task Planning Work
+### 6.3 Creating a Phase Task File
+
+When the user asks to create `docs/tasks.md` from the active phase's project scope and design work, read:
+
+- `docs/project.md`
+- The design file for the current phase, if one exists
+- `docs/architecture.md`
+- `docs/testing.md`
+- `docs/tasks.md`, only if preserving format or replacing an existing phase
+
+## Goal
+
+The purpose of `docs/tasks.md` is to translate the approved product scope and design into an ordered implementation plan.
+
+The task file should bridge the gap between project planning and implementation by identifying the major implementation milestones required to complete the phase.
+
+It is not an implementation plan and it is not a slice plan.
+
+## Task Requirements
+
+Convert the phase into implementation tasks that:
+
+- represent meaningful implementation milestones
+- preserve dependency order
+- respect architectural boundaries
+- avoid mixing unrelated work
+- avoid reopening approved design decisions
+- remain implementation-agnostic where practical
+- are suitable for later promotion into `docs/current-slice.md`
+
+Each task should:
+
+- be scoped so it can normally be promoted into `docs/current-slice.md` as a single implementation slice
+- produce one meaningful, testable increment
+- be independently understandable
+- be independently reviewable
+- be testable upon completion
+- be small enough to complete in one focused implementation pass
+- avoid excessive fragmentation
+
+A task may include multiple small code changes only when they are all required to complete one coherent increment.
+
+If a task would likely require multiple implementation slices, split it into smaller tasks before finalizing `docs/tasks.md`.
+
+Tasks should identify **what implementation milestone is being completed**, not enumerate every code change.
+
+Leave detailed implementation steps, file-level guidance, and acceptance criteria for `docs/current-slice.md`.
+
+Do not update `docs/current-slice.md` unless explicitly requested.
+
+Do not begin implementation.
+
+### 6.4 Task Planning Work
 
 If the user asks to create, update, or refine tasks, read:
 
@@ -133,10 +185,11 @@ If the user asks to create, update, or refine tasks, read:
 - `docs/tasks.md`
 - `docs/architecture.md`
 - `docs/testing.md`
+- The design file for the current phase, if one exists.
 
 Read `docs/roadmap.md` only if the task planning requires checking phase scope or long-term direction.
 
-### 6.4 Project Planning Work
+### 6.5 Project Planning Work
 
 If the user asks to update project scope, promote a roadmap phase, redefine priorities, or plan a new major feature area, read:
 
@@ -146,7 +199,7 @@ If the user asks to update project scope, promote a roadmap phase, redefine prio
 - `docs/decisions.md`
 - `docs/testing.md`
 
-### 6.5 Roadmap Planning Work
+### 6.6 Roadmap Planning Work
 
 If the user asks to change long-term direction, product phases, major architecture, integrations, monetization, or future product strategy, read:
 
