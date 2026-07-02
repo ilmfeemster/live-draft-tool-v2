@@ -186,6 +186,55 @@ Do not read or rely on `roadmap.md` for routine implementation slices unless the
 
 ---
 
+### Roadmap Phase Promotion
+
+When the user asks to promote a roadmap phase into active project scope:
+
+1. Read only the documentation required for the promotion:
+   - `docs/roadmap.md`
+   - `docs/project.md`
+   - `docs/architecture.md`, only if the promoted phase affects architecture or system boundaries
+   - `docs/decisions.md`, only if existing decisions may affect the promoted phase
+
+2. Update `docs/project.md` so it becomes the authoritative description of the active project after promotion.
+
+   The updated project should:
+
+   - accurately describe the current product vision and active scope;
+   - integrate the promoted phase naturally rather than appending it as a separate addition;
+   - revise or remove information made obsolete by the promoted phase;
+   - preserve existing approved scope that remains active;
+   - clearly distinguish active scope from future roadmap work;
+   - keep implementation details in design documents and tasks rather than expanding project-level detail.
+
+3. Consider whether a design document is needed.
+
+   Create or update a design document only if the promoted phase introduces meaningful decisions about:
+
+   - architecture boundaries;
+   - data modeling;
+   - API design;
+   - persistence;
+   - state ownership;
+   - external integrations;
+   - testing strategy;
+   - significant engineering tradeoffs.
+
+4. Do not update `docs/tasks.md` unless the user explicitly asks to break the promoted phase into implementation tasks.
+
+5. Do not update `docs/current-slice.md` unless the user explicitly asks to promote a specific task into the active implementation slice.
+
+6. Do not begin implementation during roadmap promotion.
+
+Before finishing, verify that:
+
+- the promoted phase is fully represented in `docs/project.md`;
+- no completed roadmap work still appears as future work;
+- no future roadmap work was accidentally promoted;
+- the project remains internally consistent after the update.
+
+---
+
 ## 9. Design Documents
 
 Use `docs/design/` for phase-specific architecture and product-design clarification when a phase introduces meaningful technical decisions.
