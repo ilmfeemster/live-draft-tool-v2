@@ -34,10 +34,10 @@ describe("RankingLibraryPanel", () => {
     );
 
     expect(markup).toMatch(
-      /aria-controls="managed-ranking-sets-content"[^>]*aria-expanded="true"[^>]*aria-label="Minimize Managed Sets"/,
+      /aria-controls="managed-ranking-sets-content"[^>]*aria-expanded="false"[^>]*aria-label="Expand Managed Sets"/,
     );
     expect(markup).toMatch(
-      /aria-controls="import-rankings-content"[^>]*aria-expanded="true"[^>]*aria-label="Minimize Import Rankings"/,
+      /aria-controls="import-rankings-content"[^>]*aria-expanded="false"[^>]*aria-label="Expand Import Rankings"/,
     );
     expect(markup).toContain('id="managed-ranking-sets-content"');
     expect(markup).toContain('id="import-rankings-content"');

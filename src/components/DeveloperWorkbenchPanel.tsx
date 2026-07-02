@@ -63,10 +63,7 @@ export function DeveloperWorkbenchPanel({
   }
 
   return (
-    <details
-      open
-      className="group rounded-md border border-zinc-300 bg-zinc-50 p-4"
-    >
+    <details className="group rounded-md border border-zinc-300 bg-zinc-50 p-4">
       <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">

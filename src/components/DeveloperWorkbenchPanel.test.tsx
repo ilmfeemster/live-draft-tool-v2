@@ -17,7 +17,7 @@ describe("DeveloperWorkbenchPanel", () => {
     });
 
     expect(markup).toContain("Developer Workbench");
-    expect(markup).toMatch(/<details[^>]*open=""/);
+    expect(markup).toMatch(/<details(?![^>]*open="")[^>]*>/);
     expect(markup).toContain("<summary");
     expect(markup).toContain("Expand");
     expect(markup).toContain("Minimize");

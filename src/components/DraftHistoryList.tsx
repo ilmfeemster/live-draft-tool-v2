@@ -87,49 +87,87 @@ export function DraftHistoryList({
   }
 
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-zinc-950">Draft History</h2>
-          <p className="mt-1 text-sm text-zinc-600">
-            Reopen a persisted draft workspace.
-          </p>
-        </div>
-        {visibleSummaries.length > 0 ? (
-          <div className="text-sm text-zinc-500">
-            {activeSummaries.length} active / {completedSummaries.length} complete
+    <details className="group/history">
+      <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-zinc-950">Draft History</h2>
+            <p className="mt-1 text-sm text-zinc-600">
+              Reopen a persisted draft workspace.
+            </p>
           </div>
-        ) : null}
-      </div>
+          <div className="flex items-center gap-3 text-sm text-zinc-500">
+            {visibleSummaries.length > 0 ? (
+              <span>
+                {activeSummaries.length} active / {completedSummaries.length}{" "}
+                complete
+              </span>
+            ) : null}
+            <span aria-hidden="true" className="font-medium text-zinc-600">
+              <span className="group-open/history:hidden">Expand</span>
+              <span className="hidden group-open/history:inline">Minimize</span>
+            </span>
+          </div>
+        </div>
+      </summary>
 
-      {visibleSummaries.length > 0 ? (
-        <div className="flex flex-col gap-3">
-          <details
-            open
-            className="group rounded-md border border-zinc-200 bg-white p-3"
-          >
-            <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-600">
-                  Active Drafts
-                </h3>
-                <div className="flex items-center gap-3 text-sm text-zinc-500">
-                  <span>
-                    {activeSummaries.length} draft
-                    {activeSummaries.length === 1 ? "" : "s"}
-                  </span>
-                  <span aria-hidden="true" className="font-medium text-zinc-600">
-                    <span className="group-open:hidden">Expand</span>
-                    <span className="hidden group-open:inline">Minimize</span>
-                  </span>
+      <div className="mt-3">
+        {visibleSummaries.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            <details className="group rounded-md border border-zinc-200 bg-white p-3">
+              <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-600">
+                    Active Drafts
+                  </h3>
+                  <div className="flex items-center gap-3 text-sm text-zinc-500">
+                    <span>
+                      {activeSummaries.length} draft
+                      {activeSummaries.length === 1 ? "" : "s"}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="font-medium text-zinc-600"
+                    >
+                      <span className="group-open:hidden">Expand</span>
+                      <span className="hidden group-open:inline">Minimize</span>
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </summary>
+              </summary>
 
-            <div className="mt-3">
-              {activeSummaries.length > 0 ? (
-                <div className="flex gap-3 overflow-x-auto pb-1">
-                  {activeSummaries.map((summary) => (
+              <div className="mt-3">
+                {activeSummaries.length > 0 ? (
+                  <div className="flex gap-3 overflow-x-auto pb-1">
+                    {activeSummaries.map((summary) => (
+                      <DraftSummaryCard
+                        key={summary.id}
+                        activeDraftId={activeDraftId}
+                        isDeleteDisabled={Boolean(deletingDraftId)}
+                        isDeleting={deletingDraftId === summary.id}
+                        summary={summary}
+                        onDeleteDraft={deleteDraft}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
+                    No active drafts. Completed drafts are available below.
+                  </div>
+                )}
+              </div>
+            </details>
+
+            {completedSummaries.length > 0 ? (
+              <details
+                className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
+                open={isActiveDraftComplete}
+              >
+                <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-zinc-600">
+                  Completed Drafts ({completedSummaries.length})
+                </summary>
+                <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
+                  {completedSummaries.map((summary) => (
                     <DraftSummaryCard
                       key={summary.id}
                       activeDraftId={activeDraftId}
@@ -140,43 +178,16 @@ export function DraftHistoryList({
                     />
                   ))}
                 </div>
-              ) : (
-                <div className="rounded border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
-                  No active drafts. Completed drafts are available below.
-                </div>
-              )}
-            </div>
-          </details>
-
-          {completedSummaries.length > 0 ? (
-            <details
-              className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
-              open={isActiveDraftComplete}
-            >
-              <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-zinc-600">
-                Completed Drafts ({completedSummaries.length})
-              </summary>
-              <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-                {completedSummaries.map((summary) => (
-                  <DraftSummaryCard
-                    key={summary.id}
-                    activeDraftId={activeDraftId}
-                    isDeleteDisabled={Boolean(deletingDraftId)}
-                    isDeleting={deletingDraftId === summary.id}
-                    summary={summary}
-                    onDeleteDraft={deleteDraft}
-                  />
-                ))}
-              </div>
-            </details>
-          ) : null}
-        </div>
-      ) : (
-        <div className="rounded-md border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-          No saved drafts were listed before this workspace loaded.
-        </div>
-      )}
-    </section>
+              </details>
+            ) : null}
+          </div>
+        ) : (
+          <div className="rounded-md border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
+            No saved drafts were listed before this workspace loaded.
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 

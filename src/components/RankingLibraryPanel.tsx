@@ -48,9 +48,9 @@ export function RankingLibraryPanel({
   const [visibleSummaries, setVisibleSummaries] = useState<RankingSetSummary[]>(
     () => [...initialSummaries],
   );
-  const [isManagedSetsExpanded, setIsManagedSetsExpanded] = useState(true);
+  const [isManagedSetsExpanded, setIsManagedSetsExpanded] = useState(false);
   const [isImportRankingsExpanded, setIsImportRankingsExpanded] =
-    useState(true);
+    useState(false);
   const [formatId, setFormatId] =
     useState<RankingImportFormatId>("fantasypros-csv");
   const [rankingName, setRankingName] = useState("");

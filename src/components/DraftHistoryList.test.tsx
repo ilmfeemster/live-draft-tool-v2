@@ -29,7 +29,8 @@ describe("DraftHistoryList", () => {
 
     expect(markup).toContain("2 active / 1 complete");
     expect(markup).toContain("Active Drafts");
-    expect(markup).toMatch(/<details[^>]*open=""/);
+    expect(markup.match(/<details/g)).toHaveLength(3);
+    expect(markup).not.toMatch(/<details[^>]*open=""/);
     expect(markup).toContain("<summary");
     expect(markup).toContain("Expand");
     expect(markup).toContain("Minimize");
@@ -49,6 +50,8 @@ describe("DraftHistoryList", () => {
     expect(markup).toContain(
       "No saved drafts were listed before this workspace loaded.",
     );
+    expect(markup).toMatch(/<details(?![^>]*open="")[^>]*>/);
+    expect(markup).toContain("Expand");
     expect(markup).not.toContain("Delete Draft");
   });
 });

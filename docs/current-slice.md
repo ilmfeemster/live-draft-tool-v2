@@ -1,5 +1,9 @@
 # Current Slice: Default-Collapsed Workspace Panels
 
+## Completion Status
+
+Implemented with automated validation complete and interactive QA pending. Developer Workbench, Draft History, Active Drafts, Managed Sets, and Import Rankings now render minimized by default; all content remains mounted, disclosure controls remain independent, and Completed Drafts retains its existing active-draft behavior. Focused validation passed (3 files, 13 tests), TypeScript passed, lint reported only the known pre-existing unused `stripLocations` warning, and the production build passed. The in-app browser could not initialize because its sandbox metadata was unavailable, so visual shrink behavior, interactive independence, and same-session import form preservation still require manual confirmation.
+
 ## Goal
 
 Reduce initial page height and visual noise by rendering Developer Workbench, Draft History, Active Drafts, Managed Sets, and Import Rankings minimized by default while preserving each section's existing content and independent expand behavior.
