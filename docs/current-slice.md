@@ -1,173 +1,163 @@
-# Current Slice: Propagate Recommendation Context Through Draft Sessions
+# Current Slice: Add the Overall-Tier Score Component
 
 ## Completion Status
 
-Complete. Persisted workspace context is now required at the page-to-Draft Room boundary, Scenario V1 transient sessions receive deterministic defaulted-neutral overall-tier context with exact nullable ADP, and pick, undo, reset, replay-target recreation, and restart paths preserve or rebuild context as designed. Existing recommendation generation remains unchanged. Focused validation passed with 4 test files and 50 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
+Planned. No implementation has started.
 
 ## Goal
 
-Complete Task 2 by carrying persisted recommendation-context results into the Draft Room boundary and by giving Scenario V1 and restarted manual transient sessions their own deterministic defaulted-neutral context result.
-
-The context remains transport state in this slice. Existing recommendation generation continues consuming canonical `RankingEntry[]` until the later scoring-integration task.
+Implement the pure, bounded `overall_tier` recommendation score component that recognizes the best remaining overall quality band without integrating it into recommendation totals, ordering, caps, or explanations.
 
 ## Scope
 
 ### Goals
 
-- Require the loaded persisted workspace's recommendation-context result at the page-to-Draft Room boundary.
-- Fail clearly at the page boundary if a workspace implementation violates the persisted-mapping contract and omits the result.
-- Add the context result to the Draft Room prop contract without consuming it in scoring yet.
-- Add a recommendation-context result to every transient session.
-- Build Scenario V1 transient context from its validated canonical rankings with no source-overall metadata, producing the documented all-one `defaulted-neutral` overall tiers.
-- Preserve nullable ADP exactly in Scenario V1 transient context.
-- Preserve the same context result through transient pick, undo, reset, replay-target replacement, and restart operations.
-- Preserve all current persisted and transient recommendation output.
+- Calculate overall-tier context from normalized `RecommendationRankingFact` values.
+- Identify the numerically lowest overall tier among all available players, regardless of position.
+- Return `+3` when a candidate belongs to the best available overall tier, multiple players remain in that tier, and a lower overall tier is available.
+- Return `+6` when the candidate is the last remaining player in the best available overall tier and a lower overall tier is available.
+- Return zero for candidates outside the best tier, contexts with no lower tier, and defaulted-neutral overall tiers.
+- Ignore numeric gaps between tier labels when choosing the component value.
+- Preserve strict separation from position-local recommendation tiers and tier-cliff scoring.
+- Return deterministic component direction, priority, and evidence for later integration and explanation work.
 
 ### Non-Goals
 
-- Do not change `RecommendationInput`, `generatePlayerRecommendations`, score components, caps, ordering, evidence, or reasons.
-- Do not use persisted or transient context to affect recommendations yet.
-- Do not render normalization failures or new context UI.
-- Do not add Scenario V2 or change Scenario V1 serialization, validation, import, export, or replay semantics.
-- Do not preserve source-overall tiers in Scenario V1; its documented behavior remains one neutral overall tier.
-- Do not change draft repository mapping, workspace loaders, actions, persistence, Prisma, ranking imports, or dependencies.
-- Do not add preview scoring; Task 7 owns user-visible between-turn previews.
+- Do not call the component from `generatePlayerRecommendations`.
+- Do not change recommendation totals, context scores, ordering, caps, adjustments, or tie-breaking.
+- Do not add overall-tier reason text or change reason selection.
+- Do not change recommendation input, normalized context, snapshot propagation, Draft Room, transient sessions, or scenarios.
+- Do not infer tiers, compare tier-label gap magnitude, filter by position, or apply roster-need adjustments.
+- Do not add tuning UI, generic signal abstractions, dependencies, or persistence changes.
 
 ## Implementation Decisions
 
-- Add a required `recommendationRankingContextResult` prop to `DraftRoomProps`.
-- Keep the new Draft Room prop out of the function's destructured values until a later scoring slice consumes it. The required prop still establishes and type-checks the application boundary without introducing unused local state.
-- In `src/app/page.tsx`, narrow the optional `DraftWorkspace` field before rendering:
-  - throw a concise invariant error if the persisted workspace lacks the result;
-  - pass either the success or structured-failure result to `DraftRoom` unchanged;
-  - do not reinterpret or display failures.
-- Add required `recommendationRankingContextResult` to `TransientSessionCore`.
-- In `createTransientScenarioSession`, call the existing pure normalizer with a snapshot-shaped value containing only the validated Scenario V1 rankings.
-  - Missing tier semantics intentionally materialize one defaulted-neutral overall tier.
-  - Nullable ADP remains unchanged.
-  - Scenario V1 validation remains authoritative for rejecting malformed ranking entries before session creation.
-- Store the normalizer result without branching into a second transient-session failure mode; valid Scenario V1 inputs should normalize successfully under the neutral fallback.
-- Preserve the result by object spread during pick and undo updates, copy it unchanged when restarting as a manual session, and recompute it from source JSON when resetting or changing replay target through `createTransientScenarioSession`.
-- Do not alter current recommendation calls; they continue using `session.rankings` and existing inputs.
+- Add an exported `calculateOverallTierComponent` function to `src/lib/recommendations.ts` beside the existing pure score-component functions.
+- Accept one normalized candidate and the complete readonly collection of normalized available rankings.
+- Return the existing `RecommendationScoreComponent` shape with:
+  - `id: "overall_tier"`;
+  - direction `positive` only for a positive delta, otherwise `neutral`;
+  - fixed component priority `19` for later reason selection;
+  - a bounded delta from `0` through `6`.
+- Use fixed approved values in this pure slice:
+  - best tier with multiple remaining players and a lower tier available: `+3`;
+  - last player in the best tier with a lower tier available: `+6`.
+- Do not add these constants to `RecommendationTuningConfig` in this slice. Task 5 may expose integration-level tuning only if required by the approved scoring contract.
+- Treat a candidate with `overallTierOrigin: "defaulted-neutral"` as neutral without evaluating a synthetic boundary.
+- Compute the best tier and remaining count across positions. Player position and `RankingEntry.tier` must not influence the result.
+- Do not use the numeric difference between current and lower tier labels; only their ordering and existence matter.
+- Emit evidence with:
+  - `candidateTier`;
+  - `bestAvailableTier`;
+  - `bestTierRemaining`;
+  - `hasLowerTierAvailable`;
+  - `overallTierOrigin`;
+  - `thresholdMatched`.
+- Use stable threshold states:
+  - `last_in_best_overall_tier`;
+  - `best_overall_tier_available`;
+  - `outside_best_overall_tier`;
+  - `no_overall_tier_boundary`;
+  - `defaulted_neutral_overall_tier`.
+- Preserve deterministic results regardless of available-ranking array order.
 
 ## Implementation Steps
 
-1. Require persisted context at the page-to-Draft Room boundary.
+1. Add the pure overall-tier component.
 
-   In `src/app/page.tsx`:
+   In `src/lib/recommendations.ts`:
 
-   - read `workspace.recommendationRankingContextResult` after workspace loading;
-   - throw a clear invariant error if it is absent, because production persisted workspace mapping must always populate it;
-   - pass the narrowed result to `DraftRoom` with the existing draft, rankings, and league settings;
-   - do not inspect `ok`, change rendering, or block a structured `{ ok: false }` result.
+   - import the normalized recommendation-ranking fact type;
+   - add private constants for the `0..6` bounds, `+3` and `+6` outcomes, and priority `19`;
+   - implement `calculateOverallTierComponent` with the approved candidate and available-ranking inputs;
+   - short-circuit defaulted-neutral candidates to zero with explicit evidence;
+   - determine the best available tier, number remaining in that tier, and whether a lower tier exists across all available positions;
+   - apply the approved threshold rules in deterministic order;
+   - clamp the resulting delta to `0..6` and return exact evidence;
+   - do not add the component to any recommendation-generation path.
 
-   In `src/components/DraftRoom.tsx`:
+2. Add focused component tests.
 
-   - add required `recommendationRankingContextResult` to `DraftRoomProps` using the shared domain result type;
-   - accept the prop at the component boundary without feeding it into existing recommendation generation;
-   - preserve every current persisted and transient behavior.
+   In `src/lib/recommendations.test.ts`:
 
-2. Give transient sessions normalized recommendation context.
+   - import the new component and normalized ranking-fact type;
+   - add a focused normalized-ranking test helper without changing existing `RankingEntry` fixtures;
+   - assert `+3` and `best_overall_tier_available` when multiple best-tier players remain above a lower tier;
+   - assert `+6` and `last_in_best_overall_tier` for the final player in the best tier;
+   - assert zero for a candidate outside the best tier;
+   - assert zero when every available player belongs to one tier;
+   - assert zero for defaulted-neutral overall tiers;
+   - assert tier-label gaps do not change the outcome;
+   - assert players across different positions participate in the same overall-tier calculation;
+   - assert changing position-local `RankingEntry.tier` values does not change the component;
+   - assert available-ranking input order does not change output or evidence;
+   - retain all existing recommendation tests unchanged.
 
-   In `src/lib/scenarioSession.ts`:
-
-   - add the shared result type to `TransientSessionCore`;
-   - normalize imported Scenario V1 rankings with no source-tier metadata during `createTransientScenarioSession`;
-   - store the result on the created scenario session;
-   - preserve the result through accepted pick and undo operations via the existing session spread;
-   - preserve it unchanged when `restartTransientSession` creates a manual session;
-   - continue reparsing and renormalizing source JSON for reset and replay-target replacement paths;
-   - leave `generateRecommendations` unchanged.
-
-3. Update Draft Room boundary coverage.
-
-   In `src/components/DraftRoom.test.tsx`:
-
-   - create a deterministic context result for the persisted workspace fixture;
-   - pass it through the required Draft Room prop;
-   - retain exact recommendation ordering, score, reason, availability, and markup assertions;
-   - confirm adding the prop produces no user-visible recommendation change.
-
-4. Add transient-context lifecycle coverage.
-
-   In `src/lib/scenarioSession.test.ts`:
-
-   - assert a created Scenario V1 session has a successful context result;
-   - assert every transient ranking receives overall tier `1` with `defaulted-neutral` origin;
-   - assert nullable ADP values match the Scenario V1 rankings exactly;
-   - assert accepted pick and undo operations preserve the same context result;
-   - assert reset reparses an equivalent context result rather than trusting a corrupted cached value;
-   - assert restart preserves the context result in the manual session;
-   - retain existing recommendation parity, legacy recommendation-tier neutrality, confirmation, and no-persistence coverage.
-
-5. Run focused validation.
+3. Run focused validation.
 
    Run:
 
    ```text
-   npm test -- src/components/DraftRoom.test.tsx src/lib/scenarioSession.test.ts src/lib/recommendationRankingContext.test.ts src/lib/draftRepositoryMapping.test.ts
+   npm test -- src/lib/recommendations.test.ts
    npx tsc --noEmit
    npm run lint
    ```
 
-   Accept only already-recorded unrelated warnings if they remain unchanged. Manual QA is not required because this slice intentionally produces no visible behavior change.
+   Accept only already-recorded unrelated warnings if they remain unchanged. Manual QA is not required because this slice does not integrate the component into user-visible recommendations.
 
-6. Record completion only after validation passes.
+4. Record completion only after validation passes.
 
    - Update this file with the exact validation result.
-   - Mark Task 2 complete in `docs/tasks.md`.
-   - Stop without beginning Task 3 overall-tier scoring.
+   - Mark Task 3 complete in `docs/tasks.md`.
+   - Stop without beginning Task 4 ADP availability scoring or Task 5 integration.
 
 ## Expected Files
 
 Production:
 
-- `src/app/page.tsx`
-- `src/components/DraftRoom.tsx`
-- `src/lib/scenarioSession.ts`
+- `src/lib/recommendations.ts`
 
 Focused tests:
 
-- `src/components/DraftRoom.test.tsx`
-- `src/lib/scenarioSession.test.ts`
+- `src/lib/recommendations.test.ts`
 
 Planning and completion tracking:
 
 - `docs/current-slice.md`
 - `docs/tasks.md` only after validation passes
 
-Do not touch recommendation scoring, recommendation tests, repository mapping, workspace loaders, actions, ranking imports, snapshots, scenario contracts, Prisma, dependencies, project scope, architecture, roadmap, or future-ideas documents.
+Do not touch recommendation types, normalized context, Draft Room, page props, transient sessions, snapshot mapping, repositories, imports, scenarios, Prisma, dependencies, project scope, architecture, roadmap, or future-ideas documents.
 
 ## Acceptance Criteria
 
-- The page requires and passes the persisted workspace's success-or-failure context result to Draft Room.
-- A missing persisted context result fails with a clear invariant error rather than silently defaulting at the page boundary.
-- Draft Room accepts the result without changing current recommendation output or UI.
-- Every valid Scenario V1 transient session has a successful recommendation-context result.
-- Scenario V1 context uses overall tier `1` with `defaulted-neutral` origin for every ranking.
-- Complete, partial, and absent Scenario V1 ADP remain exact nullable values in transient context.
-- Accepted pick and undo operations preserve the context result.
-- Reset and replay-target recreation derive context again from source JSON.
-- Restarted manual sessions preserve the originating context result.
-- Existing persisted and transient recommendation ordering, scores, reasons, draft invariants, reset, restart, replay-target, and confirmation behavior remain unchanged.
+- Multiple players in the best available overall tier receive an exact `+3` component when a lower tier exists.
+- The final player in the best available overall tier receives an exact `+6` component when a lower tier exists.
+- Candidates outside the best tier receive zero.
+- A one-tier available context receives zero because no tier boundary exists.
+- Defaulted-neutral overall tiers receive zero and cannot produce a false boundary.
+- Non-contiguous tier labels produce the same values as contiguous labels with equivalent ordering.
+- Position and position-local recommendation-tier values do not influence the component.
+- Component output and evidence are deterministic regardless of available-ranking array order.
+- The component delta remains bounded from `0` through `6`.
+- No recommendation total, ordering, cap, adjustment, reason, UI, persisted draft, or replay behavior changes.
 - Focused tests, TypeScript, and lint pass with only explicitly recorded pre-existing warnings.
 
 ## Failure Handling
 
-- If production workspace loading can legitimately return a persisted workspace without `recommendationRankingContextResult`, stop and report rather than adding a second page-level fallback.
-- If a validated Scenario V1 can produce a failed neutral context result, stop and report the validation mismatch rather than hiding the failure or fabricating context.
-- If making the Draft Room prop required forces unrelated component redesign, retain the existing boundary and report before making the prop optional or introducing global state.
+- If the normalized context can mix source and defaulted-neutral overall-tier origins in one valid context, stop and report before defining mixed-origin scoring behavior.
+- If existing recommendation-component evidence cannot represent the approved fields, stop and report before changing shared evidence types.
+- If adding the pure function changes recommendation output without explicit integration, stop and remove the unintended call path.
 - If focused validation exposes unrelated failures, report them without modifying out-of-scope code or weakening tests.
 
 ## Follow-Up
 
-After this slice passes, Task 2 is complete. The next slice should promote Task 3: implement the pure overall-tier score component without integrating it into total recommendation scores. Do not begin Task 3 automatically.
+After this slice passes, the next slice should promote Task 4: add the pure ADP availability component and preview decision-point calculation without integrating it into recommendation totals. Do not begin Task 4 automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It completes context propagation without mixing in any scoring or scenario-version changes.
-- Executable by a lower-reasoning pass: yes. The exact prop, session field, normalization source, lifecycle behavior, files, and tests are specified.
-- Avoids unnecessary architecture changes: yes. It reuses the persisted result, existing pure normalizer, component props, and transient-session lifecycle.
-- Blast radius reasonable: yes. Runtime and test changes are limited to five files, plus completion tracking.
-- Review/revert comfort: yes. The slice adds typed transport state while leaving recommendation behavior untouched.
-- Observable/testable acceptance criteria: yes. Propagation, neutral fallback, ADP preservation, lifecycle behavior, and recommendation parity are directly testable.
+- Smallest meaningful increment: yes. It implements one independently testable recommendation signal without integration side effects.
+- Executable by a lower-reasoning pass: yes. Inputs, bounds, thresholds, evidence, constants, files, and test cases are explicit.
+- Avoids unnecessary architecture changes: yes. It follows the existing explicit pure-component pattern and adds no framework or registry.
+- Blast radius reasonable: yes. Implementation and tests are limited to the existing recommendation module and its focused test file.
+- Review/revert comfort: yes. The function is not called by production recommendation generation in this slice.
+- Observable/testable acceptance criteria: yes. Every positive, neutral, semantic-separation, gap, cross-position, and determinism rule has direct unit coverage.
