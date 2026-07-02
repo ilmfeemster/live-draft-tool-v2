@@ -1,97 +1,109 @@
-# Current Slice: Add the Overall-Tier Score Component
+# Current Slice: Add the ADP Availability Component
 
 ## Completion Status
 
-Complete. Added the pure bounded `overall_tier` score component with exact `+3` and `+6` thresholds, explicit neutral states, cross-position overall-tier semantics, deterministic evidence, tier-gap neutrality, and strict separation from position-local recommendation tiers. The component is not called by recommendation generation, so existing scores and ordering remain unchanged. Focused validation passed with 1 test file and 68 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
+Planned. No implementation has started.
 
 ## Goal
 
-Implement the pure, bounded `overall_tier` recommendation score component that recognizes the best remaining overall quality band without integrating it into recommendation totals, ordering, caps, or explanations.
+Implement the pure, bounded `adp_availability` recommendation component that estimates the opportunity cost of waiting until the user's following turn, including deterministic preview decision points between user turns, without integrating the component into recommendation totals or UI behavior.
 
 ## Scope
 
 ### Goals
 
-- Calculate overall-tier context from normalized `RecommendationRankingFact` values.
-- Identify the numerically lowest overall tier among all available players, regardless of position.
-- Return `+3` when a candidate belongs to the best available overall tier, multiple players remain in that tier, and a lower overall tier is available.
-- Return `+6` when the candidate is the last remaining player in the best available overall tier and a lower overall tier is available.
-- Return zero for candidates outside the best tier, contexts with no lower tier, and defaulted-neutral overall tiers.
-- Ignore numeric gaps between tier labels when choosing the component value.
-- Preserve strict separation from position-local recommendation tiers and tier-cliff scoring.
-- Return deterministic component direction, priority, and evidence for later integration and explanation work.
+- Derive the relevant user decision pick from the current draft schedule.
+- Use the current pick when the user is on the clock.
+- Use the next scheduled user pick as a preview decision point when another team is on the clock.
+- Derive the user's following scheduled pick after that decision point.
+- Calculate normalized ADP turn progress from the decision pick to the following user pick.
+- Apply the approved positive-only ADP risk bands from `0` through `+8`.
+- Return neutral behavior for null ADP, ADP after the following turn, and no following user turn.
+- Preserve fractional ADP without rounding.
+- Return deterministic direction, priority, and evidence for later scoring integration and explanations.
 
 ### Non-Goals
 
 - Do not call the component from `generatePlayerRecommendations`.
-- Do not change recommendation totals, context scores, ordering, caps, adjustments, or tie-breaking.
-- Do not add overall-tier reason text or change reason selection.
-- Do not change recommendation input, normalized context, snapshot propagation, Draft Room, transient sessions, or scenarios.
-- Do not infer tiers, compare tier-label gap magnitude, filter by position, or apply roster-need adjustments.
-- Do not add tuning UI, generic signal abstractions, dependencies, or persistence changes.
+- Do not change recommendation totals, context scores, ordering, caps, adjustments, tie-breaking, or reasons.
+- Do not display or activate between-turn previews in Draft Room; Task 7 owns user-visible preview integration.
+- Do not fetch, refresh, infer, or default missing ADP.
+- Do not simulate intervening opponent picks or claim probability or certainty.
+- Do not change ranking context, draft state, league settings, persistence, scenarios, UI, or dependencies.
+- Do not add tuning UI or a generic signal framework.
 
 ## Implementation Decisions
 
-- Add an exported `calculateOverallTierComponent` function to `src/lib/recommendations.ts` beside the existing pure score-component functions.
-- Accept one normalized candidate and the complete readonly collection of normalized available rankings.
-- Return the existing `RecommendationScoreComponent` shape with:
-  - `id: "overall_tier"`;
-  - direction `positive` only for a positive delta, otherwise `neutral`;
-  - fixed component priority `19` for later reason selection;
-  - a bounded delta from `0` through `6`.
-- Use fixed approved values in this pure slice:
-  - best tier with multiple remaining players and a lower tier available: `+3`;
-  - last player in the best tier with a lower tier available: `+6`.
-- Do not add these constants to `RecommendationTuningConfig` in this slice. Task 5 may expose integration-level tuning only if required by the approved scoring contract.
-- Treat a candidate with `overallTierOrigin: "defaulted-neutral"` as neutral without evaluating a synthetic boundary.
-- Compute the best tier and remaining count across positions. Player position and `RankingEntry.tier` must not influence the result.
-- Do not use the numeric difference between current and lower tier labels; only their ordering and existence matter.
+- Add an exported `calculateAdpAvailabilityComponent` function to `src/lib/recommendations.ts` beside the existing pure component functions.
+- Accept:
+  - one normalized `RecommendationRankingFact` candidate;
+  - the current `Draft`;
+  - the user team identity.
+- Derive decision points from `draft.picks`; do not hard-code league size, snake position, rounds, or turn distance.
+- Determine the decision pick as:
+  - `draft.currentPickNumber` with `isPreview: false` when the current scheduled pick belongs to the user;
+  - the first scheduled user pick after the current pick with `isPreview: true` when another team is on the clock;
+  - `null` when no user decision remains.
+- Determine `nextTurnPickNumber` as the first user pick strictly after `decisionPickNumber`.
+- Calculate `turnSpan = nextTurnPickNumber - decisionPickNumber` only when both picks exist.
+- For valid non-null ADP and a positive turn span, calculate:
+
+  ```text
+  turnProgress = (nextTurnPickNumber - adpRank) / turnSpan
+  ```
+
+- Apply these fixed approved values in order:
+  - null ADP: `0` / `missing_adp`;
+  - no following user turn: `0` / `no_next_turn`;
+  - `adpRank <= decisionPickNumber`: `+8` / `available_past_adp`;
+  - `turnProgress >= 2/3`: `+7` / `high_next_turn_risk`;
+  - `turnProgress >= 1/3`: `+5` / `meaningful_next_turn_risk`;
+  - `turnProgress >= 0`: `+3` / `borderline_next_turn_risk`;
+  - ADP after the following user pick: `0` / `expected_available_next_turn`.
+- Keep the signal positive-only. A player expected to remain available receives no urgency, not a quality penalty.
+- Clamp the component to `0..8` and assign fixed component priority `20` for later reason selection.
 - Emit evidence with:
-  - `candidateTier`;
-  - `bestAvailableTier`;
-  - `bestTierRemaining`;
-  - `hasLowerTierAvailable`;
-  - `overallTierOrigin`;
+  - `adpRank`;
+  - `decisionPickNumber`;
+  - `nextTurnPickNumber`;
+  - `turnSpan`;
+  - `turnProgress`;
+  - `isPreview`;
   - `thresholdMatched`.
-- Use stable threshold states:
-  - `last_in_best_overall_tier`;
-  - `best_overall_tier_available`;
-  - `outside_best_overall_tier`;
-  - `no_overall_tier_boundary`;
-  - `defaulted_neutral_overall_tier`.
-- Preserve deterministic results regardless of available-ranking array order.
+- Use `null` evidence for unavailable numeric values rather than sentinel numbers.
+- Do not add these constants to `RecommendationTuningConfig` in this slice. Task 5 owns integration-level scoring configuration.
 
 ## Implementation Steps
 
-1. Add the pure overall-tier component.
+1. Add the pure ADP availability component.
 
    In `src/lib/recommendations.ts`:
 
-   - import the normalized recommendation-ranking fact type;
-   - add private constants for the `0..6` bounds, `+3` and `+6` outcomes, and priority `19`;
-   - implement `calculateOverallTierComponent` with the approved candidate and available-ranking inputs;
-   - short-circuit defaulted-neutral candidates to zero with explicit evidence;
-   - determine the best available tier, number remaining in that tier, and whether a lower tier exists across all available positions;
-   - apply the approved threshold rules in deterministic order;
-   - clamp the resulting delta to `0..6` and return exact evidence;
-   - do not add the component to any recommendation-generation path.
+   - add private constants for the `0..8` bounds, four positive bands, fractional thresholds, and priority `20`;
+   - implement a small private decision-point helper over the draft's scheduled picks;
+   - implement `calculateAdpAvailabilityComponent` using the normalized candidate, draft, and user team identity;
+   - derive on-turn and preview decision points deterministically;
+   - handle missing ADP and missing following turns as explicit neutral states;
+   - preserve fractional ADP and turn progress without rounding;
+   - clamp the delta and return exact evidence;
+   - do not add the component to recommendation generation or reason selection.
 
 2. Add focused component tests.
 
    In `src/lib/recommendations.test.ts`:
 
-   - import the new component and normalized ranking-fact type;
-   - add a focused normalized-ranking test helper without changing existing `RankingEntry` fixtures;
-   - assert `+3` and `best_overall_tier_available` when multiple best-tier players remain above a lower tier;
-   - assert `+6` and `last_in_best_overall_tier` for the final player in the best tier;
-   - assert zero for a candidate outside the best tier;
-   - assert zero when every available player belongs to one tier;
-   - assert zero for defaulted-neutral overall tiers;
-   - assert tier-label gaps do not change the outcome;
-   - assert players across different positions participate in the same overall-tier calculation;
-   - assert changing position-local `RankingEntry.tier` values does not change the component;
-   - assert available-ranking input order does not change output or evidence;
-   - retain all existing recommendation tests unchanged.
+   - import the new component and reuse the normalized-ranking helper from Task 3;
+   - use generated snake draft schedules rather than hand-written opponent assumptions;
+   - assert the current user pick is used with `isPreview: false` when the user is on the clock;
+   - assert the next user pick is used with `isPreview: true` between user turns;
+   - assert exact `+8`, `+7`, `+5`, and `+3` values at representative points and threshold boundaries;
+   - assert ADP after the following pick returns zero without a negative adjustment;
+   - assert null ADP returns zero and preserves `adpRank: null` evidence;
+   - assert the final user decision returns `no_next_turn` and zero;
+   - assert fractional ADP is not rounded;
+   - assert a non-default snake position derives the correct decision and following-turn picks;
+   - assert repeated equivalent inputs produce exact deterministic output;
+   - retain all existing recommendation and overall-tier tests unchanged.
 
 3. Run focused validation.
 
@@ -108,8 +120,8 @@ Implement the pure, bounded `overall_tier` recommendation score component that r
 4. Record completion only after validation passes.
 
    - Update this file with the exact validation result.
-   - Mark Task 3 complete in `docs/tasks.md`.
-   - Stop without beginning Task 4 ADP availability scoring or Task 5 integration.
+   - Mark Task 4 complete in `docs/tasks.md`.
+   - Stop without beginning Task 5 decision-timing integration.
 
 ## Expected Files
 
@@ -130,34 +142,36 @@ Do not touch recommendation types, normalized context, Draft Room, page props, t
 
 ## Acceptance Criteria
 
-- Multiple players in the best available overall tier receive an exact `+3` component when a lower tier exists.
-- The final player in the best available overall tier receives an exact `+6` component when a lower tier exists.
-- Candidates outside the best tier receive zero.
-- A one-tier available context receives zero because no tier boundary exists.
-- Defaulted-neutral overall tiers receive zero and cannot produce a false boundary.
-- Non-contiguous tier labels produce the same values as contiguous labels with equivalent ordering.
-- Position and position-local recommendation-tier values do not influence the component.
-- Component output and evidence are deterministic regardless of available-ranking array order.
-- The component delta remains bounded from `0` through `6`.
+- On the user's turn, the component uses the current pick as the decision point and marks it non-preview.
+- Between user turns, the component uses the next scheduled user pick as the decision point and marks it preview.
+- The following user pick and turn span are derived from the actual draft schedule.
+- Valid ADP maps deterministically to exact `+8`, `+7`, `+5`, `+3`, or `0` bands.
+- Null ADP contributes zero, remains null in evidence, and never blocks the candidate.
+- ADP after the following user pick contributes zero rather than a penalty.
+- The final user decision contributes zero because waiting another turn is impossible.
+- Fractional ADP and turn progress are preserved without rounding.
+- Component output remains bounded from `0` through `8` and positive-only.
+- Equivalent inputs return identical output and evidence.
 - No recommendation total, ordering, cap, adjustment, reason, UI, persisted draft, or replay behavior changes.
 - Focused tests, TypeScript, and lint pass with only explicitly recorded pre-existing warnings.
 
 ## Failure Handling
 
-- If the normalized context can mix source and defaulted-neutral overall-tier origins in one valid context, stop and report before defining mixed-origin scoring behavior.
-- If existing recommendation-component evidence cannot represent the approved fields, stop and report before changing shared evidence types.
+- If draft schedules cannot distinguish the current user pick from an off-turn preview without new state, stop and report rather than adding UI state or opponent prediction.
+- If a valid draft can contain a non-positive span between consecutive user picks, return the neutral no-next-turn state and report the invariant before inventing arithmetic behavior.
+- If existing component evidence cannot carry nullable decision values or fractional progress, stop and report before changing shared evidence types.
 - If adding the pure function changes recommendation output without explicit integration, stop and remove the unintended call path.
 - If focused validation exposes unrelated failures, report them without modifying out-of-scope code or weakening tests.
 
 ## Follow-Up
 
-After this slice passes, the next slice should promote Task 4: add the pure ADP availability component and preview decision-point calculation without integrating it into recommendation totals. Do not begin Task 4 automatically.
+After this slice passes, the next slice should promote Task 5: integrate overall-tier and ADP components under the decision-timing cap and existing total-context guardrails. Do not begin Task 5 automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It implements one independently testable recommendation signal without integration side effects.
-- Executable by a lower-reasoning pass: yes. Inputs, bounds, thresholds, evidence, constants, files, and test cases are explicit.
-- Avoids unnecessary architecture changes: yes. It follows the existing explicit pure-component pattern and adds no framework or registry.
-- Blast radius reasonable: yes. Implementation and tests are limited to the existing recommendation module and its focused test file.
-- Review/revert comfort: yes. The function is not called by production recommendation generation in this slice.
-- Observable/testable acceptance criteria: yes. Every positive, neutral, semantic-separation, gap, cross-position, and determinism rule has direct unit coverage.
+- Smallest meaningful increment: yes. It implements one independent availability-risk signal and its decision-point semantics without integration side effects.
+- Executable by a lower-reasoning pass: yes. Inputs, schedule rules, formula, thresholds, evidence, files, and tests are explicit.
+- Avoids unnecessary architecture changes: yes. It follows the existing pure-component pattern and derives state from the current draft schedule.
+- Blast radius reasonable: yes. Implementation and tests are limited to the recommendation module and its focused test file.
+- Review/revert comfort: yes. The component is not called by production recommendation generation in this slice.
+- Observable/testable acceptance criteria: yes. Every decision state, risk band, neutral state, fractional behavior, and determinism rule has direct unit coverage.
