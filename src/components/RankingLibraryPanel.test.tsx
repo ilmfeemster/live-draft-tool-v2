@@ -49,8 +49,10 @@ describe("RankingLibraryPanel", () => {
     expect(markup).toContain("Updated Jun 30");
     expect(markup).toContain("Team: complete");
     expect(markup).toContain("ADP: partial");
-    expect(markup).toContain("source tiers: QB, RB");
-    expect(markup).toContain("neutralized tiers: WR");
+    expect(markup).toContain("provided tier values: QB, RB");
+    expect(markup).toContain("recommendation-neutral fallback: WR");
+    expect(markup).not.toContain("source tiers");
+    expect(markup).not.toContain("position tiers");
     expect(markup).toContain("Review/Edit");
     expect(markup).toContain("Export JSON");
     expect(markup).toContain("Delete Set");
@@ -105,7 +107,7 @@ describe("RankingLibraryPanel", () => {
     ).toBe("not-found: Ranking set was not found. (id)");
 
     expect(formatCapabilitySummary(createCapabilities())).toBe(
-      "Team: complete / ADP: partial / Tiers: source tiers: QB, RB; neutralized tiers: WR",
+      "Team: complete / ADP: partial / Tiers: provided tier values: QB, RB; recommendation-neutral fallback: WR",
     );
   });
 

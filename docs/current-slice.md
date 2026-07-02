@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting implementation approval. This is the first of two focused UI increments needed to complete Tier Semantics Patch Slice 4. It corrects ranking-library and ranking-detail language without changing tier domain behavior.
+Implemented with automated validation complete, but not yet fully validated. Focused component validation passed (2 files, 17 tests), TypeScript no-emit validation passed, and lint passed with the one recorded pre-existing unused-helper warning in `src/lib/rankingNormalizer.test.ts`. Required browser QA is blocked because the in-app browser control session cannot initialize in the current environment, so no visual workflow claims have been marked complete.
 
 ## Source Context
 

@@ -11,7 +11,6 @@ import {
 } from "@/app/actions/rankingActions";
 import { RankingSetEditorPanel } from "@/components/RankingSetEditorPanel";
 import type { RankingManagementError } from "@/lib/rankingManagementWorkflow";
-import type { Position } from "@/types/draft";
 import type {
   RankingImportDiagnostic,
   RankingImportFormatId,
@@ -390,61 +389,6 @@ export function RankingLibraryPanel({
     }
   }
 
-  async function assignLoadedPositionTiers(
-    input: Readonly<{
-      position: Position;
-      assignments: readonly Readonly<{
-        playerId: string;
-        tier: number;
-      }>[];
-    }>,
-  ) {
-    if (!loadedRankingSet || isSavingEditor) {
-      return;
-    }
-
-    setIsSavingEditor(true);
-    setMessage(null);
-    setEditorErrors([]);
-
-    try {
-      const result = await editRankingLibrarySetAction({
-        id: loadedRankingSet.id,
-        intent: {
-          type: "assign-position-tiers",
-          position: input.position,
-          assignments: input.assignments,
-        },
-      });
-
-      if (!result.ok) {
-        setEditorErrors(result.errors);
-        setMessage({
-          kind: "error",
-          text: "Ranking tier assignment failed. The loaded set was not changed.",
-        });
-        return;
-      }
-
-      setLoadedRankingSet(result.value);
-      setEditorErrors([]);
-      setManagementErrors([]);
-      setMessage({
-        kind: "success",
-        text: "Ranking tiers saved.",
-      });
-      await refreshSummaries();
-    } catch (error) {
-      console.error("Ranking tier assignment failed.", error);
-      setMessage({
-        kind: "error",
-        text: "Ranking tier assignment failed unexpectedly.",
-      });
-    } finally {
-      setIsSavingEditor(false);
-    }
-  }
-
   async function deleteSummary(summary: RankingSetSummary) {
     if (busySetId) {
       return;
@@ -636,9 +580,6 @@ export function RankingLibraryPanel({
             setLoadedRankingSet(null);
             setEditorErrors([]);
           }}
-          onAssignPositionTiers={(input) => {
-            void assignLoadedPositionTiers(input);
-          }}
           onCorrectPlayer={(input) => {
             void correctLoadedPlayer(input);
           }}
@@ -827,7 +768,7 @@ export function formatCapabilitySummary(
   capabilities: RankingSetCapabilities,
 ): string {
   const tierEntries = Object.entries(capabilities.tiers);
-  const sourcePositions = tierEntries
+  const providedPositions = tierEntries
     .filter(([, capability]) => capability === "source")
     .map(([position]) => position)
     .sort();
@@ -837,12 +778,14 @@ export function formatCapabilitySummary(
     .sort();
   const tierParts: string[] = [];
 
-  if (sourcePositions.length > 0) {
-    tierParts.push(`source tiers: ${sourcePositions.join(", ")}`);
+  if (providedPositions.length > 0) {
+    tierParts.push(`provided tier values: ${providedPositions.join(", ")}`);
   }
 
   if (neutralPositions.length > 0) {
-    tierParts.push(`neutralized tiers: ${neutralPositions.join(", ")}`);
+    tierParts.push(
+      `recommendation-neutral fallback: ${neutralPositions.join(", ")}`,
+    );
   }
 
   if (tierParts.length === 0) {
