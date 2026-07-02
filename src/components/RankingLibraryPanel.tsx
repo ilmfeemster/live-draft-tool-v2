@@ -469,7 +469,7 @@ export function RankingLibraryPanel({
         ) : null}
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]">
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]">
         <div className="rounded-md border border-zinc-200 bg-white p-3">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-600">
