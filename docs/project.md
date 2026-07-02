@@ -2,11 +2,11 @@
 
 ## Active Phase
 
-No active implementation phase.
+Phase 5.5 - Overall Tier Recommendations is the active implementation phase.
 
-Phase 5 - Rankings & Data is complete. Ranking data can be imported, validated, managed, selected, and snapshotted without regenerating typed seed files or changing application code. No subsequent roadmap phase has been promoted into active scope.
+Phase 5 - Rankings & Data is complete. Ranking data can be imported, validated, managed, selected, and snapshotted without regenerating typed seed files or changing application code.
 
-Phase 1 established the manual Draft State Engine, Phase 2 added durable draft persistence and ranking snapshots, Phase 3 added deterministic recommendations anchored to those snapshots, and Phase 4 added replay and simulator tooling. Phase 5 should preserve those workflows while making ranking sets first-class product data.
+Phase 1 established the manual Draft State Engine, Phase 2 added durable draft persistence and ranking snapshots, Phase 3 added deterministic recommendations, Phase 4 added replay and simulator tooling, and Phase 5 made ranking sets first-class product data. Phase 5.5 builds on that foundation by using overall/source tiers and ADP as distinct recommendation signals while preserving the existing deterministic scoring model.
 
 ---
 
@@ -14,37 +14,32 @@ Phase 1 established the manual Draft State Engine, Phase 2 added durable draft p
 
 Build a single-user fantasy football draft assistant that recommends players based on draft context rather than static rankings alone.
 
-The tool helps users make better draft decisions by combining rankings, roster context, positional scarcity, recommendation-eligible tier pressure when available, and current draft state during a live draft.
+The tool helps users decide who to draft now by combining overall ranking quality, overall tier context, ADP availability risk, roster context, positional scarcity, and current draft state. It remains a companion decision engine, not a fantasy platform or replacement draft room.
 
-The app is a companion decision engine, not a fantasy platform or replacement draft room.
-
-For Phase 5, ranking data should be able to evolve independently of application releases. A user or developer should be able to bring in a supported custom ranking source, correct and organize it, select it for a draft, and preserve the exact ranking state used for deterministic recommendations and replay.
+For Phase 5.5, recommendations should distinguish player quality from the opportunity cost of waiting. Overall rank remains the quality anchor, overall/source tiers identify meaningful groups in the source's overall ordering, and ADP estimates whether a player is likely to remain available. These signals must improve timing decisions without becoming unsupported position-tier, projection, or strategy claims.
 
 ---
 
 ## Target User
 
-The Phase 5 user is a single user or developer who wants control over the ranking data that anchors recommendations.
+The Phase 5.5 user is a single fantasy football drafter using a managed ranking set during a manual, persisted, or replayed draft.
 
-They need to maintain multiple ranking sets, understand validation failures, inspect source tier data, manage only supported recommendation-tier data, choose the appropriate set for a draft, and reproduce past recommendation behavior from a stable snapshot. Phase 5 supports deliberate data management; it is not an automated fantasy-news, projection, or value-over-replacement service.
+They need recommendations that remain easy to understand while accounting for more than static rank. The user should be able to see when an overall tier boundary or a player's expected availability materially affected a recommendation, without needing to understand the scoring implementation.
 
 ---
 
 ## Phase Goals
 
-Phase 5 should deliver:
+Phase 5.5 should deliver:
 
-- Ranking sets that are managed as first-class data rather than compiled application code.
-- Import of supported custom ranking sources through a deterministic parser and validation boundary.
-- Export of ranking sets in a documented, portable format.
-- Clear validation for malformed records, missing required data, duplicate players, invalid ranks, and invalid tier semantics.
-- Multiple named ranking sets that can coexist and be selected without changing code.
-- Tier management that preserves imported source tiers separately from recommendation-eligible tiers while preserving deterministic ordering.
-- Stable ranking snapshots that preserve the exact recommendation inputs used by a draft or replay.
-- Compatibility with the existing Draft State Engine, Recommendation Engine, persistence, and scenario workflows.
-- Focused automated and manual validation of ranking transformations and their effect on user-facing draft workflows.
+- An overall-tier recommendation signal derived from valid overall/source tier data in the active ranking snapshot.
+- An ADP availability-risk signal that reflects the opportunity cost of waiting rather than player quality.
+- Deterministic integration of both signals into the bounded additive Recommendation Engine.
+- Score-backed recommendation reasons when overall-tier context or ADP availability materially affects an output.
+- Neutral behavior when tier or ADP data is absent, invalid, or not applicable.
+- Focused validation that the new signals improve recommendation timing without overwhelming stronger ranking information or changing existing engine boundaries.
 
-The phase is successful only if ranking data can change without an application code change while draft and recommendation behavior remains deterministic and reproducible.
+The phase is successful only if recommendations better answer who should be drafted now while remaining deterministic, inspectable, and anchored to the selected ranking snapshot.
 
 ---
 
@@ -52,35 +47,29 @@ The phase is successful only if ranking data can change without an application c
 
 ### In Scope
 
-- Define a typed domain model for a ranking set and its ranking entries.
-- Create, name, list, select, update, and remove multiple ranking sets within the single-user product.
-- Import at least one documented ranking format suitable for custom ranking data.
-- Parse imported data into the existing domain-facing ranking shape without exposing parser or storage details to the engines.
-- Validate required player identity, supported positions, ranking order, duplicate records, numeric fields, and tier semantics before accepting imported or edited data.
-- Report actionable validation failures without partially replacing a valid ranking set.
-- Export a ranking set in a documented format that can be imported again without losing domain-relevant ranking information.
-- Preserve and update supported tier data while maintaining an unambiguous overall ranking order and avoiding false recommendation-tier pressure.
-- Choose a ranking set when creating or configuring a supported draft or scenario.
-- Create an immutable ranking snapshot for a draft so later edits to the source ranking set do not alter that draft's recommendation inputs.
-- Continue loading existing persisted draft snapshots through typed repository boundaries.
-- Preserve the active `RankingEntry[]`-style input boundary consumed by the Draft State Engine and Recommendation Engine unless an approved design establishes a compatible domain replacement.
-- Provide deterministic unit, integration, regression, and manual workflow coverage proportional to ranking parsing, validation, persistence, snapshotting, and draft integration risk.
+- Consume valid overall/source tier values from the active ranking snapshot as an overall-tier recommendation input.
+- Treat overall/source tiers according to their overall ranking semantics, not as position-local tiers or position-tier-drop pressure.
+- Consume available ADP values from the active ranking snapshot as an availability-risk input.
+- Model ADP as a draft-timing signal that complements overall rank without redefining player quality.
+- Integrate overall-tier and ADP signals into the existing deterministic, bounded additive scoring model.
+- Bound individual and total context effects so substantially stronger ranking or tier information is not overridden by ADP alone.
+- Preserve deterministic ordering and tie-breaking.
+- Produce recommendation reasons directly from the scoring components when a new signal has a meaningful effect.
+- Preserve existing ranking-set, snapshot, manual draft, persistence, scenario, and replay workflows.
+- Validate normal, missing-data, boundary, and conflicting-signal behavior with deterministic automated scenarios and focused manual QA.
 
 ### Out of Scope
 
-- Automated projection generation.
-- Automated news, injury, depth-chart, or ADP ingestion.
-- Scheduled ranking refreshes, web scraping, or third-party ranking APIs.
-- Real-time ranking feeds or provider synchronization.
-- Supporting arbitrary file formats or every external ranking source.
-- Automatic player identity resolution across external providers.
-- Combining or algorithmically blending multiple ranking sources.
-- Advanced statistical models, VORP, simulations, or machine learning.
-- New recommendation factors, strategic insights, or Phase 6 explainability work.
+- Position tiers or position-local tier-drop modeling derived from overall/source tiers.
+- Projection ingestion or projection-based scoring.
+- Value-over-replacement calculations.
+- Opponent modeling, draft simulations, or predictive availability models beyond the active snapshot's ADP signal.
+- Strategy or Insight Engine changes, including future-pick planning, confidence metrics, or broad strategic advice.
+- New ranking sources, automated ADP feeds, scheduled refreshes, or cross-provider ADP reconciliation.
+- Machine learning or AI-generated recommendation reasoning.
 - Live draft platform integrations.
-- Authentication, accounts, cloud sharing, or multi-user ranking collaboration.
-- A public ranking marketplace or community ranking library.
-- Broad UI redesign unrelated to ranking management.
+- Authentication, accounts, cloud sharing, or multi-user workflows.
+- Broad UI redesign unrelated to presenting the updated recommendation output.
 
 ---
 
@@ -109,160 +98,135 @@ The phase is successful only if ranking data can change without an application c
 
 - 6 Bench Spots
 
-Ranking sets and snapshots should remain compatible with the dynamic league settings already supported by the domain and persistence layers. Phase 5 does not expand the supported league formats.
+The Recommendation Engine should continue to derive behavior from the dynamic league settings and roster configuration already carried by draft state. Phase 5.5 does not expand supported league formats.
 
 ---
 
 ## Core Workflow
 
-### Add or Choose Rankings
+### Start or Resume a Draft
 
-- View the available named ranking sets.
-- Select an existing set or import a supported custom source.
-- Parse and validate the complete input before storing or activating it.
-- Receive clear errors for records that cannot form a valid ranking set.
+- Start, load, or replay a supported draft with its immutable ranking snapshot.
+- Continue using the existing draft-state and ranking-selection workflows.
+- Recompute recommendations from the current draft state rather than loading persisted recommendation output.
 
-### Manage Ranking Data
+### Evaluate the Current Pick
 
-- Review the ordered ranking entries, source tier data, and any recommendation-tier capability state.
-- Make supported corrections or tier-semantic changes without editing application code.
-- Export a portable copy when needed.
-- Keep other ranking sets unchanged.
+- Anchor candidate quality to overall rank from the active snapshot.
+- Consider whether an overall tier boundary makes one similarly ranked option more urgent.
+- Consider ADP as evidence about whether waiting may forfeit the opportunity to select a player.
+- Combine these inputs with the existing bounded context signals without allowing one modifier to dominate the recommendation.
 
-### Use Rankings in a Draft
+### Understand the Recommendation
 
-- Select a valid ranking set for a new supported draft or scenario.
-- Capture an immutable snapshot of that set as part of the draft's source configuration.
-- Feed the typed snapshot into the existing Draft State Engine and Recommendation Engine.
-- Continue receiving deterministic recommendations even if the source ranking set is later edited or removed.
+- Show score-backed reasons when overall-tier context or ADP availability materially contributes.
+- Keep reasons silent when the relevant data is absent or had no meaningful scoring effect.
+- Describe ADP in terms of availability or timing, not player quality.
+- Do not describe overall/source tiers as position scarcity or position-tier pressure.
 
-### Reproduce Past Behavior
+### Reproduce Behavior
 
-- Load or replay a draft using its captured ranking snapshot.
-- Confirm the same ranking inputs and recommendation output are available for the same draft state.
-- Distinguish the draft snapshot from the current mutable source ranking set.
+- Replay the same draft state with the same ranking snapshot and receive the same recommendation order, scores, and reasons.
+- Preserve the result even if the mutable source ranking set later changes or is removed.
 
 ---
 
 ## Milestones
 
-### Milestone 1 - Ranking Domain and Validation Boundary
+### Milestone 1 - Signal Semantics and Scoring Contract
 
-Establish the project-level contract for named ranking sets, ordered entries, optional supported metadata, source tiers, recommendation-tier eligibility, validation results, and stable identity.
+Define the project-level behavior of the overall-tier and ADP signals, including their neutral states, bounded influence, interaction with base rank, and distinction from existing position-tier pressure.
 
-The contract should keep imported records, persistence models, and UI state outside the Draft State Engine and Recommendation Engine while remaining compatible with their typed ranking input.
+### Milestone 2 - Overall Tier Recommendation Signal
 
-### Milestone 2 - Ranking Import and Export
+Use valid overall/source tier context to improve ordering among relevant candidates without treating the data as position-local tiers or producing position-tier-drop claims.
 
-Provide deterministic parsing and complete pre-commit validation for at least one documented custom ranking format, plus a portable export format that preserves domain-relevant information through a round trip.
+### Milestone 3 - ADP Availability-Risk Signal
 
-Invalid input should produce actionable errors and leave existing valid ranking data unchanged.
+Use available ADP to represent the risk of waiting for a player. Keep the signal subordinate to substantially stronger player-quality evidence and neutral when ADP is missing or unusable.
 
-### Milestone 3 - Multiple Ranking Set Management
+### Milestone 4 - Recommendation Integration and Reasons
 
-Allow multiple named ranking sets to be stored, listed, selected, updated, and removed within the single-user application.
+Integrate both signals into the bounded additive scoring output and expose concise, score-backed reasons for material contributions.
 
-The existing built-in rankings should remain available through an explicit seed or migration path rather than continuing as the only code-owned runtime source.
+### Milestone 5 - Recommendation Confidence
 
-### Milestone 4 - Tier Semantics Management
-
-Preserve source tier information and allow only supported recommendation-tier information to evolve without making overall ranking order or recommendation eligibility ambiguous.
-
-Tier-semantic updates should flow through the same domain validation and persistence boundaries as other ranking changes. FantasyPros `TIERS` are treated as source tiers for the current supported CSV profile, not as position-local recommendation-tier input.
-
-### Milestone 5 - Snapshot and Draft Integration
-
-Connect a selected mutable ranking set to draft creation by capturing an immutable ranking snapshot. Existing persisted drafts should continue to load their saved snapshots, and Recommendation Engine inputs should remain source-agnostic.
-
-Scenario and replay workflows should consume captured ranking context without becoming coupled to ranking storage records.
-
-### Milestone 6 - Workflow Confidence
-
-Validate import/export round trips, invalid input handling, multiple-set isolation, tier-semantic updates, snapshot immutability, persisted-draft compatibility, and deterministic recommendation behavior.
-
-Complete focused manual QA of the ranking-management-to-draft workflow without broadening into Phase 6 strategy or Phase 7 live integrations.
+Validate deterministic behavior across representative scenarios, missing data, tier boundaries, ADP disagreement, persisted drafts, and replay workflows. Tune only within the approved signal semantics and scoring bounds.
 
 ---
 
 ## Architecture Impact
 
-Phase 5 introduces a first-class Rankings & Data capability alongside the existing draft persistence layer. Mutable ranking sets become managed source data; immutable ranking snapshots remain the inputs owned by individual drafts.
+Phase 5.5 expands the existing Recommendation Engine; it does not introduce a new architectural layer or persistence lifecycle.
 
 The intended flow becomes:
 
 ```text
-Supported Ranking Import
-          |
-  Parser + Validation
-          |
- Mutable Ranking Sets <----> Ranking Management / Export
-          |
-   Snapshot Boundary
-          |
- Immutable Draft Ranking Snapshot
-          |
-  Draft State Engine
-          |
- Recommendation Engine
+Immutable Draft Ranking Snapshot
+  |-- Overall Rank ---------> Base Player Value
+  |-- Overall/Source Tier --> Overall Tier Signal
+  `-- ADP ------------------> Availability-Risk Signal
+                                  |
+Draft State + Existing Context ---+--> Bounded Additive Scoring
+                                           |
+                                 Recommendations + Reasons
 ```
 
-The Draft State Engine and Recommendation Engine should continue consuming typed domain ranking data. They should not parse files, query ranking persistence directly, depend on ranking-management UI state, or know whether data originated from built-in seed rankings or a custom import.
-
-The repository layer should hide the chosen storage representation for ranking sets and entries. Phase 2 draft snapshots stored as JSON remain valid immutable draft inputs; making source ranking sets first-class does not require past drafts to follow later edits or depend on a live ranking-set record.
+The Recommendation Engine remains a pure domain layer. It consumes typed draft state, league settings, user team identity, and immutable ranking snapshot data; it does not parse imports, query ranking persistence, mutate draft state, depend on React, or persist its output.
 
 Important boundaries:
 
-- Parsing converts a supported external representation into typed candidate data; validation decides whether the complete candidate can become a ranking set.
-- Invalid imports or edits should be atomic from the user's perspective and must not corrupt an existing valid set.
-- A mutable ranking set and an immutable draft ranking snapshot are different lifecycle concepts.
-- Snapshot creation should copy the domain-relevant ranking values needed for deterministic recommendations and replay.
-- Player and ranking-set identity should be explicit enough to prevent silent duplicates or accidental cross-set updates.
-- Overall rank remains the deterministic ordering anchor. Source tiers may be preserved for inspection and export, but recommendation tier pressure requires explicit recommendation-tier eligibility and must not be inferred from source tiers.
-- Recommendation output remains derived and is not stored as part of ranking data.
-- The solution should remain inside the monolith-first Next.js application and existing PostgreSQL/Prisma deployment model.
-- Automated feeds, background refresh jobs, external provider adapters, and generalized source plugins remain deferred.
+- Overall rank remains the scoring anchor for player quality.
+- Overall/source tiers may inform an overall-tier signal but must not be interpreted as position-local tier-drop pressure.
+- Existing recommendation-tier eligibility continues to govern any position-tier-pressure behavior; Phase 5.5 does not create or infer position tiers.
+- ADP represents expected availability and draft timing, not player quality, projections, or certainty about opponent behavior.
+- Each new modifier and the combined context effect remain bounded.
+- Recommendation reasons remain direct descriptions of scoring inputs that materially affected the result.
+- Missing or unusable optional data produces neutral signal behavior rather than guessed values.
+- Ranking snapshots remain the complete reproducibility boundary; recommendation output remains derived.
 
 ### Architecture Tradeoff Assessment
 
-- **Complexity cost:** Phase 5 adds mutable ranking-set lifecycles, parser and validation boundaries, and an explicit snapshot transition. Keeping the number of supported import formats small avoids a premature provider framework.
-- **Maintenance cost:** Documented formats and validation rules require compatibility care as the ranking model evolves. Separating domain data from transport and persistence shapes localizes that maintenance.
-- **Scaling implications:** Ranking sets are small, single-user datasets used primarily as whole ordered collections. No distributed storage, caching, queues, or high-volume ingestion architecture is required.
-- **Developer experience:** First-class ranking data removes the seed-regeneration loop and makes realistic recommendation testing faster, but clear validation diagnostics are necessary to keep imports debuggable.
-- **Deployment implications:** Ranking management should use the existing application and database. Phase 5 should not add services, scheduled jobs, or new operational infrastructure.
-- **Iteration speed:** Stable snapshots let ranking data and recommendation logic evolve independently while preserving reproducible drafts and scenarios.
+- **Complexity cost:** Two additional signals add interaction and tuning cases. Keeping them explicit inside the current scoring pipeline avoids a premature generic modifier framework.
+- **Maintenance cost:** Signal semantics, bounds, and explanations require scenario coverage as ranking data evolves. Pure scoring functions and score-backed reasons keep that maintenance localized.
+- **Scaling implications:** Recommendation scoring remains an in-process calculation over one draft snapshot. No additional services, caches, queues, or background processing are required.
+- **Developer experience:** Independent score components make behavior easier to debug, but named semantics and representative fixtures are needed to prevent accidental overlap with existing tier or scarcity signals.
+- **Deployment implications:** The phase stays within the existing Next.js monolith and PostgreSQL/Prisma deployment model and requires no new operational infrastructure.
+- **Iteration speed:** Small, independently testable signals support fast tuning while deterministic replay protects against regressions.
 
 ---
 
 ## Success Criteria
 
-Phase 5 is successful when a user or developer can:
+Phase 5.5 is successful when a user or developer can:
 
-1. Import a supported custom ranking source and create a valid named ranking set without changing or rebuilding application code.
-2. Receive clear, record-level validation feedback for malformed, duplicated, unsupported, or inconsistent ranking data before any valid existing set is replaced.
-3. Maintain at least two ranking sets independently and explicitly select which one will anchor a new supported draft.
-4. Export a valid ranking set, import it again, and preserve its domain-relevant player order, supported metadata, source tier data, and recommendation-tier eligibility state.
-5. Preserve or update supported tier data while retaining deterministic overall rank ordering and valid Recommendation Engine input.
-6. Start a draft from a selected ranking set and capture an immutable snapshot containing the ranking information required by draft and recommendation behavior.
-7. Edit or remove the source ranking set without changing the snapshot or recommendations of an existing draft.
-8. Load an existing persisted draft and continue using its saved ranking snapshot without requiring the source ranking set to exist.
-9. Replay the same draft or scenario from the same state and ranking snapshot and receive the same recommendation ordering and score-backed reasons.
-10. Use built-in seed rankings through the new ranking-data workflow without losing the existing manual, persisted, replay, or recommendation workflows.
-11. Confirm through automated tests that parsing, validation, import/export round trips, set isolation, tier-semantic changes, and snapshot creation produce exact deterministic outputs.
-12. Complete focused manual QA of importing rankings, reviewing tier semantics, selecting a set, starting and saving a draft, changing the source set, and reloading the unchanged draft snapshot.
+1. Receive a deterministic recommendation that incorporates valid overall/source tier context from the active ranking snapshot.
+2. Confirm that overall/source tiers affect only the overall-tier signal and never masquerade as position-local tier pressure.
+3. Receive a deterministic ADP-based availability adjustment when valid ADP indicates that waiting creates meaningful risk.
+4. Confirm that ADP alone does not override a substantially stronger overall ranking or overall-tier case.
+5. Receive concise, score-backed reasons when overall-tier or ADP signals materially affect a recommendation.
+6. Receive no unsupported overall-tier or ADP reason when the corresponding signal is neutral, missing, invalid, or immaterial.
+7. Use rankings without tier data, ADP data, or both without errors or fabricated inputs.
+8. Replay the same draft state and ranking snapshot and receive the same recommendation ordering, component scores, and reasons.
+9. Load existing persisted draft snapshots without requiring recommendation output to be stored or migrated.
+10. Preserve existing manual draft, ranking management, persistence, scenario, and replay workflows.
+11. Confirm through focused automated scenarios that tier boundaries, ADP disagreement, missing data, modifier bounds, total context caps, and deterministic tie-breaking behave as approved.
+12. Complete focused manual QA showing that updated recommendations clearly communicate player quality, overall-tier context, and availability risk as distinct concepts.
 
-Rankings should feel like durable, inspectable product data rather than a fixture embedded in the codebase.
+Recommendations should feel more aware of draft timing without becoming opaque, speculative, or detached from the ranking snapshot.
 
 ---
 
 ## Product Principles
 
-- Treat ranking sets as first-class mutable source data and draft snapshots as immutable historical inputs.
-- Validate complete candidate data before changing stored rankings.
-- Keep ranking transport, persistence, and UI representations behind typed domain boundaries.
-- Preserve deterministic overall ordering and recommendation behavior.
-- Preserve source tiers separately from recommendation-tier pressure; do not derive position tiers from rank-only or ADP-only data.
-- Support a small number of documented formats before generalizing source adapters.
-- Keep the Recommendation Engine pure, derived, and unaware of ranking origin.
-- Preserve existing manual, persisted, replay, and scenario workflows.
-- Keep the feature inside the existing monolith and deployment model.
-- Defer automated ingestion, advanced strategy, live providers, accounts, and ranking marketplaces to later phases.
+- Answer who should be drafted now, not merely who has the best static rank.
+- Keep overall rank as the player-quality anchor.
+- Treat overall/source tiers according to their overall semantics; never present them as position tiers.
+- Treat ADP as uncertain availability evidence, not quality or opponent certainty.
+- Keep context modifiers bounded, additive, deterministic, and inspectable.
+- Generate reasons only from scoring components that materially affected the recommendation.
+- Prefer neutral behavior over invented data when optional inputs are absent or invalid.
+- Preserve immutable snapshots and reproducible recommendation behavior.
+- Keep the Recommendation Engine pure and independent of ranking origin, persistence, UI state, and draft source.
+- Avoid a generic signal framework until real duplication or extension pressure justifies one.
+- Defer projections, VORP, position-tier modeling, strategic insights, live providers, accounts, and machine learning to future phases.
