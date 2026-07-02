@@ -103,4 +103,22 @@ If the answer is unclear, keep the feature here.
 
 ## Candidate Features For First Post-MVP Release
 
-Leave empty until MVP validation is complete.
+## Flexible Ranking Import Mapping
+
+Allow users to import ranking files beyond the supported FantasyPros and Canonical JSON formats by mapping source columns to app fields.
+
+### Goals
+
+- Preview uploaded CSV headers and sample rows.
+- Let users map columns to required fields such as player name, position, and overall rank/order.
+- Let users optionally map team, ADP, player ID, and source tier columns.
+- Validate mappings before import.
+- Preserve source-tier semantics without treating arbitrary tier columns as recommendation-tier pressure.
+- Import mapped files through the existing normalization, validation, and managed ranking-set workflow.
+
+### Non-Goals
+
+- Do not auto-trust arbitrary tier columns as recommendation tiers.
+- Do not derive position tiers from rank or ADP.
+- Do not add provider-specific scraping or live feeds.
+- Do not require saved presets for the first version.

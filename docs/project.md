@@ -36,7 +36,7 @@ Phase 5.5 should deliver:
 - An ADP availability-risk signal that reflects the opportunity cost of waiting rather than player quality.
 - Deterministic integration of both signals into the bounded additive Recommendation Engine.
 - Score-backed recommendation reasons when overall-tier context or ADP availability materially affects an output.
-- Neutral behavior when tier or ADP data is absent, invalid, or not applicable.
+- Explicit fallback behavior: missing ADP is neutral for that player, and wholly absent overall/source-tier data becomes one neutral overall tier for the complete ranking context.
 - Focused validation that the new signals improve recommendation timing without overwhelming stronger ranking information or changing existing engine boundaries.
 
 The phase is successful only if recommendations better answer who should be drafted now while remaining deterministic, inspectable, and anchored to the selected ranking snapshot.
@@ -49,11 +49,12 @@ The phase is successful only if recommendations better answer who should be draf
 
 - Consume valid overall/source tier values from the active ranking snapshot as an overall-tier recommendation input.
 - Treat overall/source tiers according to their overall ranking semantics, not as position-local tiers or position-tier-drop pressure.
-- Consume available ADP values from the active ranking snapshot as an availability-risk input.
+- Consume valid ADP values from the active ranking snapshot as an availability-risk input while allowing individual players or an entire ranking set to lack ADP and remain usable with neutral ADP signals.
 - Model ADP as a draft-timing signal that complements overall rank without redefining player quality.
 - Integrate overall-tier and ADP signals into the existing deterministic, bounded additive scoring model.
 - Bound individual and total context effects so substantially stronger ranking or tier information is not overridden by ADP alone.
 - Preserve deterministic ordering and tie-breaking.
+- Recalculate recommendations after every draft pick so the user can preview the next decision between turns.
 - Produce recommendation reasons directly from the scoring components when a new signal has a meaningful effect.
 - Preserve existing ranking-set, snapshot, manual draft, persistence, scenario, and replay workflows.
 - Validate normal, missing-data, boundary, and conflicting-signal behavior with deterministic automated scenarios and focused manual QA.
@@ -182,7 +183,7 @@ Important boundaries:
 - ADP represents expected availability and draft timing, not player quality, projections, or certainty about opponent behavior.
 - Each new modifier and the combined context effect remain bounded.
 - Recommendation reasons remain direct descriptions of scoring inputs that materially affected the result.
-- Missing or unusable optional data produces neutral signal behavior rather than guessed values.
+- Missing ADP produces a neutral ADP component for the affected player; an entire ranking set without ADP remains usable with zero ADP weight. Wholly absent overall-tier data materializes one explicitly defaulted neutral tier; malformed or partially supplied tier data must not create guessed boundaries.
 - Ranking snapshots remain the complete reproducibility boundary; recommendation output remains derived.
 
 ### Architecture Tradeoff Assessment
@@ -205,13 +206,13 @@ Phase 5.5 is successful when a user or developer can:
 3. Receive a deterministic ADP-based availability adjustment when valid ADP indicates that waiting creates meaningful risk.
 4. Confirm that ADP alone does not override a substantially stronger overall ranking or overall-tier case.
 5. Receive concise, score-backed reasons when overall-tier or ADP signals materially affect a recommendation.
-6. Receive no unsupported overall-tier or ADP reason when the corresponding signal is neutral, missing, invalid, or immaterial.
-7. Use rankings without tier data, ADP data, or both without errors or fabricated inputs.
-8. Replay the same draft state and ranking snapshot and receive the same recommendation ordering, component scores, and reasons.
-9. Load existing persisted draft snapshots without requiring recommendation output to be stored or migrated.
+6. Receive no unsupported overall-tier or ADP reason when the corresponding signal is missing, defaulted-neutral, neutral, or immaterial.
+7. Continue receiving recommendations for players without ADP and ranking contexts without supplied overall tiers, with those unavailable signals contributing zero rather than guessed values.
+8. See deterministic recommendation previews recalculate after every recorded pick, including between the user's turns.
+9. Replay the same draft state and ranking snapshot and receive the same recommendation ordering, component scores, and reasons.
 10. Preserve existing manual draft, ranking management, persistence, scenario, and replay workflows.
 11. Confirm through focused automated scenarios that tier boundaries, ADP disagreement, missing data, modifier bounds, total context caps, and deterministic tie-breaking behave as approved.
-12. Complete focused manual QA showing that updated recommendations clearly communicate player quality, overall-tier context, and availability risk as distinct concepts.
+12. Complete focused manual QA showing that updated recommendations clearly communicate player quality, overall-tier context, availability risk, and neutral fallbacks as distinct concepts.
 
 Recommendations should feel more aware of draft timing without becoming opaque, speculative, or detached from the ranking snapshot.
 
@@ -225,7 +226,8 @@ Recommendations should feel more aware of draft timing without becoming opaque, 
 - Treat ADP as uncertain availability evidence, not quality or opponent certainty.
 - Keep context modifiers bounded, additive, deterministic, and inspectable.
 - Generate reasons only from scoring components that materially affected the recommendation.
-- Prefer neutral behavior over invented data when optional inputs are absent or invalid.
+- Use ADP whenever a player has a valid published value and remain neutral when that player does not.
+- Materialize one explicitly defaulted neutral overall tier when a ranking context has no supplied tiers; never invent tier boundaries.
 - Preserve immutable snapshots and reproducible recommendation behavior.
 - Keep the Recommendation Engine pure and independent of ranking origin, persistence, UI state, and draft source.
 - Avoid a generic signal framework until real duplication or extension pressure justifies one.
