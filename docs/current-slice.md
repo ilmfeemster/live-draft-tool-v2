@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting implementation approval. Tier-semantics automated exit validation passed, and the user reports the remaining QA is good except for one Phase 5 workflow defect: a newly imported ranking set does not appear in New Draft Setup until the browser page is refreshed. The user also explicitly requested independent minimize controls for the `Managed Sets` and `Import Rankings` panels.
+Implemented with automated validation complete, but blocked on interactive QA. Successful ranking summary refreshes now trigger a Next.js route refresh, and `Managed Sets` plus `Import Rankings` have independent accessible Minimize/Expand controls that retain mounted content. Focused validation passed (5 files, 39 tests), the full suite passed (45 files, 649 tests passed, 1 skipped), TypeScript and the production build passed, and lint reported only the known pre-existing unused `stripLocations` warning. The in-app browser control session could not initialize, so the original no-hard-refresh reproduction and interactive panel state preservation remain unverified; patch and Phase 5 completion tracking remain open.
 
 ## Source Context
 

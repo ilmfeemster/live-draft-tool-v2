@@ -23,7 +23,28 @@ vi.mock("@/app/actions/rankingActions", () => ({
   loadRankingLibrarySetAction: vi.fn(),
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+
 describe("RankingLibraryPanel", () => {
+  it("renders independently expanded ranking-library panel controls", () => {
+    const markup = renderToStaticMarkup(
+      <RankingLibraryPanel initialSummaries={[createSummary()]} />,
+    );
+
+    expect(markup).toMatch(
+      /aria-controls="managed-ranking-sets-content"[^>]*aria-expanded="true"[^>]*aria-label="Minimize Managed Sets"/,
+    );
+    expect(markup).toMatch(
+      /aria-controls="import-rankings-content"[^>]*aria-expanded="true"[^>]*aria-label="Minimize Import Rankings"/,
+    );
+    expect(markup).toContain('id="managed-ranking-sets-content"');
+    expect(markup).toContain('id="import-rankings-content"');
+    expect(markup).toContain("Managed Rankings");
+    expect(markup).toContain("FantasyPros CSV Profile V1");
+  });
+
   it("renders the empty library state and import controls", () => {
     const markup = renderToStaticMarkup(
       <RankingLibraryPanel initialSummaries={[]} />,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   deleteRankingLibrarySetAction,
   editRankingLibrarySetAction,
@@ -43,9 +44,13 @@ export function RankingLibraryPanel({
   initialSummaries,
   initialErrors = [],
 }: RankingLibraryPanelProps) {
+  const router = useRouter();
   const [visibleSummaries, setVisibleSummaries] = useState<RankingSetSummary[]>(
     () => [...initialSummaries],
   );
+  const [isManagedSetsExpanded, setIsManagedSetsExpanded] = useState(true);
+  const [isImportRankingsExpanded, setIsImportRankingsExpanded] =
+    useState(true);
   const [formatId, setFormatId] =
     useState<RankingImportFormatId>("fantasypros-csv");
   const [rankingName, setRankingName] = useState("");
@@ -90,6 +95,7 @@ export function RankingLibraryPanel({
     if (result.ok) {
       setVisibleSummaries([...result.value]);
       setManagementErrors([]);
+      router.refresh();
       return true;
     }
 
@@ -469,43 +475,88 @@ export function RankingLibraryPanel({
             <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-600">
               Managed Sets
             </h3>
-            <button
-              type="button"
-              className="h-9 rounded border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-zinc-400"
-              onClick={() => {
-                void refreshSummaries();
-              }}
-            >
-              Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="h-9 rounded border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 transition hover:border-emerald-300 hover:bg-emerald-50"
+                aria-controls="managed-ranking-sets-content"
+                aria-expanded={isManagedSetsExpanded}
+                aria-label={
+                  isManagedSetsExpanded
+                    ? "Minimize Managed Sets"
+                    : "Expand Managed Sets"
+                }
+                onClick={() => {
+                  setIsManagedSetsExpanded((current) => !current);
+                }}
+              >
+                {isManagedSetsExpanded ? "Minimize" : "Expand"}
+              </button>
+              <button
+                type="button"
+                className="h-9 rounded border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-zinc-400"
+                onClick={() => {
+                  void refreshSummaries();
+                }}
+              >
+                Refresh
+              </button>
+            </div>
           </div>
 
-          {visibleSummaries.length > 0 ? (
-            <div className="mt-3 grid gap-3 xl:grid-cols-2">
-              {visibleSummaries.map((summary) => (
-                <RankingSummaryCard
-                  key={summary.id}
-                  busySetId={busySetId}
-                  summary={summary}
-                  onDelete={deleteSummary}
-                  onExport={exportSummary}
-                  onReview={loadSummary}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="mt-3 rounded border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
-              No managed ranking sets are available yet.
-            </div>
-          )}
+          <div
+            id="managed-ranking-sets-content"
+            hidden={!isManagedSetsExpanded}
+          >
+            {visibleSummaries.length > 0 ? (
+              <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                {visibleSummaries.map((summary) => (
+                  <RankingSummaryCard
+                    key={summary.id}
+                    busySetId={busySetId}
+                    summary={summary}
+                    onDelete={deleteSummary}
+                    onExport={exportSummary}
+                    onReview={loadSummary}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
+                No managed ranking sets are available yet.
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="rounded-md border border-zinc-200 bg-white p-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-600">
-            Import Rankings
-          </h3>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-600">
+              Import Rankings
+            </h3>
+            <button
+              type="button"
+              className="h-9 rounded border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 transition hover:border-emerald-300 hover:bg-emerald-50"
+              aria-controls="import-rankings-content"
+              aria-expanded={isImportRankingsExpanded}
+              aria-label={
+                isImportRankingsExpanded
+                  ? "Minimize Import Rankings"
+                  : "Expand Import Rankings"
+              }
+              onClick={() => {
+                setIsImportRankingsExpanded((current) => !current);
+              }}
+            >
+              {isImportRankingsExpanded ? "Minimize" : "Expand"}
+            </button>
+          </div>
 
-          <div className="mt-3 flex flex-col gap-3">
+          <div
+            id="import-rankings-content"
+            className="mt-3 flex flex-col gap-3"
+            hidden={!isImportRankingsExpanded}
+          >
             <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
               Format
               <select
