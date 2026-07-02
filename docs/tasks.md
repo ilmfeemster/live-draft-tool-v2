@@ -38,7 +38,7 @@ Promote only one task at a time into `docs/current-slice.md`. Keep context norma
 
 ## Task 1 - Add the Normalized Recommendation Ranking Context
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 

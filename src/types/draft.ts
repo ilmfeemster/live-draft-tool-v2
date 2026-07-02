@@ -17,6 +17,22 @@ export type RankingEntry = {
   tier: number;
 };
 
+export type RecommendationOverallTierOrigin =
+  | "source"
+  | "defaulted-neutral";
+
+export type RecommendationRankingFact = Readonly<
+  Omit<RankingEntry, "player"> & {
+    player: Readonly<Player>;
+    overallTier: number;
+    overallTierOrigin: RecommendationOverallTierOrigin;
+  }
+>;
+
+export type RecommendationRankingContext = Readonly<{
+  rankings: readonly RecommendationRankingFact[];
+}>;
+
 export type Recommendation = {
   ranking: RankingEntry;
   score: number;

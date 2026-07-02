@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. No implementation has started.
+Complete. Added the normalized recommendation-ranking context types, pure snapshot normalizer, structured validation failures, neutral overall-tier fallback, and nullable ADP preservation. Focused validation passed with 1 test file and 19 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
 
 ## Goal
 
