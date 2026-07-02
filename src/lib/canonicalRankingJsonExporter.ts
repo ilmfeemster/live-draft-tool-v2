@@ -108,7 +108,7 @@ export function exportCanonicalRankingSetJson(
     requestRecord.exportedAt,
     requestRecord.includeSourceRankingSetId === true,
   );
-  const text = JSON.stringify(document);
+  const text = JSON.stringify(document, null, 2);
   const byteLength = new TextEncoder().encode(text).byteLength;
 
   if (byteLength > RANKING_IMPORT_LIMITS.maxBytes) {

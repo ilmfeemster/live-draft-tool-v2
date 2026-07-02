@@ -74,7 +74,7 @@ describe("exportCanonicalRankingSetJson", () => {
     expect(document.entries[0]).not.toHaveProperty("tier");
   });
 
-  it("produces exact compact V2 JSON in frozen property order", () => {
+  it("produces exact readable V2 JSON in frozen property order", () => {
     const rankingSet = createCompleteSet();
     const result = exportCanonicalRankingSetJson(rankingSet, {
       exportedAt,
@@ -82,10 +82,12 @@ describe("exportCanonicalRankingSetJson", () => {
     });
 
     expectSuccess(result);
-    const expected =
+    const compactExpected =
       '{"schemaVersion":2,"metadata":{"name":"Complete Rankings","exportedAt":"2026-06-28T15:00:00.000Z","sourceRankingSetId":"local-set-1","source":{"kind":"external","formatId":"fantasypros-csv","formatVersion":1,"label":"rankings.csv","importedAt":"2026-06-27T12:00:00.000Z"}},"tierSemantics":{"sourceTier":{"kind":"source-only","sourceScope":"overall","recommendationEligible":false},"recommendationTier":{"kind":"recommendation-eligible","sourceScope":"position","recommendationEligible":true}},"capabilities":{"team":"complete","playerIdentity":"provided","overallOrder":"explicit","positionRank":"derived","adp":"complete","tiers":{"QB":"source","RB":"source"}},"entries":[{"player":{"id":"qb-1","name":"Player qb-1","team":"SEA","position":"QB"},"overallRank":1,"positionRank":1,"sourceTier":1,"recommendationTier":1,"adpRank":1.5},{"player":{"id":"rb-1","name":"Player rb-1","team":"BUF","position":"RB"},"overallRank":2,"positionRank":1,"sourceTier":2,"recommendationTier":2,"adpRank":2.5},{"player":{"id":"qb-2","name":"Player qb-2","team":"KC","position":"QB"},"overallRank":3,"positionRank":2,"sourceTier":5,"recommendationTier":5,"adpRank":3.5}]}';
+    const expected = JSON.stringify(JSON.parse(compactExpected), null, 2);
 
     expect(result.value.text).toBe(expected);
+    expect(result.value.text).toContain('\n  "metadata": {');
     expect(result.value.document).toEqual(JSON.parse(expected));
     expect(result.value.byteLength).toBe(new TextEncoder().encode(expected).byteLength);
     expect(Object.keys(result.value.document)).toEqual([
