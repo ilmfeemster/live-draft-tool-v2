@@ -289,44 +289,67 @@ Rankings can evolve without code changes.
 
 ## Purpose
 
-Incorporate overall/source tiers into the Recommendation Engine using their correct semantics.
+Expand the Recommendation Engine to incorporate overall/source tiers using their correct semantics and introduce ADP as an availability-risk signal. This phase improves recommendation quality by adding meaningful recommendation inputs while preserving the deterministic, explainable scoring model established in Phase 3.
 
 ## Product Goals
 
-Improve recommendation quality by considering overall tiers alongside overall rankings.
+Improve recommendation quality by considering:
+
+- Overall player rankings
+- Overall/source tiers
+- ADP availability risk
+
+Recommendations should better answer **who should be drafted now**, not simply **who is the best player**.
 
 ## Technical Goals
 
 - Overall tier recommendation signal
+- ADP availability-risk signal
 - Recommendation scoring integration
 - Recommendation explanations
 - Validation
 
 ## Major Deliverables
 
-- Overall tier signal
+- Overall tier recommendation signal
+- ADP availability-risk signal
 - Updated recommendation scoring
-- Recommendation reasons for overall tiers
+- Recommendation reasons for overall tiers and ADP availability
 
 ## Architecture Changes
 
-Expand the Recommendation Engine to consume overall/source tier data as a recommendation signal instead of position-tier pressure.
+Expand the Recommendation Engine to consume multiple independent recommendation signals.
+
+Overall/source tiers are recommendation inputs and must not be interpreted as position-tier pressure.
+
+ADP is an availability-risk signal that estimates the opportunity cost of waiting for a player. It complements player rankings but does not represent player quality and should not override substantially stronger ranking or tier signals.
+
+The Recommendation Engine should remain deterministic, additive, and easily extensible for future recommendation signals.
 
 ## Future Enables
 
-Projection-based recommendation signals.
+- Projection-based recommendation signals
+- Position-tier recommendation signals
+- VORP/value-based recommendation signals
+- Enhanced opportunity-cost modeling
+- Confidence modeling
 
 ## Non-Goals
 
 - Position tiers
 - Projection models
-- VORP
+- VORP calculations
 - Strategy engine changes
 - Additional ranking sources
+- Cross-provider ADP reconciliation
+- Machine learning
 
 ## Exit Criteria
 
-Overall/source tiers contribute appropriately to recommendations without being interpreted as position-tier pressure.
+- Overall/source tiers contribute appropriately to recommendations without being interpreted as position-tier pressure.
+- ADP contributes as an availability-risk signal that influences draft timing rather than player quality.
+- Recommendation quality improves through the combination of rankings, overall tiers, and ADP while preserving deterministic behavior.
+- The Recommendation Engine remains ready for future projection-based and value-based recommendation signals without requiring architectural changes.
 
 ---
 

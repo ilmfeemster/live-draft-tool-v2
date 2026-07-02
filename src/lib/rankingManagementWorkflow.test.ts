@@ -376,7 +376,9 @@ describe("ranking management workflow", () => {
       { sourceTier: 2, recommendationTier: NEUTRAL_TIER },
       { sourceTier: 4, recommendationTier: NEUTRAL_TIER },
     ]);
-    expect(result.value.text).toBe(JSON.stringify(result.value.document));
+    expect(result.value.text).toBe(
+      JSON.stringify(result.value.document, null, 2),
+    );
     expect(result.value.byteLength).toBe(
       new TextEncoder().encode(result.value.text).byteLength,
     );

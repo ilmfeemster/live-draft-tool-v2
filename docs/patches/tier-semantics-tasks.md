@@ -175,7 +175,7 @@ Keep existing Scenario V1 fixtures replayable and deterministic while preventing
 
 ## Slice 4 - Focused UI Terminology
 
-- [ ] Complete
+- [x] Complete
 
 ### Goal
 
@@ -315,4 +315,26 @@ Scenario V1 compatibility validation:
 - `npm test -- src/lib/scenarioValidation.test.ts src/lib/scenarioReplay.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioSession.test.ts src/lib/curatedScenarios.test.ts src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts` (7 files, 151 tests passed)
 - `npx tsc --noEmit`
 
-Previously completed compatibility coverage includes ranking-set semantics persistence, legacy persisted-draft tier neutralization, canonical ranking portability, explicit new-snapshot semantics, and Scenario V1 compatibility. The two remaining slices close the UI-language and exit-validation gaps.
+Focused UI terminology validation:
+
+- Slice 4A: `npm test -- src/components/RankingSetEditorPanel.test.tsx src/components/RankingLibraryPanel.test.tsx` (2 files, 17 tests passed)
+- Slice 4B: `npm test -- src/components/DraftSetupForm.test.tsx src/components/AvailablePlayersTable.test.tsx src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx` (4 files, 13 tests passed)
+- `npx tsc --noEmit`
+- `npm run lint` (no errors; one pre-existing unused `stripLocations` warning in `src/lib/rankingNormalizer.test.ts`)
+- User-confirmed ranking-management and draft-workflow manual QA passed.
+
+Patch exit validation attempt (2026-07-01):
+
+- Import/domain focus: 9 files, 189 tests passed.
+- Persistence/snapshot focus: 9 files, 163 tests passed, 1 skipped, after correcting one stale compact-JSON assertion to the approved readable export contract.
+- Recommendation/scenario focus: 8 files, 160 tests passed.
+- UI focus: 6 files, 30 tests passed.
+- `npm test` (45 files, 648 tests passed, 1 skipped)
+- `npx tsc --noEmit` passed.
+- `npm run lint` passed with the recorded pre-existing unused `stripLocations` warning.
+- `npm run prisma:validate` passed.
+- `npx prisma migrate status` reported the database schema up to date.
+- `npm run build` passed.
+- Slice 5 remains open because browser control could not initialize for the remaining tier-specific legacy import, snapshot-isolation, and Scenario V1 manual QA matrix.
+
+Previously completed compatibility coverage includes ranking-set semantics persistence, legacy persisted-draft tier neutralization, canonical ranking portability, explicit new-snapshot semantics, Scenario V1 compatibility, and focused UI terminology. Patch exit manual validation remains.

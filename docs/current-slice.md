@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting implementation approval. Tier Semantics Patch Slices 1 through 4 are implemented. Slice 4B focused validation passed (4 files, 13 tests), TypeScript no-emit validation passed, lint reported only the recorded pre-existing unused-helper warning, and the user confirmed the remaining draft-workflow QA passed.
+Implemented with every automated exit gate passing, but blocked on the broader tier-specific manual QA matrix. Focused validation passed across import/domain (9 files, 189 tests), persistence/snapshots after one stale pretty-print assertion was corrected (9 files, 163 tests passed, 1 skipped), recommendations/scenarios (8 files, 160 tests), and UI (6 files, 30 tests). The full suite passed (45 files, 648 tests passed, 1 skipped), TypeScript passed, Prisma validation passed, migration status is current, and the production build passed. Lint passed with the recorded pre-existing unused `stripLocations` warning. The user-confirmed Slice 4 UI QA is complete, but browser control could not initialize for the remaining legacy, snapshot-isolation, and Scenario V1 manual workflows, so Slice 5 and the patch remain open.
 
 ## Source Context
 
