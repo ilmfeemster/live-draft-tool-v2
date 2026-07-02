@@ -1,258 +1,164 @@
-# Current Slice: Phase 5 QA Correction - Ranking Library Synchronization and Collapsible Panels
-
-## Completion Status
-
-Implemented with automated validation complete, but blocked on interactive QA. Successful ranking summary refreshes now trigger a Next.js route refresh, and `Managed Sets` plus `Import Rankings` have independent accessible Minimize/Expand controls that retain mounted content. Focused validation passed (5 files, 39 tests), the full suite passed (45 files, 649 tests passed, 1 skipped), TypeScript and the production build passed, and lint reported only the known pre-existing unused `stripLocations` warning. The in-app browser control session could not initialize, so the original no-hard-refresh reproduction and interactive panel state preservation remain unverified; patch and Phase 5 completion tracking remain open.
-
-## Source Context
-
-- Active Phase 5 task: `docs/tasks.md`, Task 20 - Complete Phase 5 Regression and Exit Validation.
-- Tier patch tracking: `docs/patches/tier-semantics-tasks.md`, Slice 5.
-- QA record: `docs/qa/manual-phase-5-qa.md`.
-- Current ownership boundary:
-  - `src/app/page.tsx` loads one server-side `rankingSummaries` value;
-  - that value is passed independently to `RankingLibraryPanel` and `DraftRoom`;
-  - `RankingLibraryPanel` owns a separate local `visibleSummaries` state for immediate library updates;
-  - `DraftRoom` continues receiving the server-provided summary prop and passes it to `DraftSetupForm`;
-  - after import, rename, reorder, player correction, delete, or manual library refresh, `refreshSummaries` updates only `RankingLibraryPanel` local state;
-  - therefore sibling `DraftRoom` remains stale until a browser reload or another server navigation reruns `page.tsx`.
-- Existing Next.js client navigation is already used in `DraftRoom`; no new state library or application service is required.
-- Tier-patch automated exit gates passed: focused suites, 45-file full suite with 648 tests passed and 1 skipped, TypeScript, lint with one known warning, Prisma validation, migration status, and production build.
-- Preserve the corrected readable canonical JSON workflow assertion in `src/lib/rankingManagementWorkflow.test.ts`.
+# Current Slice: Default-Collapsed Workspace Panels
 
 ## Goal
 
-Make successful ranking-library summary changes visible in New Draft Setup immediately, without requiring a hard browser refresh or duplicate ranking state ownership, and let users independently minimize the two primary ranking-library panels without losing in-progress UI state.
+Reduce initial page height and visual noise by rendering Developer Workbench, Draft History, Active Drafts, Managed Sets, and Import Rankings minimized by default while preserving each section's existing content and independent expand behavior.
 
 ## Scope
 
 ### Goals
 
-- Trigger a Next.js server refresh after the ranking library successfully reloads authoritative summaries.
-- Preserve the library's immediate local summary update and status/error behavior.
-- Synchronize imports, renames, capability-changing edits, deletes, and manual Refresh because they already share `refreshSummaries`.
-- Ensure `page.tsx` reruns and passes current summaries to both `RankingLibraryPanel` and `DraftRoom`.
-- Verify a newly imported set appears when New Draft Setup is opened without a hard reload.
-- Add independent minimize/expand controls for `Managed Sets` and `Import Rankings`.
-- Preserve import form state, library operations, notices, diagnostics, and loaded ranking detail while either panel is minimized.
-- Preserve the completed tier-semantics behavior and exit evidence.
+- Render Developer Workbench minimized on initial load.
+- Make the Draft History section collapsible and minimized on initial load.
+- Render the nested Active Drafts group minimized when Draft History is expanded.
+- Render Managed Sets and Import Rankings minimized on initial load.
+- Keep all five sections independently expandable.
+- Preserve mounted controls, form state, draft cards, notices, and existing behavior while sections are minimized.
+- Preserve the ranking-library grid fix that lets each card shrink to its own content height.
 
 ### Non-Goals
 
-- Do not add a global state library, React context, polling, subscriptions, cache framework, or new client wrapper.
-- Do not move ranking persistence or listing into `DraftRoom` or `DraftSetupForm`.
-- Do not reload the whole browser window.
-- Do not change ranking import, validation, repository, snapshot, draft-creation, or recommendation behavior.
-- Do not alter current draft snapshots when mutable ranking summaries change.
-- Do not redesign ranking library or draft setup UI.
-- Do not add per-ranking-set card collapse, drag-and-drop, persisted panel preferences, or animation infrastructure.
-- Do not begin Phase 5.5 overall-tier recommendation work.
+- Do not persist expanded or minimized preferences across reloads.
+- Do not add animation, a global accordion controller, a shared collapse abstraction, or a state library.
+- Do not make Completed Drafts default-collapsed behavior part of this change; preserve its existing active-draft behavior.
+- Do not change draft loading, deletion, scenario, ranking import, ranking management, synchronization, or recommendation behavior.
+- Do not redesign panel styling or reorder page sections.
 
 ## Implementation Decisions
 
-### Summary Synchronization
-
-- `page.tsx` remains the authoritative cross-component summary loader.
-- `RankingLibraryPanel.refreshSummaries` continues using `listRankingLibraryAction` for its immediate local UI result.
-- After that list succeeds, call `router.refresh()` so the current route's Server Component payload is regenerated and sibling consumers receive the same authoritative summaries.
-- Do not call `router.refresh()` when listing fails; preserve the last valid local and server snapshots with the existing error message.
-- Put the route refresh inside the shared successful `refreshSummaries` branch rather than duplicating it after each mutation. This covers every current summary-changing path consistently.
-- A Next router refresh preserves client component state while replacing updated server props, which is the desired behavior for the open draft and ranking library.
-
-### Collapsible Panels
-
-- `Managed Sets` and `Import Rankings` each own an independent boolean expanded state initialized to `true`.
-- Each panel header gets a visible `Minimize` or `Expand` button with a panel-specific `aria-label`, `aria-expanded`, and `aria-controls` value.
-- Keep the `Managed Sets` Refresh action visible and usable while its content is minimized.
-- Hide panel content with the HTML `hidden` attribute rather than conditional unmounting. This preserves the import format, name, selected file input, and other local DOM state while minimized.
-- Do not move operation notices, management errors, import diagnostics, warnings, or `RankingSetEditorPanel` inside either collapsible region. They remain visible and actionable.
-- Minimize state is intentionally session-local and resets to expanded after a page reload.
+- Continue using native `<details>` and `<summary>` for Developer Workbench and draft-history sections so their content remains mounted and browser-managed disclosure behavior stays intact.
+- Remove the initial `open` state from Developer Workbench and Active Drafts.
+- Convert the Draft History section header into an accessible native disclosure summary and place the existing history body inside it.
+- Keep the Draft History count visible in its collapsed summary.
+- Preserve the existing nested Active Drafts and Completed Drafts disclosures inside Draft History.
+- Initialize the existing Managed Sets and Import Rankings expanded-state booleans to `false`; retain their current buttons, ARIA attributes, stable content IDs, and `hidden` behavior.
+- Keep every disclosure independent and session-local. Expanding one section must not expand or minimize another.
 
 ## Implementation Steps
 
-1. Synchronize server consumers after successful summary refresh.
+1. Default Developer Workbench to minimized.
+
+   In `src/components/DeveloperWorkbenchPanel.tsx`:
+
+   - remove the `open` attribute from its existing `<details>` element;
+   - retain the current summary, Expand/Minimize indicator, content, handlers, and pending-state behavior.
+
+   In `src/components/DeveloperWorkbenchPanel.test.tsx`:
+
+   - update the initial-render assertion to require a closed `<details>` element;
+   - retain coverage for the summary, disclosure labels, status, controls, and errors.
+
+2. Make Draft History and Active Drafts minimized by default.
+
+   In `src/components/DraftHistoryList.tsx`:
+
+   - convert the top-level Draft History container into a native `<details>` disclosure without `open`;
+   - use the existing Draft History title, description, and active/completed count in its always-visible `<summary>`;
+   - add the same visible Expand/Minimize indicator pattern used by the other native disclosures;
+   - keep the existing empty state and active/completed groups inside the Draft History body;
+   - remove `open` from the Active Drafts `<details>` element;
+   - preserve Completed Drafts' current `open={isActiveDraftComplete}` behavior and all navigation/deletion logic.
+
+   In `src/components/DraftHistoryList.test.tsx`:
+
+   - assert Draft History and Active Drafts render as closed native disclosures initially;
+   - retain assertions for counts, draft cards, loaded state, delete controls, and the empty-history state;
+   - ensure the disclosure labels remain present.
+
+3. Default both ranking-library panels to minimized.
 
    In `src/components/RankingLibraryPanel.tsx`:
 
-   - import `useRouter` from `next/navigation`;
-   - create the router once in `RankingLibraryPanel`;
-   - in the successful branch of `refreshSummaries`, retain the existing local summary and error updates;
-   - call `router.refresh()` after applying the successful local result;
-   - keep the existing boolean result and failure path unchanged;
-   - do not add route refresh calls to individual import, edit, delete, or button handlers.
-
-2. Add independent accessible panel controls.
-
-   In `src/components/RankingLibraryPanel.tsx`:
-
-   - add separate expanded state for `Managed Sets` and `Import Rankings`, both initially `true`;
-   - add a `Minimize`/`Expand` toggle to each panel header;
-   - give each toggle a panel-specific accessible label, `aria-expanded`, and `aria-controls`;
-   - give each content region a stable matching `id` and toggle its `hidden` attribute;
-   - keep the Managed Sets `Refresh` button in the always-visible header action group;
-   - preserve import form values and file selection when minimizing and reopening Import Rankings;
-   - keep operation notices, errors, warnings, and loaded ranking detail outside both hidden regions;
-   - do not add a reusable collapse abstraction for only two local panels.
-
-3. Keep focused component coverage compatible with the router and panel controls.
+   - initialize `isManagedSetsExpanded` and `isImportRankingsExpanded` to `false`;
+   - retain the independent toggle handlers, accessible labels, `aria-expanded`, `aria-controls`, stable content IDs, and mounted hidden regions;
+   - retain `items-start` on the two-column grid so either minimized card shrinks independently;
+   - keep Managed Sets Refresh visible and keep notices, diagnostics, warnings, and loaded ranking detail outside the hidden regions.
 
    In `src/components/RankingLibraryPanel.test.tsx`:
 
-   - mock `next/navigation` with a stable `useRouter` result that provides `refresh`;
-   - assert both panel toggles render expanded by default with correct accessible names and content IDs;
-   - assert the initial server-rendered view still contains managed-set content and import controls;
-   - retain all existing library rendering, terminology, diagnostics, export filename, and delete-copy assertions;
-   - do not add trivial implementation-detail assertions solely to check hook setter calls or `router.refresh`;
-   - rely on focused manual QA for toggle interaction, state preservation, and observable sibling synchronization because the current component test environment is server-render-only and has no DOM interaction harness.
+   - update initial-render assertions to expect `aria-expanded="false"` and panel-specific Expand labels;
+   - retain coverage that both content regions and their controls remain rendered in the markup;
+   - retain existing ranking-library, import-format, diagnostics, export, and delete-copy coverage.
 
-4. Run focused automated regression validation.
+4. Run focused automated validation.
 
    Run:
 
    ```text
-   npm test -- src/components/RankingLibraryPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
+   npm test -- src/components/DeveloperWorkbenchPanel.test.tsx src/components/DraftHistoryList.test.tsx src/components/RankingLibraryPanel.test.tsx
    npx tsc --noEmit
    npm run lint
    ```
 
-   Confirm:
+   Accept only the already-recorded unrelated `stripLocations` lint warning if it remains unchanged.
 
-   - ranking library still renders and compiles with the router dependency;
-   - draft setup still renders all supplied summaries and validation states;
-   - ranking import/management actions remain unchanged;
-   - readable canonical export behavior remains green;
-   - only the recorded unrelated `stripLocations` warning is accepted.
+5. Run focused manual QA.
 
-5. Run full project validation because this changes a shared top-level workflow.
+   On a fresh page load, confirm:
 
-   Run:
+   - Developer Workbench, Draft History, Managed Sets, and Import Rankings show only their collapsed summaries or headers;
+   - expanding Draft History reveals Active Drafts still minimized by default;
+   - each of the five sections expands and minimizes independently;
+   - each minimized container visibly shrinks to its header height;
+   - expanding sections restores their existing controls and content;
+   - a selected ranking import file and entered import name survive minimizing and reopening Import Rankings during the same mounted session;
+   - ranking notices, diagnostics, warnings, loaded ranking detail, and Managed Sets Refresh retain their existing visibility rules;
+   - draft navigation, deletion, scenario controls, and ranking synchronization still work as before.
 
-   ```text
-   npm test
-   npm run build
-   ```
-
-   Record exact file/test counts and any skipped tests.
-
-6. Complete focused manual QA.
-
-   Without manually reloading the browser page:
-
-   - import a valid new ranking set and confirm it appears in the ranking library;
-   - open New Draft Setup and confirm the new set appears immediately;
-   - select it and confirm its name, player count, source kind, and capability warnings are current;
-   - rename the set, reopen New Draft Setup, and confirm the new name appears;
-   - make a supported player correction that changes summary capability state when applicable, reopen setup, and confirm warnings are current;
-   - delete the set, reopen setup, and confirm it is absent;
-   - confirm the active draft and any existing immutable snapshot remain unchanged throughout;
-   - confirm a failed import does not refresh sibling consumers or introduce a phantom set.
-   - minimize Managed Sets and confirm its cards hide while its header and Refresh action remain visible;
-   - expand Managed Sets and confirm the same cards return;
-   - enter an import name and choose a file, minimize Import Rankings, expand it, and confirm the in-progress form state remains intact;
-   - confirm the two panels minimize independently;
-   - confirm notices, import warnings/errors, and loaded ranking detail remain visible when either panel is minimized.
-
-7. Finalize tracking only after the corrective QA passes.
-
-   In `docs/qa/manual-phase-5-qa.md`:
-
-   - record the stale-summary defect and the successful no-hard-refresh verification;
-   - retain accurate evidence for the tier-semantics and broader Phase 5 checks;
-   - do not claim any workflow that was not observed.
-
-   In `docs/patches/tier-semantics-tasks.md`:
-
-   - mark Slice 5 complete only if the user-confirmed remaining tier QA and this corrective workflow both pass;
-   - record the final correction and validation results without recasting it as tier-scoring behavior.
-
-   In `docs/tasks.md`:
-
-   - add the corrective result under Task 20;
-   - leave Task 20 unchecked unless its full separate checklist is confirmed complete.
-
-   In this file:
-
-   - update Completion Status with exact automated and manual results;
-   - stop without beginning another slice.
+6. Record completion in this file only after validation passes, then stop.
 
 ## Expected Files
 
 Production:
 
+- `src/components/DeveloperWorkbenchPanel.tsx`
+- `src/components/DraftHistoryList.tsx`
 - `src/components/RankingLibraryPanel.tsx`
 
-Focused test:
+Focused tests:
 
+- `src/components/DeveloperWorkbenchPanel.test.tsx`
+- `src/components/DraftHistoryList.test.tsx`
 - `src/components/RankingLibraryPanel.test.tsx`
 
-Tracking after successful validation:
+Planning and completion record:
 
 - `docs/current-slice.md`
-- `docs/qa/manual-phase-5-qa.md`
-- `docs/patches/tier-semantics-tasks.md`
-- `docs/tasks.md`
 
-Do not touch:
-
-- `src/app/page.tsx`, `DraftRoom`, or `DraftSetupForm` unless implementation proves `router.refresh()` does not replace their server props; stop and report before expanding;
-- ranking actions, workflows, repositories, imports, snapshots, recommendations, Prisma, migrations, dependencies, or data files;
-- roadmap, project, architecture, or tier-semantics design documents;
-- Phase 5.5 implementation.
-
-## Tests
-
-Required focused validation:
-
-```text
-npm test -- src/components/RankingLibraryPanel.test.tsx src/components/DraftSetupForm.test.tsx src/components/DraftRoom.test.tsx src/lib/rankingManagementWorkflow.test.ts src/app/actions/rankingActions.test.ts
-npx tsc --noEmit
-npm run lint
-```
-
-Required full validation:
-
-```text
-npm test
-npm run build
-```
+Do not touch page loading, actions, repositories, workflows, Prisma, migrations, recommendation code, dependencies, or roadmap documents.
 
 ## Acceptance Criteria
 
-- A successfully imported ranking set appears in New Draft Setup without a hard browser refresh.
-- Successful rename, capability-changing edit, delete, and manual library refresh also synchronize draft-setup summaries.
-- Failed listing or import leaves the last valid summaries visible and does not trigger a phantom setup option.
-- Ranking library preserves its immediate local update, messages, errors, and warnings.
-- Managed Sets and Import Rankings each have an independent accessible Minimize/Expand control.
-- Both panels render expanded by default, and minimizing one does not minimize the other.
-- Minimizing Managed Sets hides only its cards or empty state; its header and Refresh action remain visible.
-- Minimizing Import Rankings preserves its format, name, selected file, and pending local form state when reopened.
-- Operation notices, diagnostics, warnings, and loaded ranking detail remain visible regardless of panel state.
-- The active draft and immutable ranking snapshot do not change when mutable library summaries refresh.
-- `page.tsx` remains the authoritative cross-component summary source.
-- No global store, polling, full browser reload, new persistence query in draft setup, or unrelated refactor is introduced.
-- Focused tests, TypeScript, lint, full tests, and build pass with only explicitly recorded pre-existing warnings.
-- Manual QA proves the original reproduction no longer requires a browser refresh.
-- Tier-patch and Phase 5 tracking state remain accurate and do not overstate completion.
+- Developer Workbench is minimized by default and expands with all existing content intact.
+- Draft History is minimized by default and retains its description and active/completed count in the disclosure header.
+- Active Drafts is minimized by default when Draft History is opened.
+- Managed Sets and Import Rankings are minimized by default.
+- Each of the five disclosures expands and minimizes independently.
+- Every minimized container visibly shrinks to its header rather than retaining a sibling's expanded height.
+- Existing form values and selected files remain intact when Import Rankings is minimized and reopened during the mounted session.
+- Managed Sets Refresh, ranking notices, diagnostics, warnings, and loaded detail preserve their existing visibility and behavior.
+- Completed Drafts preserves its existing automatic-open behavior when the loaded draft is complete.
+- No disclosure preference is persisted across reloads.
+- No draft, scenario, ranking, snapshot, or recommendation behavior changes.
+- Focused tests, TypeScript, and lint pass with only explicitly recorded pre-existing warnings.
+- Manual QA confirms the five initial collapsed states and independent controls.
 
 ## Failure Handling
 
-- If `router.refresh()` does not update the `DraftRoom` prop in manual QA, stop and report before introducing lifted state or a client wrapper.
-- If router refresh resets active draft or transient workbench state, stop; preserving current client state is required.
-- If summary listing fails after a successful mutation, keep the existing last-valid-state behavior and do not refresh server consumers.
-- If hiding panel content clears the selected file or other form state, use retained DOM visibility semantics; do not add a second form-state model.
-- If a test requires adding a DOM environment or dependency solely for this slice, stop and rely on the existing focused tests plus manual observable QA.
-- If validation reveals an unrelated failure, report it rather than changing out-of-scope code.
-- Preserve user work and stop on unsafe overlap.
+- If wrapping Draft History in native `<details>` disrupts nested disclosure behavior or keyboard access, stop and report before introducing custom state management.
+- If minimizing a ranking panel clears import form or file-input state, retain the mounted `hidden` approach and do not create a second form-state model.
+- If a panel still stretches while minimized, correct only its immediate layout alignment; do not redesign the surrounding page.
+- If validation exposes an unrelated failure, report it rather than changing out-of-scope code.
 
 ## Follow-Up
 
-After this correction passes, finish the pending tier-patch/Phase 5 QA tracking based on the actually completed checklist. Then plan only the remaining Phase 5 Task 20 work; do not begin Phase 5.5 automatically.
+After this slice passes, return to the remaining Phase 5 regression and exit tracking. Do not begin Phase 5.5 automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. The explicit user-requested additions remain localized to the same ranking-library component pair as the synchronization correction.
-- Executable by a lower-reasoning pass: yes. The exact hook, success branch, tests, manual reproduction, and stop condition are explicit.
-- Avoids unnecessary architecture changes: yes. Server-loaded props remain authoritative; no new state layer is introduced.
-- Blast radius reasonable: yes. Runtime and automated changes remain limited to one component pair.
-- Review/revert comfort: yes. The change is localized to route revalidation after an already-successful refresh.
-- Observable/testable acceptance criteria: yes. The original import/setup reproduction and related mutation cases are directly visible in manual QA.
+- Smallest meaningful increment: yes. All changes express one consistent default-collapsed workspace behavior explicitly requested for the five named sections.
+- Executable by a lower-reasoning pass: yes. Each owning component, initial-state change, preserved behavior, and test update is named.
+- Avoids unnecessary architecture changes: yes. It reuses native disclosures and existing local state.
+- Blast radius reasonable: yes. Runtime changes are limited to three existing UI components, with their three focused tests.
+- Review/revert comfort: yes. The changes are local initial-state and disclosure-markup edits without data-flow changes.
+- Observable/testable acceptance criteria: yes. Initial disclosure state, independent expansion, retained content, and visible shrink behavior are directly verifiable.
