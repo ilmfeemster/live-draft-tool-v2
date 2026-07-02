@@ -119,7 +119,6 @@ export function AvailablePlayersTable({
                 <th className="border-b border-zinc-200 px-4 py-3 font-semibold">Player</th>
                 <th className="w-24 border-b border-zinc-200 px-4 py-3 font-semibold">Team</th>
                 <th className="w-28 border-b border-zinc-200 px-4 py-3 font-semibold">Pos</th>
-                <th className="w-24 border-b border-zinc-200 px-4 py-3 font-semibold">Tier</th>
                 <th className="w-28 border-b border-zinc-200 px-4 py-3 font-semibold">Action</th>
               </tr>
             </thead>
@@ -138,7 +137,6 @@ export function AvailablePlayersTable({
                         {entry.positionRank}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-zinc-600">{entry.tier}</td>
                     <td className="px-4 py-3">
                       <button
                         type="button"
@@ -155,7 +153,7 @@ export function AvailablePlayersTable({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-zinc-500">
+                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-zinc-500">
                     No available players match the current filters.
                   </td>
                 </tr>

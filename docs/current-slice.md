@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned and awaiting implementation approval. Tier Semantics Patch Slice 4A is implemented, its automated validation passed, and the user completed ranking-management QA successfully. This 4B increment closes the remaining draft setup, available-player, and recommendation-display terminology gap.
+Implemented with automated validation complete, but not yet fully validated. Focused draft-workflow validation passed (4 files, 13 tests), TypeScript no-emit validation passed, and lint passed with the recorded pre-existing unused `stripLocations` warning in `src/lib/rankingNormalizer.test.ts`. Required browser QA is blocked because the in-app browser control session cannot initialize in the current environment, so patch Slice 4 remains open and `docs/patches/tier-semantics-tasks.md` is unchanged.
 
 ## Source Context
 

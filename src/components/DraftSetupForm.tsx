@@ -455,7 +455,7 @@ function getRankingSummaryWarnings(summary: RankingSetSummary): string[] {
 
   if (neutralTierPositions.length > 0) {
     warnings.push(
-      `Tiers were neutralized for ${neutralTierPositions.join(", ")}.`,
+      `Recommendation tier pressure is unavailable for ${neutralTierPositions.join(", ")}.`,
     );
   }
 

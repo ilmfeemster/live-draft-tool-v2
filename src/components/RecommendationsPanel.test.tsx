@@ -60,7 +60,54 @@ describe("RecommendationsPanel diagnostics", () => {
 
     expect(markup).toContain("disabled=\"\"");
   });
+
+  it("renders neutral recommendation output without tier-cliff details", () => {
+    const markup = renderToStaticMarkup(
+      <RecommendationsPanel
+        isDraftComplete={false}
+        isUserPick={true}
+        recommendations={[createNeutralRecommendation()]}
+        onDraftPlayer={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Neutral Receiver");
+    expect(markup).toContain("Score 82.0");
+    expect(markup).toContain("base_value");
+    expect(markup).toContain("roster_fit");
+    expect(markup).toContain("No cap adjustments.");
+    expect(markup).toContain("No score-backed reasons.");
+    expect(markup).not.toContain("tier_cliff");
+    expect(markup).not.toContain("A major WR tier drop follows.");
+  });
 });
+
+function createNeutralRecommendation(): PlayerRecommendation {
+  return {
+    ranking: {
+      player: {
+        id: "neutral-wr",
+        name: "Neutral Receiver",
+        team: "TST",
+        position: "WR",
+      },
+      overallRank: 12,
+      adpRank: 13,
+      positionRank: 5,
+      tier: 1,
+    },
+    playerId: "neutral-wr",
+    totalScore: 82,
+    baseScore: 80,
+    contextScore: 2,
+    components: [
+      { id: "base_value", delta: 80, direction: "positive" },
+      { id: "roster_fit", delta: 2, direction: "positive" },
+    ],
+    scoreAdjustments: [],
+    reasons: [],
+  };
+}
 
 function createRecommendations(): PlayerRecommendation[] {
   return [

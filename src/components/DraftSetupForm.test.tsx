@@ -110,7 +110,12 @@ describe("DraftSetupForm", () => {
       ],
     });
 
-    expect(markup).toContain("Tiers were neutralized for QB, WR.");
+    expect(markup).toContain(
+      "Recommendation tier pressure is unavailable for QB, WR.",
+    );
+    expect(markup).not.toContain(
+      "Recommendation tier pressure is unavailable for RB",
+    );
     expect(markup).toContain("Team metadata is missing or partial.");
     expect(markup).toContain("ADP metadata is missing or partial.");
   });
