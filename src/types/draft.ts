@@ -60,6 +60,23 @@ export type DraftPocket = Readonly<{
   diversityLabels: readonly DraftPocketDiversityLabel[];
 }>;
 
+export type DraftPocketSignalLevel = "high" | "medium" | "low" | "neutral";
+
+export type CandidatePocketSignal = Readonly<{
+  candidatePlayerId: string;
+  candidatePosition: Position;
+  candidateInCurrentPocket: boolean;
+  candidateInForecastedPocket: boolean;
+  comparableReplacementCount: number;
+  nearReplacementCount: number;
+  replacementQuality: DraftPocketSignalLevel;
+  skipSafety: DraftPocketSignalLevel;
+  currentProfileCount: number;
+  forecastedProfileCount: number;
+  profileDisappeared: boolean;
+  highestMeaningfulTierDisappeared: boolean;
+}>;
+
 export type DraftPocketForecast = Readonly<{
   status: DraftPocketForecastStatus;
   targetPickNumber: number | null;

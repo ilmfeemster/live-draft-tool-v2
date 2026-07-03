@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Not started.
+Complete. Added the typed, pure `CandidatePocketSignal` and `createCandidatePocketSignal` analysis over one shared forecast. The implementation applies the inclusive 12-rank replacement window, distinguishes comparable and near replacements, derives exact replacement-quality and skip-safety categories, and exposes source-tier or neutral-profile transition evidence without reading ADP, diversity labels, roster state, or scoring inputs. Candidate analysis remains uncalled by recommendation generation, so scoring and UI behavior are unchanged. Focused validation passed with 1 test file and 31 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
 
 ## Goal
 

@@ -306,7 +306,7 @@ Convert current and forecasted boards into the bounded, tier-aware decision spac
 
 ## Task 7 - Derive Candidate Replacement Quality and Skip Safety
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 
@@ -612,7 +612,7 @@ Prove overall-tier quality and draft-pocket timing improve decisions without wea
 
 ## Testing Status
 
-Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, original direct-ADP component, deterministic board-forecast foundation, and tier-aware pocket construction tests are complete through Task 6. Candidate replacement-quality and skip-safety tests have not started.
+Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, original direct-ADP component, deterministic board-forecast foundation, tier-aware pocket construction, and candidate replacement-quality and skip-safety tests are complete through Task 7. Draft-pocket scoring integration tests have not started.
 
 Remaining Phase 5.5 work should prioritize pure forecast and pocket tests, exact candidate-signal and ordering assertions, score-backed explanation tests, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
 

@@ -1,4 +1,5 @@
 import type {
+  CandidatePocketSignal,
   Draft,
   DraftPocket,
   DraftPocketDiversityLabel,
@@ -15,6 +16,12 @@ type CreateDraftPocketForecastInput = Readonly<{
   draft: Draft;
   rankings: readonly RecommendationRankingFact[];
   userTeamId: string;
+}>;
+
+type CreateCandidatePocketSignalInput = Readonly<{
+  candidate: RecommendationRankingFact;
+  forecast: DraftPocketForecast;
+  rankings: readonly RecommendationRankingFact[];
 }>;
 
 type ForecastRanking = Readonly<{
@@ -193,6 +200,187 @@ export function createDraftPocket(
     overallTierCounts,
     positionCounts,
     diversityLabels: getDiversityLabels(positionCounts, pocketRankings.length),
+  };
+}
+
+function resolvePocketRankings(
+  playerIds: readonly string[],
+  rankingsByPlayerId: ReadonlyMap<string, RecommendationRankingFact>,
+) {
+  return playerIds.map((playerId) => {
+    const ranking = rankingsByPlayerId.get(playerId);
+
+    if (!ranking) {
+      throw new Error(`Draft pocket player ${playerId} is missing from ranking context.`);
+    }
+
+    return ranking;
+  });
+}
+
+function isWithinReplacementRankWindow(
+  candidate: RecommendationRankingFact,
+  replacement: RecommendationRankingFact,
+) {
+  return Math.abs(candidate.overallRank - replacement.overallRank) <= 12;
+}
+
+function getProfileCount(
+  candidate: RecommendationRankingFact,
+  pocketRankings: readonly RecommendationRankingFact[],
+) {
+  return pocketRankings.filter((ranking) => {
+    if (ranking.player.position !== candidate.player.position) {
+      return false;
+    }
+
+    if (candidate.overallTierOrigin === "source") {
+      return (
+        ranking.overallTierOrigin === "source" &&
+        ranking.overallTier === candidate.overallTier
+      );
+    }
+
+    return (
+      ranking.overallTierOrigin === "defaulted-neutral" &&
+      isWithinReplacementRankWindow(candidate, ranking)
+    );
+  }).length;
+}
+
+function createNeutralCandidateSignal({
+  candidate,
+  candidateInCurrentPocket,
+  currentProfileCount,
+}: {
+  candidate: RecommendationRankingFact;
+  candidateInCurrentPocket: boolean;
+  currentProfileCount: number;
+}): CandidatePocketSignal {
+  return {
+    candidatePlayerId: candidate.player.id,
+    candidatePosition: candidate.player.position,
+    candidateInCurrentPocket,
+    candidateInForecastedPocket: false,
+    comparableReplacementCount: 0,
+    nearReplacementCount: 0,
+    replacementQuality: "neutral",
+    skipSafety: "neutral",
+    currentProfileCount,
+    forecastedProfileCount: 0,
+    profileDisappeared: false,
+    highestMeaningfulTierDisappeared: false,
+  };
+}
+
+export function createCandidatePocketSignal({
+  candidate,
+  forecast,
+  rankings,
+}: CreateCandidatePocketSignalInput): CandidatePocketSignal {
+  const rankingsByPlayerId = new Map(
+    rankings.map((ranking) => [ranking.player.id, ranking] as const),
+  );
+  const candidateInCurrentPocket = forecast.currentPocket.playerIds.includes(
+    candidate.player.id,
+  );
+  const currentPocketRankings = resolvePocketRankings(
+    forecast.currentPocket.playerIds,
+    rankingsByPlayerId,
+  );
+  const currentProfileCount = candidateInCurrentPocket
+    ? getProfileCount(candidate, currentPocketRankings)
+    : 0;
+
+  if (
+    forecast.status !== "active" ||
+    forecast.forecastedPocket === null ||
+    !candidateInCurrentPocket
+  ) {
+    return createNeutralCandidateSignal({
+      candidate,
+      candidateInCurrentPocket,
+      currentProfileCount,
+    });
+  }
+
+  const forecastedPocketRankings = resolvePocketRankings(
+    forecast.forecastedPocket.playerIds,
+    rankingsByPlayerId,
+  );
+  let comparableReplacementCount = 0;
+  let nearReplacementCount = 0;
+
+  for (const replacement of forecastedPocketRankings) {
+    if (
+      replacement.player.id === candidate.player.id ||
+      replacement.player.position !== candidate.player.position ||
+      !isWithinReplacementRankWindow(candidate, replacement)
+    ) {
+      continue;
+    }
+
+    if (replacement.overallTierOrigin !== candidate.overallTierOrigin) {
+      throw new Error(
+        `Candidate ${candidate.player.id} and replacement ${replacement.player.id} have mixed overall-tier origins.`,
+      );
+    }
+
+    if (
+      candidate.overallTierOrigin === "defaulted-neutral" ||
+      replacement.overallTier <= candidate.overallTier
+    ) {
+      comparableReplacementCount += 1;
+    } else {
+      nearReplacementCount += 1;
+    }
+  }
+
+  const replacementCount = comparableReplacementCount + nearReplacementCount;
+  const replacementQuality =
+    replacementCount >= 2 && comparableReplacementCount >= 1
+      ? "high"
+      : replacementCount >= 1
+        ? "medium"
+        : "low";
+  const candidateInForecastedPocket = forecast.forecastedPocket.playerIds.includes(
+    candidate.player.id,
+  );
+  const skipSafety =
+    replacementQuality === "high"
+      ? "high"
+      : replacementQuality === "medium" || candidateInForecastedPocket
+        ? "medium"
+        : "low";
+  const forecastedProfileCount = getProfileCount(
+    candidate,
+    forecastedPocketRankings,
+  );
+  const profileDisappeared =
+    currentProfileCount > 0 && forecastedProfileCount === 0;
+  const highestMeaningfulTierDisappeared =
+    candidate.overallTierOrigin === "source" &&
+    forecast.currentPocket.highestMeaningfulOverallTier === candidate.overallTier &&
+    !forecastedPocketRankings.some((ranking) => {
+      return (
+        ranking.overallTierOrigin === "source" &&
+        ranking.overallTier === candidate.overallTier
+      );
+    });
+
+  return {
+    candidatePlayerId: candidate.player.id,
+    candidatePosition: candidate.player.position,
+    candidateInCurrentPocket,
+    candidateInForecastedPocket,
+    comparableReplacementCount,
+    nearReplacementCount,
+    replacementQuality,
+    skipSafety,
+    currentProfileCount,
+    forecastedProfileCount,
+    profileDisappeared,
+    highestMeaningfulTierDisappeared,
   };
 }
 

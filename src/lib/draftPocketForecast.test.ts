@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import {
+  createCandidatePocketSignal,
   createDraftPocket,
   createDraftPocketForecast,
 } from "@/lib/draftPocketForecast";
 import type {
   Draft,
+  DraftPocketForecast,
   Position,
   RecommendationOverallTierOrigin,
   RecommendationRankingFact,
@@ -78,6 +80,23 @@ function createDraft({
     currentPickNumber,
     teams: createDraftTeams(teamCount),
     picks,
+  };
+}
+
+function createActiveForecast(
+  currentRankings: readonly RecommendationRankingFact[],
+  forecastedRankings: readonly RecommendationRankingFact[],
+): DraftPocketForecast {
+  return {
+    status: "active",
+    targetPickNumber: 10,
+    picksToRemove: 5,
+    missingAdpFallback: 100,
+    currentBoardPlayerIds: currentRankings.map((ranking) => ranking.player.id),
+    removalWindowPlayerIds: [],
+    forecastedBoardPlayerIds: forecastedRankings.map((ranking) => ranking.player.id),
+    currentPocket: createDraftPocket(currentRankings),
+    forecastedPocket: createDraftPocket(forecastedRankings),
   };
 }
 
@@ -262,6 +281,359 @@ describe("createDraftPocket", () => {
     });
 
     expect(createDraftPocket(rankings).diversityLabels).toEqual([label]);
+  });
+});
+
+describe("createCandidatePocketSignal", () => {
+  it("classifies same and better source-tier options as comparable replacements", () => {
+    const candidate = createRanking("candidate-rb", 20, 20, "RB", {
+      overallTier: 2,
+    });
+    const sameTier = createRanking("same-tier-rb", 25, 25, "RB", {
+      overallTier: 2,
+    });
+    const betterTier = createRanking("better-tier-rb", 18, 18, "RB", {
+      overallTier: 1,
+    });
+    const rankings = [candidate, sameTier, betterTier];
+    const forecast = createActiveForecast([candidate], [sameTier, betterTier]);
+
+    expect(createCandidatePocketSignal({ candidate, forecast, rankings })).toEqual({
+      candidatePlayerId: "candidate-rb",
+      candidatePosition: "RB",
+      candidateInCurrentPocket: true,
+      candidateInForecastedPocket: false,
+      comparableReplacementCount: 2,
+      nearReplacementCount: 0,
+      replacementQuality: "high",
+      skipSafety: "high",
+      currentProfileCount: 1,
+      forecastedProfileCount: 1,
+      profileDisappeared: false,
+      highestMeaningfulTierDisappeared: false,
+    });
+  });
+
+  it("classifies a worse source tier as a near replacement", () => {
+    const candidate = createRanking("candidate-rb", 20, 20, "RB", {
+      overallTier: 2,
+    });
+    const near = createRanking("near-rb", 25, 25, "RB", { overallTier: 3 });
+    const rankings = [candidate, near];
+    const forecast = createActiveForecast([candidate], [near]);
+
+    expect(createCandidatePocketSignal({ candidate, forecast, rankings })).toMatchObject({
+      comparableReplacementCount: 0,
+      nearReplacementCount: 1,
+      replacementQuality: "medium",
+      skipSafety: "medium",
+      forecastedProfileCount: 0,
+      profileDisappeared: true,
+      highestMeaningfulTierDisappeared: true,
+    });
+  });
+
+  it("includes rank distance twelve and excludes rank distance thirteen", () => {
+    const candidate = createRanking("candidate-rb", 20, 20, "RB", {
+      overallTier: 2,
+    });
+    const atBoundary = createRanking("boundary-rb", 32, 32, "RB", {
+      overallTier: 2,
+    });
+    const outsideBoundary = createRanking("outside-rb", 33, 33, "RB", {
+      overallTier: 2,
+    });
+    const rankings = [candidate, atBoundary, outsideBoundary];
+    const forecast = createActiveForecast(
+      [candidate],
+      [atBoundary, outsideBoundary],
+    );
+
+    expect(createCandidatePocketSignal({ candidate, forecast, rankings })).toMatchObject({
+      comparableReplacementCount: 1,
+      nearReplacementCount: 0,
+      replacementQuality: "medium",
+      skipSafety: "medium",
+    });
+  });
+
+  it("keeps skip safety medium when the candidate remains without a replacement", () => {
+    const candidate = createRanking("candidate-te", 20, 20, "TE", {
+      overallTier: 2,
+    });
+    const rankings = [candidate];
+    const forecast = createActiveForecast([candidate], [candidate]);
+
+    expect(createCandidatePocketSignal({ candidate, forecast, rankings })).toMatchObject({
+      candidateInForecastedPocket: true,
+      comparableReplacementCount: 0,
+      nearReplacementCount: 0,
+      replacementQuality: "low",
+      skipSafety: "medium",
+      currentProfileCount: 1,
+      forecastedProfileCount: 1,
+      profileDisappeared: false,
+    });
+  });
+
+  it("uses position and rank proximity for defaulted-neutral replacements", () => {
+    const candidate = createRanking("candidate-wr", 20, 20, "WR", {
+      overallTierOrigin: "defaulted-neutral",
+    });
+    const nearbyOne = createRanking("nearby-wr-1", 25, 25, "WR", {
+      overallTierOrigin: "defaulted-neutral",
+    });
+    const nearbyTwo = createRanking("nearby-wr-2", 32, 32, "WR", {
+      overallTierOrigin: "defaulted-neutral",
+    });
+    const distant = createRanking("distant-wr", 33, 33, "WR", {
+      overallTierOrigin: "defaulted-neutral",
+    });
+    const rankings = [candidate, nearbyOne, nearbyTwo, distant];
+    const forecast = createActiveForecast(
+      [candidate],
+      [nearbyOne, nearbyTwo, distant],
+    );
+
+    expect(createCandidatePocketSignal({ candidate, forecast, rankings })).toMatchObject({
+      comparableReplacementCount: 2,
+      nearReplacementCount: 0,
+      replacementQuality: "high",
+      skipSafety: "high",
+      currentProfileCount: 1,
+      forecastedProfileCount: 2,
+      highestMeaningfulTierDisappeared: false,
+    });
+  });
+
+  it("reports disappearing profile and highest meaningful tier evidence", () => {
+    const candidate = createRanking("candidate-rb", 10, 10, "RB", {
+      overallTier: 1,
+    });
+    const sameProfile = createRanking("same-profile-rb", 15, 15, "RB", {
+      overallTier: 1,
+    });
+    const currentTierPeer = createRanking("tier-peer-wr", 12, 12, "WR", {
+      overallTier: 1,
+    });
+    const lowerTier = createRanking("lower-tier-wr", 18, 18, "WR", {
+      overallTier: 2,
+    });
+    const rankings = [candidate, sameProfile, currentTierPeer, lowerTier];
+    const forecast = createActiveForecast(
+      [candidate, sameProfile, currentTierPeer],
+      [lowerTier],
+    );
+
+    expect(createCandidatePocketSignal({ candidate, forecast, rankings })).toEqual({
+      candidatePlayerId: "candidate-rb",
+      candidatePosition: "RB",
+      candidateInCurrentPocket: true,
+      candidateInForecastedPocket: false,
+      comparableReplacementCount: 0,
+      nearReplacementCount: 0,
+      replacementQuality: "low",
+      skipSafety: "low",
+      currentProfileCount: 2,
+      forecastedProfileCount: 0,
+      profileDisappeared: true,
+      highestMeaningfulTierDisappeared: true,
+    });
+  });
+
+  it("returns neutral evidence for neutral forecasts and candidates outside the current pocket", () => {
+    const candidate = createRanking("candidate-rb", 10, null, "RB", {
+      overallTier: 1,
+    });
+    const outside = createRanking("outside-wr", 30, null, "WR", {
+      overallTier: 2,
+    });
+    const rankings = [candidate, outside];
+    const activeForecast = createActiveForecast([candidate], [outside]);
+    const neutralForecast: DraftPocketForecast = {
+      ...activeForecast,
+      status: "no-adp",
+      forecastedPocket: null,
+      forecastedBoardPlayerIds: [],
+    };
+
+    expect(
+      createCandidatePocketSignal({ candidate, forecast: neutralForecast, rankings }),
+    ).toMatchObject({
+      candidateInCurrentPocket: true,
+      replacementQuality: "neutral",
+      skipSafety: "neutral",
+      currentProfileCount: 1,
+      forecastedProfileCount: 0,
+      profileDisappeared: false,
+      highestMeaningfulTierDisappeared: false,
+    });
+    expect(
+      createCandidatePocketSignal({ candidate: outside, forecast: activeForecast, rankings }),
+    ).toMatchObject({
+      candidateInCurrentPocket: false,
+      candidateInForecastedPocket: false,
+      replacementQuality: "neutral",
+      skipSafety: "neutral",
+      currentProfileCount: 0,
+      forecastedProfileCount: 0,
+    });
+  });
+
+  it("derives deep-WR and disappearing-RB behavior without position-specific weights", () => {
+    const candidateWr = createRanking("candidate-wr", 20, 20, "WR", {
+      overallTier: 2,
+    });
+    const candidateRb = createRanking("candidate-rb", 21, 21, "RB", {
+      overallTier: 2,
+    });
+    const replacementWrOne = createRanking("replacement-wr-1", 25, 25, "WR", {
+      overallTier: 2,
+    });
+    const replacementWrTwo = createRanking("replacement-wr-2", 30, 30, "WR", {
+      overallTier: 3,
+    });
+    const rankings = [
+      candidateWr,
+      candidateRb,
+      replacementWrOne,
+      replacementWrTwo,
+    ];
+    const forecast = createActiveForecast(
+      [candidateWr, candidateRb],
+      [replacementWrOne, replacementWrTwo],
+    );
+
+    expect(
+      createCandidatePocketSignal({ candidate: candidateWr, forecast, rankings }),
+    ).toMatchObject({
+      replacementQuality: "high",
+      skipSafety: "high",
+    });
+    expect(
+      createCandidatePocketSignal({ candidate: candidateRb, forecast, rankings }),
+    ).toMatchObject({
+      replacementQuality: "low",
+      skipSafety: "low",
+    });
+  });
+
+  it("treats both-deep and both-thin RB/WR scenarios through the same rules", () => {
+    const candidateWr = createRanking("candidate-wr", 20, 20, "WR", {
+      overallTier: 2,
+    });
+    const candidateRb = createRanking("candidate-rb", 21, 21, "RB", {
+      overallTier: 2,
+    });
+    const deepReplacements = [
+      createRanking("wr-1", 25, 25, "WR", { overallTier: 2 }),
+      createRanking("wr-2", 30, 30, "WR", { overallTier: 3 }),
+      createRanking("rb-1", 26, 26, "RB", { overallTier: 2 }),
+      createRanking("rb-2", 31, 31, "RB", { overallTier: 3 }),
+    ];
+    const rankings = [candidateWr, candidateRb, ...deepReplacements];
+    const bothDeep = createActiveForecast(
+      [candidateWr, candidateRb],
+      deepReplacements,
+    );
+    const bothThin = createActiveForecast([candidateWr, candidateRb], []);
+
+    for (const candidate of [candidateWr, candidateRb]) {
+      expect(
+        createCandidatePocketSignal({ candidate, forecast: bothDeep, rankings }),
+      ).toMatchObject({ replacementQuality: "high", skipSafety: "high" });
+      expect(
+        createCandidatePocketSignal({ candidate, forecast: bothThin, rankings }),
+      ).toMatchObject({ replacementQuality: "low", skipSafety: "low" });
+    }
+  });
+
+  it("ignores onesie diversity labels and describes DST objectively", () => {
+    const candidateTe = createRanking("candidate-te", 20, 20, "TE", {
+      overallTier: 2,
+    });
+    const replacementTe = createRanking("replacement-te", 25, 25, "TE", {
+      overallTier: 2,
+    });
+    const candidateDst = createRanking("candidate-dst", 30, 30, "DST", {
+      overallTier: 3,
+    });
+    const replacementDst = createRanking("replacement-dst", 35, 35, "DST", {
+      overallTier: 3,
+    });
+    const rankings = [candidateTe, replacementTe, candidateDst, replacementDst];
+    const baseForecast = createActiveForecast(
+      [candidateTe, candidateDst],
+      [replacementTe, replacementDst],
+    );
+    const onesieForecast: DraftPocketForecast = {
+      ...baseForecast,
+      forecastedPocket: {
+        ...baseForecast.forecastedPocket!,
+        diversityLabels: ["onesie-heavy"],
+      },
+    };
+
+    expect(
+      createCandidatePocketSignal({ candidate: candidateTe, forecast: onesieForecast, rankings }),
+    ).toEqual(
+      createCandidatePocketSignal({ candidate: candidateTe, forecast: baseForecast, rankings }),
+    );
+    expect(
+      createCandidatePocketSignal({ candidate: candidateDst, forecast: baseForecast, rankings }),
+    ).toMatchObject({
+      candidatePosition: "DST",
+      comparableReplacementCount: 1,
+      replacementQuality: "medium",
+      skipSafety: "medium",
+    });
+  });
+
+  it("rejects mixed tier origins and unresolved pocket identities", () => {
+    const candidate = createRanking("candidate-rb", 20, 20, "RB", {
+      overallTier: 2,
+    });
+    const mixedReplacement = createRanking("mixed-rb", 25, 25, "RB", {
+      overallTierOrigin: "defaulted-neutral",
+    });
+    const rankings = [candidate, mixedReplacement];
+    const mixedForecast = createActiveForecast([candidate], [mixedReplacement]);
+    const missingForecast: DraftPocketForecast = {
+      ...mixedForecast,
+      currentPocket: {
+        ...mixedForecast.currentPocket,
+        playerIds: ["missing-player"],
+      },
+    };
+
+    expect(() => {
+      createCandidatePocketSignal({ candidate, forecast: mixedForecast, rankings });
+    }).toThrow("mixed overall-tier origins");
+    expect(() => {
+      createCandidatePocketSignal({ candidate, forecast: missingForecast, rankings });
+    }).toThrow("missing from ranking context");
+  });
+
+  it("is deterministic and does not mutate the candidate, forecast, or rankings", () => {
+    const candidate = createRanking("candidate-rb", 20, 20, "RB", {
+      overallTier: 2,
+    });
+    const replacement = createRanking("replacement-rb", 25, 25, "RB", {
+      overallTier: 2,
+    });
+    const rankings = [candidate, replacement];
+    const forecast = createActiveForecast([candidate], [replacement]);
+    const candidateBefore = structuredClone(candidate);
+    const forecastBefore = structuredClone(forecast);
+    const rankingsBefore = structuredClone(rankings);
+
+    const first = createCandidatePocketSignal({ candidate, forecast, rankings });
+    const second = createCandidatePocketSignal({ candidate, forecast, rankings });
+
+    expect(second).toEqual(first);
+    expect(candidate).toEqual(candidateBefore);
+    expect(forecast).toEqual(forecastBefore);
+    expect(rankings).toEqual(rankingsBefore);
   });
 });
 
