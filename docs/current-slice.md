@@ -1,133 +1,141 @@
-# Current Slice: Add the Deterministic Board-Forecast Foundation
+# Current Slice: Build Tier-Aware Current and Forecasted Draft Pockets
 
 ## Completion Status
 
-Complete. Added the typed, pure `DraftPocketForecast` foundation and a focused `createDraftPocketForecast` module that derives the next user pick, normalizes missing ADP for removal ordering, excludes drafted players, and returns deterministic current-board, removal-window, and forecasted-board identities. The module remains uncalled by recommendation generation, so scoring and UI behavior are unchanged. Focused validation passed with 1 test file and 8 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
+Complete. Added the typed, pure `DraftPocket` domain value and shared `createDraftPocket` builder with exact 6-12 player tier-aware boundaries, meaningful-tier and complete position counts, and deterministic descriptive diversity labels. Current pockets now exist for every forecast status, while forecasted pockets exist only for active forecasts. The forecast module remains uncalled by recommendation generation, so scoring and UI behavior are unchanged. Focused validation passed with 1 test file and 19 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
 
 ## Goal
 
-Implement the pure, roster-agnostic foundation that deterministically projects the available board at the user's next scheduled selection from draft state and normalized ranking facts, without constructing draft pockets or changing recommendation behavior.
+Extend the completed board-forecast foundation with deterministic 6-12 player draft pockets that describe the user's meaningful current and forecasted choice sets by overall rank, meaningful overall/source tier, position, and non-scoring diversity labels.
 
 ## Scope
 
 ### Goals
 
-- Derive the first user-owned pick strictly after the current overall pick from the generated draft schedule.
-- Calculate the exact number of selections to remove before that target pick.
-- Build the current available board from the normalized ranking context and recorded draft picks.
-- Use valid snapshot ADP only to order expected removals.
-- Assign individual missing ADP `max valid snapshot ADP + 1` when any valid ADP exists.
-- Return neutral forecast status when the complete snapshot has no ADP or the user has no later pick.
-- Expose deterministic current-board, removal-window, and forecasted-board player identities.
-- Keep the forecast pure, derived, roster-agnostic, unpersisted, and independent of recommendation scoring.
+- Define a typed, readonly `DraftPocket` domain value.
+- Build all pockets through one shared pure function over normalized recommendation ranking facts.
+- Select the top six players by overall rank and stable player ID when at least six remain.
+- Extend beyond six only through the sixth player's meaningful supplied overall/source tier.
+- Cap every pocket at 12 players.
+- Return every remaining player when fewer than six remain.
+- Build the current pocket for every forecast status.
+- Build the forecasted pocket only when the completed board forecast is active.
+- Expose deterministic player IDs, meaningful-tier summary, tier counts, complete position counts, and descriptive diversity labels.
+- Keep all pocket output derived, roster-agnostic, unpersisted, and disconnected from scoring and UI.
 
 ### Non-Goals
 
-- Do not construct the 6-12 player current or forecasted draft pockets; Task 6 owns pocket construction.
-- Do not derive tier composition, position composition, diversity labels, replacement quality, skip safety, or profile transitions.
-- Do not calculate or integrate `draft_pocket_timing`, overall-tier, or legacy ADP score components.
-- Do not call the forecast from `generatePlayerRecommendations` or change recommendation totals, ordering, caps, reasons, or UI behavior.
-- Do not modify or remove the completed legacy `adp_availability` component; Task 8 owns its scoring replacement.
-- Do not simulate opponent behavior, assign probabilities, or claim individual-player availability.
-- Do not persist normalized fallback ADP, forecast output, or recommendation output.
-- Do not change ranking normalization, snapshots, drafts, scenarios, repositories, UI, or dependencies.
+- Do not derive candidate replacement quality, near replacements, skip safety, or profile transitions; Task 7 owns candidate interpretation.
+- Do not add or integrate `draft_pocket_timing`, overall-tier, or legacy ADP score components.
+- Do not add recommendation reasons or UI presentation.
+- Do not treat diversity labels as score, urgency, roster need, or strategy.
+- Do not infer position tiers or treat defaulted-neutral overall tiers as real quality boundaries.
+- Do not change ADP normalization, target-pick derivation, removal ordering, or neutral forecast status behavior completed in Task 5.
+- Do not call the forecast from recommendation generation or change recommendation, persistence, scenario, replay, or Draft Room behavior.
+- Do not add dependencies or a generic aggregation framework.
 
 ## Implementation Decisions
 
-- Add a focused pure module at `src/lib/draftPocketForecast.ts` rather than expanding the existing recommendation module.
-- Add the forecast domain types to `src/types/draft.ts` beside the existing recommendation types:
-  - `DraftPocketForecastStatus = "active" | "no-adp" | "no-next-pick"`;
-  - a readonly `DraftPocketForecast` foundation containing status, target metadata, fallback evidence, and board identity arrays.
-- The forecast function should accept:
-  - the current `Draft`;
-  - the complete normalized `RecommendationRankingFact[]` snapshot context;
-  - the explicit user team identity.
-- Include these foundation fields:
+- Extend the existing types in `src/types/draft.ts`:
+  - `DraftPocketDiversityLabel = "thin" | "WR-heavy" | "RB-heavy" | "onesie-heavy" | "balanced" | "mixed"`;
+  - readonly `DraftPocketOverallTierCount` entries with `overallTier`, `overallTierOrigin`, and `count`;
+  - readonly `DraftPocket`;
+  - `currentPocket: DraftPocket` and `forecastedPocket: DraftPocket | null` on `DraftPocketForecast`.
+- Define `DraftPocket` with:
 
   ```text
-  status
-  targetPickNumber
-  picksToRemove
-  missingAdpFallback
-  currentBoardPlayerIds
-  removalWindowPlayerIds
-  forecastedBoardPlayerIds
+  playerIds
+  highestMeaningfulOverallTier
+  overallTierCounts
+  positionCounts
+  diversityLabels
   ```
 
-- Build `currentBoardPlayerIds` by removing every recorded `playerId` from the complete ranking context, then order the remaining identities by overall rank and `player.id`.
-- Determine `targetPickNumber` as the first scheduled pick where:
-  - `pick.teamId === userTeamId`; and
-  - `pick.pickNumber > draft.currentPickNumber`.
-- Calculate `picksToRemove = targetPickNumber - draft.currentPickNumber`.
-- This target rule intentionally differs from the superseded direct ADP decision-point helper:
-  - when the user is on the clock, the count includes the current selection and intervening selections before the user picks again;
-  - between user turns, the count includes the pending selections before the user's upcoming pick.
-- Evaluate `no-next-pick` before ADP availability. With no later user pick:
-  - keep the deterministic current board;
-  - return null target, removal-count, and fallback fields;
-  - return empty removal-window and forecasted-board arrays.
-- When a target exists but the complete snapshot has no valid ADP:
-  - return `no-adp`;
-  - retain the target and removal count for diagnostics;
-  - set `missingAdpFallback` to null;
-  - return empty removal-window and forecasted-board arrays.
-- When any valid snapshot ADP exists:
-  - calculate the maximum across the complete normalized snapshot, including already drafted players;
-  - assign every missing ADP that maximum plus one for forecast ordering only;
-  - preserve fractional ADP without rounding;
-  - do not mutate ranking facts or expose fallback as player quality.
-- For active forecast removal, sort available players by:
-  1. normalized ADP;
-  2. overall rank;
-  3. `player.id`.
-- Preserve removal-window identities in removal order.
-- After removal, reorder the remaining forecasted board by overall rank and `player.id`. ADP must not become the board's quality order.
-- Use ordinary immutable array transformations and return new readonly arrays. Do not mutate the draft, ranking facts, or their nested players.
-- Rely on existing draft-state validation for coherent schedules and available-player invariants. Do not add repair logic for invalid drafts in this slice.
+- Represent `positionCounts` as a readonly complete `Record<Position, number>` containing QB, RB, WR, TE, DST, and K, including zero counts. This avoids missing-key interpretation in later candidate analysis.
+- Export one pure `createDraftPocket(rankings)` function from `src/lib/draftPocketForecast.ts`.
+- `createDraftPocket` must make its own sorted copy by:
+  1. overall rank;
+  2. `player.id`.
+- Pocket selection is exact:
+  1. If zero through five players are supplied, include all.
+  2. Otherwise include the first six.
+  3. If the sixth player's `overallTierOrigin` is `source`, continue adding consecutive players from that same overall tier.
+  4. Stop at the first different tier or after 12 total players.
+  5. If the sixth player's tier is `defaulted-neutral`, stop at six.
+- Source-tier extension uses overall-tier equality only. It must not inspect position-local `tier`, numeric tier gaps, ADP, position, or roster state.
+- Preserve pocket `playerIds` in overall-rank/player-ID order.
+- Build `overallTierCounts` from selected pocket players:
+  - count source and defaulted-neutral origins separately;
+  - order entries by numeric overall tier, then `source` before `defaulted-neutral` for deterministic output;
+  - retain defaulted-neutral counts for diagnostics without treating them as meaningful.
+- Set `highestMeaningfulOverallTier` to the lowest numeric selected overall tier whose origin is `source`; return null when the pocket has no source tier.
+- Build complete position counts from selected players.
+- Diversity labels are deterministic and descriptive:
+  - add `thin` when fewer than six players are in the pocket;
+  - use `WR-heavy` when WR is a strict majority;
+  - otherwise use `RB-heavy` when RB is a strict majority;
+  - otherwise use `onesie-heavy` when QB and TE together are a strict majority;
+  - otherwise use `balanced` when at least three positions are represented;
+  - otherwise use `mixed`.
+- Return labels in deterministic order: optional `thin` first, followed by exactly one shape label.
+- An empty pocket is `thin` and `mixed`, with null highest meaningful tier and zero counts.
+- Update `createDraftPocketForecast` without changing its Task 5 semantics:
+  - build `currentPocket` from the already rank-ordered current board for every status;
+  - return `forecastedPocket: null` for `no-adp` and `no-next-pick`;
+  - build `forecastedPocket` from the active forecasted board;
+  - continue returning the existing board identity arrays unchanged.
+- Keep the forecast module uncalled by `generatePlayerRecommendations`.
 
 ## Implementation Steps
 
-1. Add the forecast foundation types.
+1. Add pocket domain types.
 
    In `src/types/draft.ts`:
 
-   - add the three-state forecast status union;
-   - add the readonly forecast foundation with nullable target/fallback metadata and readonly player-ID arrays;
-   - keep the types independent of persistence and UI models;
-   - do not change existing recommendation or ranking-context contracts.
+   - add the diversity-label union;
+   - add the overall-tier-count and pocket types;
+   - extend `DraftPocketForecast` with current and nullable forecasted pockets;
+   - keep all new collections readonly and independent of persistence or UI types.
 
-2. Implement the pure board forecast.
+2. Implement the shared pocket builder.
 
    In `src/lib/draftPocketForecast.ts`:
 
-   - add deterministic overall-rank/player-ID and normalized-ADP comparators;
-   - filter recorded drafted player IDs from normalized ranking facts;
-   - derive the target user pick and removal count from `draft.picks`;
-   - implement the approved `no-next-pick` and `no-adp` neutral outputs;
-   - calculate the snapshot-wide missing-ADP fallback for active forecasts;
-   - create the exact removal window and remaining board without mutation;
-   - return the typed foundation output;
-   - do not import recommendation scoring functions or call this function from production recommendation generation.
+   - export `createDraftPocket`;
+   - sort a copied ranking list by overall rank and player ID;
+   - apply the exact minimum-six, source-tier extension, and maximum-12 rules;
+   - aggregate deterministic overall-tier and complete position counts;
+   - derive highest meaningful tier and labels;
+   - avoid mutation and any use of ADP, roster state, or position-local tiers.
 
-3. Add focused forecast tests.
+3. Attach pockets to the forecast.
+
+   In `src/lib/draftPocketForecast.ts`:
+
+   - build the current pocket before forecast status branching;
+   - add it to active and neutral outputs;
+   - keep the forecasted pocket null for both neutral statuses;
+   - build the active forecasted pocket from the remaining rank-ordered facts;
+   - preserve all Task 5 status, target, fallback, removal-window, and board-ID output exactly.
+
+4. Extend focused tests.
 
    In `src/lib/draftPocketForecast.test.ts`:
 
-   - build schedules with `generateSnakeDraftOrder` instead of hand-writing turn assumptions;
-   - use normalized `RecommendationRankingFact` fixtures;
-   - assert on-turn targeting uses the user's following pick and includes the current selection in the removal count;
-   - assert between-turn targeting uses the user's upcoming pick;
-   - cover a non-default user draft position and snake-turn boundary;
-   - assert drafted players are absent from all board outputs;
-   - assert complete ADP produces exact removal order and a rank-ordered forecasted board;
-   - assert partial ADP uses the complete snapshot maximum plus one, including when that maximum belongs to a drafted player;
-   - assert equal and fractional ADP resolve without rounding through overall rank and player ID;
-   - assert wholly absent ADP returns `no-adp` with target metadata but no removal forecast;
-   - assert the final user pick and no-later-pick states return `no-next-pick`;
-   - assert the input draft and normalized ranking facts remain unchanged;
-   - assert repeated equivalent inputs return exact equivalent output.
+   - extend the normalized-ranking helper to vary overall tier, tier origin, and position without changing unrelated defaults;
+   - test pocket sizes with 0, 5, 6, 7, 12, and more than 12 inputs;
+   - assert a source tier crossing the sixth-player boundary extends through that tier;
+   - assert a changed seventh-player tier stops at six;
+   - assert a long sixth-player tier stops at 12;
+   - assert defaulted-neutral tiers stop at six and yield null highest meaningful tier;
+   - assert exact tier counts and deterministic ordering for supplied and neutral origins;
+   - assert complete QB/RB/WR/TE/DST/K position counts;
+   - cover `thin`, `WR-heavy`, `RB-heavy`, `onesie-heavy`, `balanced`, and `mixed` labels at strict-majority boundaries;
+   - assert current pockets exist for active, `no-adp`, and `no-next-pick` outputs;
+   - assert forecasted pockets exist only for active output;
+   - retain all Task 5 target, ADP fallback, ordering, neutral-state, immutability, and determinism tests.
 
-4. Run focused validation.
+5. Run focused validation.
 
    Run:
 
@@ -137,13 +145,13 @@ Implement the pure, roster-agnostic foundation that deterministically projects t
    npm run lint
    ```
 
-   Accept only already-recorded unrelated warnings if they remain unchanged. Manual QA is not required because the new pure module is not connected to recommendation or UI behavior.
+   Accept only already-recorded unrelated warnings if they remain unchanged. Manual QA is not required because the forecast module remains disconnected from recommendation generation and UI behavior.
 
-5. Record completion only after validation passes.
+6. Record completion only after validation passes.
 
    - Update this file with the exact validation result.
-   - Mark Task 5 complete in `docs/tasks.md`.
-   - Stop without beginning Task 6 pocket construction.
+   - Mark Task 6 complete in `docs/tasks.md`.
+   - Stop without beginning Task 7 candidate interpretation.
 
 ## Expected Files
 
@@ -165,39 +173,38 @@ Do not touch `src/lib/recommendations.ts`, existing recommendation tests, normal
 
 ## Acceptance Criteria
 
-- The forecast is a pure typed domain function with no persistence, React, repository, or roster dependency.
-- The current board contains every normalized ranking fact not already recorded as drafted, ordered by overall rank and stable player ID.
-- The target is the first user pick strictly after the current pick, with an exact schedule-derived removal count.
-- On the user's turn, the removal count includes the current selection; between turns, it targets the upcoming user selection.
-- Active forecasts remove players by normalized ADP, overall rank, and stable player ID in that order.
-- Missing individual ADP uses exactly the complete snapshot's maximum valid ADP plus one and does not mutate or penalize the player.
-- The removal window preserves forecast removal order, while the remaining forecasted board returns to overall-rank/player-ID order.
-- Wholly absent ADP returns `no-adp`, preserves target metadata, and constructs no removal forecast.
-- No later user pick returns `no-next-pick` with no future forecast, even when ADP exists.
-- Fractional and tied ADP remain deterministic without rounding.
-- Equivalent inputs return exact equivalent output, and no input is mutated.
+- One pure shared function builds both current and forecasted pockets from normalized ranking facts.
+- Pocket player IDs are ordered by overall rank and stable player ID.
+- Pockets include all players below six, begin with six when possible, extend only through the sixth player's supplied overall tier, and never exceed 12.
+- Defaulted-neutral tiers never extend a pocket or become the highest meaningful tier.
+- Current pockets are present for active, `no-adp`, and `no-next-pick` forecasts.
+- Forecasted pockets are present only for active forecasts and null for both neutral statuses.
+- Tier counts retain exact tier and origin evidence in deterministic order.
+- Position counts contain exact values for every supported position, including zeros.
+- `thin`, position-heavy, `onesie-heavy`, `balanced`, and `mixed` labels follow the approved strict-majority rules and remain descriptive only.
+- Empty and end-of-draft pockets return safe, deterministic summaries.
+- Existing Task 5 status, target, fallback, board identity, immutability, and determinism behavior remains unchanged.
 - No recommendation score, ordering, cap, adjustment, reason, UI, persistence, scenario, or replay behavior changes.
 - Focused tests, TypeScript, and lint pass with only explicitly recorded pre-existing warnings.
 
 ## Failure Handling
 
-- If the normalized ranking facts do not contain enough identity and ADP information to construct the forecast without consulting persistence or import metadata, stop and report rather than widening the boundary.
-- If the target rule cannot be derived from the existing scheduled picks, stop and report rather than duplicating snake-draft arithmetic or adding UI state.
-- If the design would require using legacy direct-ADP decision semantics, stop and report the conflict rather than silently reusing the helper.
-- If a valid draft can require removing more players than remain before a scheduled user pick, report the draft-state invariant conflict rather than adding repair or clamping behavior.
-- If readonly forecast output requires changing unrelated shared contracts, stop and report before broadening the slice.
-- If the new unused module changes recommendation behavior, remove the unintended call path and report the discrepancy.
+- If normalized ranking facts can mix source and defaulted-neutral tier origins in a supported context, preserve separate counts and report the case before inventing cross-origin tier semantics.
+- If a valid supplied source tier is non-contiguous in overall-rank order, stop and report the normalization invariant conflict rather than extending across intervening tiers.
+- If attaching pockets requires changing the completed Task 5 target, ADP, removal, or neutral-state contract, stop and report rather than folding unrelated corrections into this slice.
+- If diversity labels require roster or strategy knowledge, keep objective counts and report the unsupported label rather than adding new inputs.
+- If a pocket output would require persistence, UI, or recommendation-scoring changes, stop before broadening the slice.
 - If focused validation exposes unrelated failures, report them without modifying out-of-scope code or weakening tests.
 
 ## Follow-Up
 
-After this slice passes, the next slice should promote Task 6: build the tier-aware current and forecasted draft pockets from this foundation. Do not begin Task 6 automatically.
+After this slice passes, the next slice should promote Task 7: derive candidate replacement quality, skip safety, and profile transitions from the shared pockets. Do not begin Task 7 automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It produces one deterministic forecasted-board foundation without combining pocket semantics or scoring.
-- Executable by a lower-reasoning pass: yes. Inputs, output fields, status precedence, target rule, fallback, sorting, files, and exact tests are defined.
-- Avoids unnecessary architecture changes: yes. It adds one pure domain module and typed value inside the existing Recommendation Engine boundary.
-- Blast radius reasonable: yes. Production work is limited to one type file and one new pure module, plus one focused test file and planning records.
-- Review/revert comfort: yes. The module remains uncalled by recommendation generation and cannot change user-visible behavior.
-- Observable/testable acceptance criteria: yes. Every target, neutral state, fallback, ordering rule, determinism rule, and mutation boundary has direct unit coverage.
+- Smallest meaningful increment: yes. It adds the shared tier-aware decision-space representation without candidate or scoring behavior.
+- Executable by a lower-reasoning pass: yes. Types, selection boundaries, aggregation order, label thresholds, files, and exact tests are defined.
+- Avoids unnecessary architecture changes: yes. It extends the completed pure forecast module and existing typed output.
+- Blast radius reasonable: yes. Production changes remain within one type file and one forecast module, with one focused test file and planning records.
+- Review/revert comfort: yes. The module remains uncalled by recommendations and has no user-visible integration.
+- Observable/testable acceptance criteria: yes. Every pocket boundary, tier rule, count, label, neutral state, and regression constraint has direct coverage.

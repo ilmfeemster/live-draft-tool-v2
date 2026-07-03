@@ -38,6 +38,28 @@ export type DraftPocketForecastStatus =
   | "no-adp"
   | "no-next-pick";
 
+export type DraftPocketDiversityLabel =
+  | "thin"
+  | "WR-heavy"
+  | "RB-heavy"
+  | "onesie-heavy"
+  | "balanced"
+  | "mixed";
+
+export type DraftPocketOverallTierCount = Readonly<{
+  overallTier: number;
+  overallTierOrigin: RecommendationOverallTierOrigin;
+  count: number;
+}>;
+
+export type DraftPocket = Readonly<{
+  playerIds: readonly string[];
+  highestMeaningfulOverallTier: number | null;
+  overallTierCounts: readonly DraftPocketOverallTierCount[];
+  positionCounts: Readonly<Record<Position, number>>;
+  diversityLabels: readonly DraftPocketDiversityLabel[];
+}>;
+
 export type DraftPocketForecast = Readonly<{
   status: DraftPocketForecastStatus;
   targetPickNumber: number | null;
@@ -46,6 +68,8 @@ export type DraftPocketForecast = Readonly<{
   currentBoardPlayerIds: readonly string[];
   removalWindowPlayerIds: readonly string[];
   forecastedBoardPlayerIds: readonly string[];
+  currentPocket: DraftPocket;
+  forecastedPocket: DraftPocket | null;
 }>;
 
 export type RecommendationRankingContextErrorCode =

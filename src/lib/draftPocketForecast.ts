@@ -1,8 +1,15 @@
 import type {
   Draft,
+  DraftPocket,
+  DraftPocketDiversityLabel,
   DraftPocketForecast,
+  Position,
   RecommendationRankingFact,
 } from "@/types/draft";
+
+const MIN_POCKET_SIZE = 6;
+const MAX_POCKET_SIZE = 12;
+const POSITION_ORDER: readonly Position[] = ["QB", "RB", "WR", "TE", "DST", "K"];
 
 type CreateDraftPocketForecastInput = Readonly<{
   draft: Draft;
@@ -64,6 +71,131 @@ function getCurrentBoard(
     .sort(compareByOverallRank);
 }
 
+function createPositionCounts(): Record<Position, number> {
+  return {
+    QB: 0,
+    RB: 0,
+    WR: 0,
+    TE: 0,
+    DST: 0,
+    K: 0,
+  };
+}
+
+function getDiversityLabels(
+  positionCounts: Readonly<Record<Position, number>>,
+  pocketSize: number,
+): DraftPocketDiversityLabel[] {
+  const labels: DraftPocketDiversityLabel[] = [];
+
+  if (pocketSize < MIN_POCKET_SIZE) {
+    labels.push("thin");
+  }
+
+  if (positionCounts.WR > pocketSize / 2) {
+    labels.push("WR-heavy");
+  } else if (positionCounts.RB > pocketSize / 2) {
+    labels.push("RB-heavy");
+  } else if (positionCounts.QB + positionCounts.TE > pocketSize / 2) {
+    labels.push("onesie-heavy");
+  } else if (
+    POSITION_ORDER.filter((position) => positionCounts[position] > 0).length >= 3
+  ) {
+    labels.push("balanced");
+  } else {
+    labels.push("mixed");
+  }
+
+  return labels;
+}
+
+export function createDraftPocket(
+  rankings: readonly RecommendationRankingFact[],
+): DraftPocket {
+  const orderedRankings = [...rankings].sort(compareByOverallRank);
+  let pocketRankings = orderedRankings.slice(0, MIN_POCKET_SIZE);
+
+  if (orderedRankings.length > MIN_POCKET_SIZE) {
+    const sixthRanking = orderedRankings[MIN_POCKET_SIZE - 1];
+
+    if (sixthRanking.overallTierOrigin === "source") {
+      let pocketSize = MIN_POCKET_SIZE;
+
+      while (pocketSize < Math.min(orderedRankings.length, MAX_POCKET_SIZE)) {
+        const nextRanking = orderedRankings[pocketSize];
+
+        if (
+          nextRanking.overallTierOrigin !== "source" ||
+          nextRanking.overallTier !== sixthRanking.overallTier
+        ) {
+          break;
+        }
+
+        pocketSize += 1;
+      }
+
+      pocketRankings = orderedRankings.slice(0, pocketSize);
+    }
+  }
+
+  const overallTierCounts = pocketRankings.reduce<
+    Array<{
+      overallTier: number;
+      overallTierOrigin: RecommendationRankingFact["overallTierOrigin"];
+      count: number;
+    }>
+  >((counts, ranking) => {
+    const existingCount = counts.find((entry) => {
+      return (
+        entry.overallTier === ranking.overallTier &&
+        entry.overallTierOrigin === ranking.overallTierOrigin
+      );
+    });
+
+    if (existingCount) {
+      existingCount.count += 1;
+    } else {
+      counts.push({
+        overallTier: ranking.overallTier,
+        overallTierOrigin: ranking.overallTierOrigin,
+        count: 1,
+      });
+    }
+
+    return counts;
+  }, []);
+  overallTierCounts.sort((a, b) => {
+    if (a.overallTier !== b.overallTier) {
+      return a.overallTier - b.overallTier;
+    }
+
+    if (a.overallTierOrigin === b.overallTierOrigin) {
+      return 0;
+    }
+
+    return a.overallTierOrigin === "source" ? -1 : 1;
+  });
+
+  const meaningfulTiers = pocketRankings.flatMap((ranking) => {
+    return ranking.overallTierOrigin === "source" ? [ranking.overallTier] : [];
+  });
+  const highestMeaningfulOverallTier =
+    meaningfulTiers.length === 0 ? null : Math.min(...meaningfulTiers);
+  const positionCounts = createPositionCounts();
+
+  for (const ranking of pocketRankings) {
+    positionCounts[ranking.player.position] += 1;
+  }
+
+  return {
+    playerIds: pocketRankings.map((ranking) => ranking.player.id),
+    highestMeaningfulOverallTier,
+    overallTierCounts,
+    positionCounts,
+    diversityLabels: getDiversityLabels(positionCounts, pocketRankings.length),
+  };
+}
+
 export function createDraftPocketForecast({
   draft,
   rankings,
@@ -71,6 +203,7 @@ export function createDraftPocketForecast({
 }: CreateDraftPocketForecastInput): DraftPocketForecast {
   const currentBoard = getCurrentBoard(draft, rankings);
   const currentBoardPlayerIds = currentBoard.map((ranking) => ranking.player.id);
+  const currentPocket = createDraftPocket(currentBoard);
   const targetPickNumber = getTargetPickNumber(draft, userTeamId);
 
   if (targetPickNumber === null) {
@@ -82,6 +215,8 @@ export function createDraftPocketForecast({
       currentBoardPlayerIds,
       removalWindowPlayerIds: [],
       forecastedBoardPlayerIds: [],
+      currentPocket,
+      forecastedPocket: null,
     };
   }
 
@@ -99,6 +234,8 @@ export function createDraftPocketForecast({
       currentBoardPlayerIds,
       removalWindowPlayerIds: [],
       forecastedBoardPlayerIds: [],
+      currentPocket,
+      forecastedPocket: null,
     };
   }
 
@@ -112,11 +249,11 @@ export function createDraftPocketForecast({
   const removalWindowPlayerIds = removalOrder
     .slice(0, picksToRemove)
     .map(({ ranking }) => ranking.player.id);
-  const forecastedBoardPlayerIds = removalOrder
+  const forecastedBoard = removalOrder
     .slice(picksToRemove)
     .map(({ ranking }) => ranking)
-    .sort(compareByOverallRank)
-    .map((ranking) => ranking.player.id);
+    .sort(compareByOverallRank);
+  const forecastedBoardPlayerIds = forecastedBoard.map((ranking) => ranking.player.id);
 
   return {
     status: "active",
@@ -126,5 +263,7 @@ export function createDraftPocketForecast({
     currentBoardPlayerIds,
     removalWindowPlayerIds,
     forecastedBoardPlayerIds,
+    currentPocket,
+    forecastedPocket: createDraftPocket(forecastedBoard),
   };
 }
