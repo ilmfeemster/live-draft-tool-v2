@@ -53,6 +53,15 @@ const OVERALL_TIER_MAX_DELTA = 6;
 const BEST_OVERALL_TIER_DELTA = 3;
 const LAST_IN_BEST_OVERALL_TIER_DELTA = 6;
 const OVERALL_TIER_COMPONENT_PRIORITY = 19;
+const ADP_AVAILABILITY_MIN_DELTA = 0;
+const ADP_AVAILABILITY_MAX_DELTA = 8;
+const ADP_AVAILABLE_PAST_DELTA = 8;
+const ADP_HIGH_NEXT_TURN_RISK_DELTA = 7;
+const ADP_MEANINGFUL_NEXT_TURN_RISK_DELTA = 5;
+const ADP_BORDERLINE_NEXT_TURN_RISK_DELTA = 3;
+const ADP_HIGH_NEXT_TURN_RISK_THRESHOLD = 2 / 3;
+const ADP_MEANINGFUL_NEXT_TURN_RISK_THRESHOLD = 1 / 3;
+const ADP_AVAILABILITY_COMPONENT_PRIORITY = 20;
 const POSITIONAL_SCARCITY_MIN_DELTA = 0;
 const POSITIONAL_SCARCITY_MAX_DELTA = 6;
 const MILD_POSITIONAL_SCARCITY_DELTA = 3;
@@ -213,6 +222,115 @@ export function calculateOverallTierComponent({
       overallTierOrigin: ranking.overallTierOrigin,
       thresholdMatched,
     },
+  };
+}
+
+export function calculateAdpAvailabilityComponent({
+  ranking,
+  draft,
+  userTeamId,
+}: {
+  ranking: RecommendationRankingFact;
+  draft: Draft;
+  userTeamId: string;
+}): RecommendationScoreComponent {
+  const decisionPoint = getAdpDecisionPoint(draft, userTeamId);
+  const { decisionPickNumber, nextTurnPickNumber, turnSpan, isPreview } =
+    decisionPoint;
+  let delta = 0;
+  let turnProgress: number | null = null;
+  let thresholdMatched = "missing_adp";
+
+  if (ranking.adpRank === null) {
+    thresholdMatched = "missing_adp";
+  } else if (
+    decisionPickNumber === null ||
+    nextTurnPickNumber === null ||
+    turnSpan === null ||
+    turnSpan <= 0
+  ) {
+    thresholdMatched = "no_next_turn";
+  } else {
+    turnProgress = (nextTurnPickNumber - ranking.adpRank) / turnSpan;
+
+    if (ranking.adpRank <= decisionPickNumber) {
+      delta = ADP_AVAILABLE_PAST_DELTA;
+      thresholdMatched = "available_past_adp";
+    } else if (turnProgress >= ADP_HIGH_NEXT_TURN_RISK_THRESHOLD) {
+      delta = ADP_HIGH_NEXT_TURN_RISK_DELTA;
+      thresholdMatched = "high_next_turn_risk";
+    } else if (turnProgress >= ADP_MEANINGFUL_NEXT_TURN_RISK_THRESHOLD) {
+      delta = ADP_MEANINGFUL_NEXT_TURN_RISK_DELTA;
+      thresholdMatched = "meaningful_next_turn_risk";
+    } else if (turnProgress >= 0) {
+      delta = ADP_BORDERLINE_NEXT_TURN_RISK_DELTA;
+      thresholdMatched = "borderline_next_turn_risk";
+    } else {
+      thresholdMatched = "expected_available_next_turn";
+    }
+  }
+
+  const boundedDelta = clamp(
+    delta,
+    ADP_AVAILABILITY_MIN_DELTA,
+    ADP_AVAILABILITY_MAX_DELTA,
+  );
+
+  return {
+    id: "adp_availability",
+    delta: boundedDelta,
+    direction: boundedDelta > 0 ? "positive" : "neutral",
+    priority: ADP_AVAILABILITY_COMPONENT_PRIORITY,
+    evidence: {
+      adpRank: ranking.adpRank,
+      decisionPickNumber,
+      nextTurnPickNumber,
+      turnSpan,
+      turnProgress,
+      isPreview,
+      thresholdMatched,
+    },
+  };
+}
+
+function getAdpDecisionPoint(draft: Draft, userTeamId: string): {
+  decisionPickNumber: number | null;
+  nextTurnPickNumber: number | null;
+  turnSpan: number | null;
+  isPreview: boolean;
+} {
+  const currentPick = draft.picks.find((pick) => {
+    return pick.pickNumber === draft.currentPickNumber;
+  });
+  const isPreview = currentPick?.teamId !== userTeamId;
+  const decisionPickNumber =
+    currentPick?.teamId === userTeamId
+      ? currentPick.pickNumber
+      : (draft.picks.find((pick) => {
+          return (
+            pick.teamId === userTeamId &&
+            pick.pickNumber > draft.currentPickNumber
+          );
+        })?.pickNumber ?? null);
+  const nextTurnPickNumber =
+    decisionPickNumber === null
+      ? null
+      : (draft.picks.find((pick) => {
+          return (
+            pick.teamId === userTeamId &&
+            pick.pickNumber > decisionPickNumber
+          );
+        })?.pickNumber ?? null);
+  const turnSpan =
+    decisionPickNumber === null || nextTurnPickNumber === null
+      ? null
+      : nextTurnPickNumber - decisionPickNumber;
+
+  return {
+    decisionPickNumber,
+    nextTurnPickNumber,
+    turnSpan,
+    isPreview,
   };
 }
 

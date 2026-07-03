@@ -166,7 +166,7 @@ Implement a pure, bounded score component that recognizes the best remaining ove
 
 ## Task 4 - Add the ADP Availability Component and Preview Decision Point
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 

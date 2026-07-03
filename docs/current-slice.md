@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. No implementation has started.
+Complete. Added the pure bounded `adp_availability` component with schedule-derived on-turn and preview decision points, exact `+8`, `+7`, `+5`, `+3`, and neutral outcomes, nullable ADP support, final-turn neutrality, fractional progress, and deterministic evidence. The component is not called by recommendation generation, so current scores, ordering, and UI behavior remain unchanged. Focused validation passed with 1 test file and 79 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
 
 ## Goal
 

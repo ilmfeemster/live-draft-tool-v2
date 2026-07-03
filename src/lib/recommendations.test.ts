@@ -3,6 +3,7 @@ import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import { draftPlayerInDraft } from "@/lib/draftState";
 import {
+  calculateAdpAvailabilityComponent,
   calculateBasePlayerValueScore,
   calculateOverallTierComponent,
   calculatePositionalRunComponent,
@@ -67,6 +68,7 @@ function createOverallTierRanking(
   overallRank: number,
   overallTier: number,
   options: {
+    adpRank?: number | null;
     origin?: RecommendationRankingFact["overallTierOrigin"];
     position?: Position;
     recommendationTier?: number;
@@ -77,7 +79,10 @@ function createOverallTierRanking(
     overallRank,
     options.position ?? "RB",
     id,
-    { tier: options.recommendationTier ?? 1 },
+    {
+      adpRank: options.adpRank ?? null,
+      tier: options.recommendationTier ?? 1,
+    },
   );
 
   return {
@@ -370,6 +375,230 @@ describe("calculateOverallTierComponent", () => {
         availableRankings: [...availableRankings].reverse(),
       }),
     );
+  });
+});
+
+describe("calculateAdpAvailabilityComponent", () => {
+  const createTwoTeamDraft = (currentPickNumber: number) => {
+    return createTestDraft({
+      rounds: 4,
+      currentPickNumber,
+      picks: generateSnakeDraftOrder(2, 4),
+    });
+  };
+
+  it.each([
+    {
+      label: "available past ADP",
+      adpRank: 1,
+      delta: 8,
+      turnProgress: 1,
+      thresholdMatched: "available_past_adp",
+    },
+    {
+      label: "high next-turn risk",
+      adpRank: 2,
+      delta: 7,
+      turnProgress: 2 / 3,
+      thresholdMatched: "high_next_turn_risk",
+    },
+    {
+      label: "meaningful next-turn risk",
+      adpRank: 3,
+      delta: 5,
+      turnProgress: 1 / 3,
+      thresholdMatched: "meaningful_next_turn_risk",
+    },
+    {
+      label: "borderline next-turn risk",
+      adpRank: 4,
+      delta: 3,
+      turnProgress: 0,
+      thresholdMatched: "borderline_next_turn_risk",
+    },
+    {
+      label: "expected availability next turn",
+      adpRank: 5,
+      delta: 0,
+      turnProgress: -1 / 3,
+      thresholdMatched: "expected_available_next_turn",
+    },
+  ])("scores $label on the user's turn", (expected) => {
+    const draft = createTwoTeamDraft(1);
+    const ranking = createOverallTierRanking("candidate", 1, 1, {
+      adpRank: expected.adpRank,
+    });
+
+    expect(
+      calculateAdpAvailabilityComponent({
+        ranking,
+        draft,
+        userTeamId: draft.userTeamId,
+      }),
+    ).toEqual({
+      id: "adp_availability",
+      delta: expected.delta,
+      direction: expected.delta > 0 ? "positive" : "neutral",
+      priority: 20,
+      evidence: {
+        adpRank: expected.adpRank,
+        decisionPickNumber: 1,
+        nextTurnPickNumber: 4,
+        turnSpan: 3,
+        turnProgress: expected.turnProgress,
+        isPreview: false,
+        thresholdMatched: expected.thresholdMatched,
+      },
+    });
+  });
+
+  it("uses the next user pick as the decision point between turns", () => {
+    const draft = createTwoTeamDraft(2);
+    const ranking = createOverallTierRanking("preview", 1, 1, { adpRank: 5 });
+
+    expect(
+      calculateAdpAvailabilityComponent({
+        ranking,
+        draft,
+        userTeamId: draft.userTeamId,
+      }),
+    ).toMatchObject({
+      delta: 3,
+      evidence: {
+        decisionPickNumber: 4,
+        nextTurnPickNumber: 5,
+        turnSpan: 1,
+        turnProgress: 0,
+        isPreview: true,
+        thresholdMatched: "borderline_next_turn_risk",
+      },
+    });
+  });
+
+  it("keeps missing ADP neutral without blocking the candidate", () => {
+    const draft = createTwoTeamDraft(1);
+    const ranking = createOverallTierRanking("missing-adp", 1, 1, {
+      adpRank: null,
+    });
+
+    expect(
+      calculateAdpAvailabilityComponent({
+        ranking,
+        draft,
+        userTeamId: draft.userTeamId,
+      }),
+    ).toEqual({
+      id: "adp_availability",
+      delta: 0,
+      direction: "neutral",
+      priority: 20,
+      evidence: {
+        adpRank: null,
+        decisionPickNumber: 1,
+        nextTurnPickNumber: 4,
+        turnSpan: 3,
+        turnProgress: null,
+        isPreview: false,
+        thresholdMatched: "missing_adp",
+      },
+    });
+  });
+
+  it("is neutral when the user has no following turn", () => {
+    const draft = createTwoTeamDraft(8);
+    const ranking = createOverallTierRanking("final-pick", 1, 1, {
+      adpRank: 1,
+    });
+
+    expect(
+      calculateAdpAvailabilityComponent({
+        ranking,
+        draft,
+        userTeamId: draft.userTeamId,
+      }),
+    ).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+      evidence: {
+        decisionPickNumber: 8,
+        nextTurnPickNumber: null,
+        turnSpan: null,
+        turnProgress: null,
+        isPreview: false,
+        thresholdMatched: "no_next_turn",
+      },
+    });
+  });
+
+  it("preserves fractional ADP and turn progress without rounding", () => {
+    const draft = createTwoTeamDraft(1);
+    const ranking = createOverallTierRanking("fractional", 1, 1, {
+      adpRank: 2.5,
+    });
+
+    expect(
+      calculateAdpAvailabilityComponent({
+        ranking,
+        draft,
+        userTeamId: draft.userTeamId,
+      }),
+    ).toMatchObject({
+      delta: 5,
+      evidence: {
+        adpRank: 2.5,
+        turnProgress: 0.5,
+        thresholdMatched: "meaningful_next_turn_risk",
+      },
+    });
+  });
+
+  it("derives preview picks for a non-default snake position", () => {
+    const draft = createTestDraft({
+      teamCount: 4,
+      rounds: 3,
+      userTeamId: "team-3",
+      currentPickNumber: 1,
+      teams: createDraftTeams(4),
+      picks: generateSnakeDraftOrder(4, 3),
+    });
+    const ranking = createOverallTierRanking("non-default", 1, 1, {
+      adpRank: 4,
+    });
+
+    expect(
+      calculateAdpAvailabilityComponent({
+        ranking,
+        draft,
+        userTeamId: draft.userTeamId,
+      }),
+    ).toMatchObject({
+      evidence: {
+        decisionPickNumber: 3,
+        nextTurnPickNumber: 6,
+        turnSpan: 3,
+        isPreview: true,
+      },
+    });
+  });
+
+  it("returns deterministic output for equivalent inputs", () => {
+    const draft = createTwoTeamDraft(2);
+    const ranking = createOverallTierRanking("deterministic", 1, 1, {
+      adpRank: 4.5,
+    });
+
+    const first = calculateAdpAvailabilityComponent({
+      ranking,
+      draft,
+      userTeamId: draft.userTeamId,
+    });
+    const second = calculateAdpAvailabilityComponent({
+      ranking,
+      draft,
+      userTeamId: draft.userTeamId,
+    });
+
+    expect(first).toEqual(second);
   });
 });
 
