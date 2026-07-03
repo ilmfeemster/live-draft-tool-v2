@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Not started.
+Complete. Added transitional normalized recommendation context input, removed the superseded direct `adp_availability` API, added the pure bounded `draft_pocket_timing` component, and integrated overall-tier quality plus draft-pocket timing into the existing context and urgency caps. Context-absent callers preserve their existing output, while supplied context produces inspectable Phase 5.5 components with exact reconciliation and deterministic ordering. No Draft Room or scenario caller was changed. Focused validation passed with 2 test files and 114 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
 
 ## Goal
 

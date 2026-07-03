@@ -122,6 +122,7 @@ export type RecommendationInput = {
   rankings: RankingEntry[];
   leagueSettings: LeagueSettings;
   userTeamId: string;
+  recommendationRankingContext?: RecommendationRankingContext;
 };
 
 export type RecommendationScoreComponentDirection = "positive" | "negative" | "neutral";

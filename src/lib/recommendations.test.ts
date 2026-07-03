@@ -3,8 +3,8 @@ import { defaultLeagueSettings } from "@/data/defaultLeagueSettings";
 import { createDraftTeams, generateSnakeDraftOrder } from "@/lib/draftOrder";
 import { draftPlayerInDraft } from "@/lib/draftState";
 import {
-  calculateAdpAvailabilityComponent,
   calculateBasePlayerValueScore,
+  calculateDraftPocketTimingComponent,
   calculateOverallTierComponent,
   calculatePositionalRunComponent,
   calculatePositionalScarcityComponent,
@@ -17,11 +17,14 @@ import {
   selectRecommendationReasons,
 } from "@/lib/recommendations";
 import type {
+  CandidatePocketSignal,
   Draft,
+  DraftPocketForecast,
   LeagueSettings,
   PlayerRecommendation,
   Position,
   RankingEntry,
+  RecommendationRankingContext,
   RecommendationRankingFact,
   RecommendationScoreComponent,
 } from "@/types/draft";
@@ -129,18 +132,124 @@ function createRecommendationInput({
   rankings = [],
   leagueSettings = defaultLeagueSettings,
   userTeamId = draft.userTeamId,
+  recommendationRankingContext,
 }: {
   draft?: Draft;
   rankings?: RankingEntry[];
   leagueSettings?: LeagueSettings;
   userTeamId?: string;
+  recommendationRankingContext?: RecommendationRankingContext;
 }) {
   return {
     draft,
     rankings,
     leagueSettings,
     userTeamId,
+    ...(recommendationRankingContext ? { recommendationRankingContext } : {}),
   };
+}
+
+function createTimingForecast(
+  overrides: Partial<DraftPocketForecast> = {},
+): DraftPocketForecast {
+  const pocket = {
+    playerIds: ["candidate"],
+    highestMeaningfulOverallTier: 1,
+    overallTierCounts: [
+      { overallTier: 1, overallTierOrigin: "source" as const, count: 1 },
+    ],
+    positionCounts: { QB: 0, RB: 1, WR: 0, TE: 0, DST: 0, K: 0 },
+    diversityLabels: ["thin" as const, "RB-heavy" as const],
+  };
+
+  return {
+    status: "active",
+    targetPickNumber: 4,
+    picksToRemove: 3,
+    missingAdpFallback: 10,
+    currentBoardPlayerIds: ["candidate"],
+    removalWindowPlayerIds: ["candidate"],
+    forecastedBoardPlayerIds: [],
+    currentPocket: pocket,
+    forecastedPocket: {
+      ...pocket,
+      playerIds: [],
+      positionCounts: { ...pocket.positionCounts, RB: 0 },
+      diversityLabels: ["thin", "mixed"],
+    },
+    ...overrides,
+  };
+}
+
+function createCandidateSignal(
+  overrides: Partial<CandidatePocketSignal> = {},
+): CandidatePocketSignal {
+  return {
+    candidatePlayerId: "candidate",
+    candidatePosition: "RB",
+    candidateInCurrentPocket: true,
+    candidateInForecastedPocket: false,
+    comparableReplacementCount: 0,
+    nearReplacementCount: 0,
+    replacementQuality: "low",
+    skipSafety: "low",
+    currentProfileCount: 1,
+    forecastedProfileCount: 0,
+    profileDisappeared: true,
+    highestMeaningfulTierDisappeared: true,
+    ...overrides,
+  };
+}
+
+function createRecommendationContext(
+  rankings: readonly RecommendationRankingFact[],
+): RecommendationRankingContext {
+  return { rankings };
+}
+
+function toRawRankings(
+  rankings: readonly RecommendationRankingFact[],
+): RankingEntry[] {
+  return rankings.map((ranking) => ({
+    player: { ...ranking.player },
+    overallRank: ranking.overallRank,
+    adpRank: ranking.adpRank,
+    positionRank: ranking.positionRank,
+    tier: ranking.tier,
+  }));
+}
+
+function createIntegratedPhase55Facts(): RecommendationRankingFact[] {
+  return [
+    createOverallTierRanking("candidate-rb", 1, 1, {
+      adpRank: 1,
+      position: "RB",
+    }),
+    createOverallTierRanking("removed-wr", 2, 2, {
+      adpRank: 2,
+      position: "WR",
+    }),
+    createOverallTierRanking("removed-qb", 3, 2, {
+      adpRank: 3,
+      position: "QB",
+    }),
+    createOverallTierRanking("forecast-wr-1", 4, 2, {
+      adpRank: 4,
+      position: "WR",
+    }),
+    createOverallTierRanking("forecast-wr-2", 5, 2, {
+      adpRank: 5,
+      position: "WR",
+    }),
+    createOverallTierRanking("forecast-te", 6, 3, {
+      adpRank: 6,
+      position: "TE",
+    }),
+    createOverallTierRanking("forecast-k", 7, 3, {
+      adpRank: 7,
+      position: "K",
+    }),
+  ];
 }
 
 function createDraftWithUserPicks(playerIds: string[], overrides: Partial<Draft> = {}): Draft {
@@ -378,227 +487,89 @@ describe("calculateOverallTierComponent", () => {
   });
 });
 
-describe("calculateAdpAvailabilityComponent", () => {
-  const createTwoTeamDraft = (currentPickNumber: number) => {
-    return createTestDraft({
-      rounds: 4,
-      currentPickNumber,
-      picks: generateSnakeDraftOrder(2, 4),
+describe("calculateDraftPocketTimingComponent", () => {
+  it.each([
+    { skipSafety: "low" as const, delta: 6, threshold: "low_skip_safety" },
+    {
+      skipSafety: "medium" as const,
+      delta: 3,
+      threshold: "medium_skip_safety",
+    },
+    { skipSafety: "high" as const, delta: 0, threshold: "high_skip_safety" },
+  ])("maps $skipSafety skip safety to $delta", ({ skipSafety, delta, threshold }) => {
+    const component = calculateDraftPocketTimingComponent({
+      signal: createCandidateSignal({ skipSafety }),
+      forecast: createTimingForecast(),
     });
-  };
+
+    expect(component).toMatchObject({
+      id: "draft_pocket_timing",
+      delta,
+      direction: delta > 0 ? "positive" : "neutral",
+      priority: 20,
+      evidence: { thresholdMatched: threshold },
+    });
+  });
 
   it.each([
     {
-      label: "available past ADP",
-      adpRank: 1,
-      delta: 8,
-      turnProgress: 1,
-      thresholdMatched: "available_past_adp",
+      label: "inactive forecast",
+      signal: createCandidateSignal(),
+      forecast: createTimingForecast({ status: "no-adp" }),
+      threshold: "inactive_forecast",
     },
     {
-      label: "high next-turn risk",
-      adpRank: 2,
-      delta: 7,
-      turnProgress: 2 / 3,
-      thresholdMatched: "high_next_turn_risk",
+      label: "outside current pocket",
+      signal: createCandidateSignal({ candidateInCurrentPocket: false }),
+      forecast: createTimingForecast(),
+      threshold: "outside_current_pocket",
     },
     {
-      label: "meaningful next-turn risk",
-      adpRank: 3,
-      delta: 5,
-      turnProgress: 1 / 3,
-      thresholdMatched: "meaningful_next_turn_risk",
+      label: "ineligible position",
+      signal: createCandidateSignal({ candidatePosition: "DST" }),
+      forecast: createTimingForecast(),
+      threshold: "ineligible_position",
     },
     {
-      label: "borderline next-turn risk",
-      adpRank: 4,
-      delta: 3,
-      turnProgress: 0,
-      thresholdMatched: "borderline_next_turn_risk",
+      label: "neutral candidate signal",
+      signal: createCandidateSignal({ skipSafety: "neutral" }),
+      forecast: createTimingForecast(),
+      threshold: "neutral_candidate_signal",
     },
-    {
-      label: "expected availability next turn",
-      adpRank: 5,
-      delta: 0,
-      turnProgress: -1 / 3,
-      thresholdMatched: "expected_available_next_turn",
-    },
-  ])("scores $label on the user's turn", (expected) => {
-    const draft = createTwoTeamDraft(1);
-    const ranking = createOverallTierRanking("candidate", 1, 1, {
-      adpRank: expected.adpRank,
-    });
-
-    expect(
-      calculateAdpAvailabilityComponent({
-        ranking,
-        draft,
-        userTeamId: draft.userTeamId,
-      }),
-    ).toEqual({
-      id: "adp_availability",
-      delta: expected.delta,
-      direction: expected.delta > 0 ? "positive" : "neutral",
-      priority: 20,
-      evidence: {
-        adpRank: expected.adpRank,
-        decisionPickNumber: 1,
-        nextTurnPickNumber: 4,
-        turnSpan: 3,
-        turnProgress: expected.turnProgress,
-        isPreview: false,
-        thresholdMatched: expected.thresholdMatched,
-      },
-    });
-  });
-
-  it("uses the next user pick as the decision point between turns", () => {
-    const draft = createTwoTeamDraft(2);
-    const ranking = createOverallTierRanking("preview", 1, 1, { adpRank: 5 });
-
-    expect(
-      calculateAdpAvailabilityComponent({
-        ranking,
-        draft,
-        userTeamId: draft.userTeamId,
-      }),
-    ).toMatchObject({
-      delta: 3,
-      evidence: {
-        decisionPickNumber: 4,
-        nextTurnPickNumber: 5,
-        turnSpan: 1,
-        turnProgress: 0,
-        isPreview: true,
-        thresholdMatched: "borderline_next_turn_risk",
-      },
-    });
-  });
-
-  it("keeps missing ADP neutral without blocking the candidate", () => {
-    const draft = createTwoTeamDraft(1);
-    const ranking = createOverallTierRanking("missing-adp", 1, 1, {
-      adpRank: null,
-    });
-
-    expect(
-      calculateAdpAvailabilityComponent({
-        ranking,
-        draft,
-        userTeamId: draft.userTeamId,
-      }),
-    ).toEqual({
-      id: "adp_availability",
+  ])("keeps $label neutral", ({ signal, forecast, threshold }) => {
+    expect(calculateDraftPocketTimingComponent({ signal, forecast })).toMatchObject({
       delta: 0,
       direction: "neutral",
-      priority: 20,
-      evidence: {
-        adpRank: null,
-        decisionPickNumber: 1,
-        nextTurnPickNumber: 4,
-        turnSpan: 3,
-        turnProgress: null,
-        isPreview: false,
-        thresholdMatched: "missing_adp",
-      },
+      evidence: { thresholdMatched: threshold },
     });
   });
 
-  it("is neutral when the user has no following turn", () => {
-    const draft = createTwoTeamDraft(8);
-    const ranking = createOverallTierRanking("final-pick", 1, 1, {
-      adpRank: 1,
+  it("emits only candidate-specific forecast evidence", () => {
+    const component = calculateDraftPocketTimingComponent({
+      signal: createCandidateSignal(),
+      forecast: createTimingForecast(),
     });
 
-    expect(
-      calculateAdpAvailabilityComponent({
-        ranking,
-        draft,
-        userTeamId: draft.userTeamId,
-      }),
-    ).toMatchObject({
-      delta: 0,
-      direction: "neutral",
-      evidence: {
-        decisionPickNumber: 8,
-        nextTurnPickNumber: null,
-        turnSpan: null,
-        turnProgress: null,
-        isPreview: false,
-        thresholdMatched: "no_next_turn",
-      },
+    expect(component.evidence).toEqual({
+      forecastStatus: "active",
+      targetPickNumber: 4,
+      candidatePosition: "RB",
+      candidateInCurrentPocket: true,
+      candidateInForecastedPocket: false,
+      comparableReplacementCount: 0,
+      nearReplacementCount: 0,
+      replacementQuality: "low",
+      skipSafety: "low",
+      currentProfileCount: 1,
+      forecastedProfileCount: 0,
+      profileDisappeared: true,
+      highestMeaningfulTierDisappeared: true,
+      thresholdMatched: "low_skip_safety",
     });
-  });
-
-  it("preserves fractional ADP and turn progress without rounding", () => {
-    const draft = createTwoTeamDraft(1);
-    const ranking = createOverallTierRanking("fractional", 1, 1, {
-      adpRank: 2.5,
-    });
-
-    expect(
-      calculateAdpAvailabilityComponent({
-        ranking,
-        draft,
-        userTeamId: draft.userTeamId,
-      }),
-    ).toMatchObject({
-      delta: 5,
-      evidence: {
-        adpRank: 2.5,
-        turnProgress: 0.5,
-        thresholdMatched: "meaningful_next_turn_risk",
-      },
-    });
-  });
-
-  it("derives preview picks for a non-default snake position", () => {
-    const draft = createTestDraft({
-      teamCount: 4,
-      rounds: 3,
-      userTeamId: "team-3",
-      currentPickNumber: 1,
-      teams: createDraftTeams(4),
-      picks: generateSnakeDraftOrder(4, 3),
-    });
-    const ranking = createOverallTierRanking("non-default", 1, 1, {
-      adpRank: 4,
-    });
-
-    expect(
-      calculateAdpAvailabilityComponent({
-        ranking,
-        draft,
-        userTeamId: draft.userTeamId,
-      }),
-    ).toMatchObject({
-      evidence: {
-        decisionPickNumber: 3,
-        nextTurnPickNumber: 6,
-        turnSpan: 3,
-        isPreview: true,
-      },
-    });
-  });
-
-  it("returns deterministic output for equivalent inputs", () => {
-    const draft = createTwoTeamDraft(2);
-    const ranking = createOverallTierRanking("deterministic", 1, 1, {
-      adpRank: 4.5,
-    });
-
-    const first = calculateAdpAvailabilityComponent({
-      ranking,
-      draft,
-      userTeamId: draft.userTeamId,
-    });
-    const second = calculateAdpAvailabilityComponent({
-      ranking,
-      draft,
-      userTeamId: draft.userTeamId,
-    });
-
-    expect(first).toEqual(second);
+    expect(component.evidence).not.toHaveProperty("adpRank");
+    expect(component.evidence).not.toHaveProperty("missingAdpFallback");
+    expect(component.evidence).not.toHaveProperty("removalWindowPlayerIds");
+    expect(component.evidence).not.toHaveProperty("diversityLabels");
   });
 });
 
@@ -785,6 +756,270 @@ describe("generateTopRecommendations", () => {
 });
 
 describe("generatePlayerRecommendations", () => {
+  it("preserves legacy output when normalized recommendation context is absent", () => {
+    const rankings = toRawRankings(createIntegratedPhase55Facts());
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput({
+        draft: createTestDraft({ rounds: 4, picks: generateSnakeDraftOrder(2, 4) }),
+        rankings,
+      }),
+    );
+
+    expect(
+      recommendations.every((recommendation) => {
+        return recommendation.components.every((component) => {
+          return component.id !== "overall_tier" && component.id !== "draft_pocket_timing";
+        });
+      }),
+    ).toBe(true);
+  });
+
+  it("integrates overall-tier and draft-pocket timing components from normalized context", () => {
+    const facts = createIntegratedPhase55Facts();
+    const draft = createTestDraft({
+      rounds: 4,
+      picks: generateSnakeDraftOrder(2, 4),
+    });
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput({
+        draft,
+        rankings: toRawRankings(facts),
+        recommendationRankingContext: createRecommendationContext(facts),
+      }),
+    );
+    const candidate = recommendations.find((recommendation) => {
+      return recommendation.playerId === "candidate-rb";
+    });
+
+    expect(candidate).toBeDefined();
+    if (!candidate) {
+      throw new Error("Expected integrated candidate recommendation.");
+    }
+    expect(candidate?.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "overall_tier", delta: 6 }),
+        expect.objectContaining({
+          id: "draft_pocket_timing",
+          delta: 6,
+          evidence: expect.objectContaining({
+            forecastStatus: "active",
+            targetPickNumber: 4,
+            skipSafety: "low",
+            thresholdMatched: "low_skip_safety",
+          }),
+        }),
+      ]),
+    );
+    expect(
+      recommendations.every((recommendation) => {
+        return recommendation.components.every((component) => {
+          return component.id !== "adp_availability";
+        });
+      }),
+    ).toBe(true);
+    expectScoreToReconcile(candidate);
+  });
+
+  it("fails explicitly when raw and normalized player identities differ", () => {
+    const facts = createIntegratedPhase55Facts();
+    const mismatchedFacts = facts.slice(0, -1);
+
+    expect(() => {
+      generatePlayerRecommendations(
+        createRecommendationInput({
+          rankings: toRawRankings(facts),
+          recommendationRankingContext: createRecommendationContext(mismatchedFacts),
+        }),
+      );
+    }).toThrow("must match the raw ranking player identities");
+  });
+
+  it("keeps pocket timing neutral when the complete context has no ADP", () => {
+    const facts = createIntegratedPhase55Facts().map((ranking) => ({
+      ...ranking,
+      adpRank: null,
+    }));
+    const draft = createTestDraft({
+      rounds: 4,
+      picks: generateSnakeDraftOrder(2, 4),
+    });
+    const [recommendation] = generatePlayerRecommendations(
+      createRecommendationInput({
+        draft,
+        rankings: toRawRankings(facts),
+        recommendationRankingContext: createRecommendationContext(facts),
+      }),
+    );
+    const timing = recommendation.components.find((component) => {
+      return component.id === "draft_pocket_timing";
+    });
+
+    expect(timing).toMatchObject({
+      delta: 0,
+      direction: "neutral",
+      evidence: {
+        forecastStatus: "no-adp",
+        thresholdMatched: "inactive_forecast",
+      },
+    });
+    expect(recommendation.components).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "overall_tier", delta: 6 })]),
+    );
+  });
+
+  it("includes pocket timing in urgency and overall tier in total-context caps", () => {
+    const facts = createIntegratedPhase55Facts();
+    const draft = createTestDraft({
+      rounds: 4,
+      picks: generateSnakeDraftOrder(2, 4),
+    });
+    const [candidate] = generatePlayerRecommendations(
+      createRecommendationInput({
+        draft,
+        rankings: toRawRankings(facts),
+        recommendationRankingContext: createRecommendationContext(facts),
+      }),
+      {
+        tuning: {
+          ...defaultRecommendationTuningConfig,
+          maxUrgencyScore: 5,
+          maxPositiveContextScore: 15,
+        },
+      },
+    );
+
+    expect(candidate.playerId).toBe("candidate-rb");
+    expect(candidate.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "overall_tier", delta: 6 }),
+        expect.objectContaining({ id: "positional_scarcity", delta: 6 }),
+        expect.objectContaining({ id: "draft_pocket_timing", delta: 6 }),
+      ]),
+    );
+    expect(candidate.scoreAdjustments).toEqual([
+      {
+        id: "urgency_cap",
+        delta: -7,
+        direction: "negative",
+        evidence: { rawScore: 12, adjustedScore: 5, maxScore: 5 },
+      },
+      {
+        id: "context_cap",
+        delta: -6,
+        direction: "negative",
+        evidence: {
+          rawScore: 21,
+          adjustedScore: 15,
+          minScore: -24,
+          maxScore: 15,
+        },
+      },
+    ]);
+    expect(candidate.contextScore).toBe(15);
+    expectScoreToReconcile(candidate);
+  });
+
+  it("lets timing break a close call without overcoming a clearly superior player", () => {
+    const closeFacts = [
+      createOverallTierRanking("safe-wr", 10, 1, {
+        adpRank: 100,
+        position: "WR",
+      }),
+      createOverallTierRanking("urgent-rb", 11, 1, {
+        adpRank: 1,
+        position: "RB",
+      }),
+      createOverallTierRanking("wr-1", 12, 1, { adpRank: 101, position: "WR" }),
+      createOverallTierRanking("wr-2", 13, 1, { adpRank: 102, position: "WR" }),
+      createOverallTierRanking("rb-1", 14, 1, { adpRank: 2, position: "RB" }),
+      createOverallTierRanking("rb-2", 15, 1, { adpRank: 3, position: "RB" }),
+    ];
+    const eliteFacts = [
+      createOverallTierRanking("elite-wr", 1, 1, {
+        adpRank: 100,
+        position: "WR",
+      }),
+      createOverallTierRanking("wr-1", 2, 1, { adpRank: 101, position: "WR" }),
+      createOverallTierRanking("wr-2", 3, 1, { adpRank: 102, position: "WR" }),
+      createOverallTierRanking("filler-qb", 4, 1, { adpRank: 2, position: "QB" }),
+      createOverallTierRanking("filler-te", 5, 1, { adpRank: 3, position: "TE" }),
+      createOverallTierRanking("lower-rb", 50, 1, { adpRank: 1, position: "RB" }),
+    ];
+    const draft = createTestDraft({
+      rounds: 4,
+      picks: generateSnakeDraftOrder(2, 4),
+    });
+    const closeRecommendations = generatePlayerRecommendations(
+      createRecommendationInput({
+        draft,
+        rankings: toRawRankings(closeFacts),
+        recommendationRankingContext: createRecommendationContext(closeFacts),
+      }),
+    );
+    const eliteRecommendations = generatePlayerRecommendations(
+      createRecommendationInput({
+        draft,
+        rankings: toRawRankings(eliteFacts),
+        recommendationRankingContext: createRecommendationContext(eliteFacts),
+      }),
+    );
+
+    const closeIds = getPlayerRecommendationIds(closeRecommendations);
+
+    expect(closeIds.indexOf("urgent-rb")).toBeLessThan(closeIds.indexOf("safe-wr"));
+    expect(getPlayerRecommendationIds(eliteRecommendations)[0]).toBe("elite-wr");
+  });
+
+  it("preserves a filled-QB roster penalty alongside positive timing", () => {
+    const draft = createTestDraft({
+      rounds: 4,
+      currentPickNumber: 2,
+      picks: generateSnakeDraftOrder(2, 4).map((pick) => {
+        return pick.pickNumber === 1 ? { ...pick, playerId: "drafted-qb" } : pick;
+      }),
+    });
+    const facts = [
+      createOverallTierRanking("drafted-qb", 1, 1, {
+        adpRank: 50,
+        position: "QB",
+      }),
+      createOverallTierRanking("candidate-qb", 2, 1, {
+        adpRank: 1,
+        position: "QB",
+      }),
+      createOverallTierRanking("removed-rb", 3, 1, {
+        adpRank: 2,
+        position: "RB",
+      }),
+      createOverallTierRanking("forecast-wr", 4, 1, {
+        adpRank: 10,
+        position: "WR",
+      }),
+    ];
+    const recommendations = generatePlayerRecommendations(
+      createRecommendationInput({
+        draft,
+        rankings: toRawRankings(facts),
+        recommendationRankingContext: createRecommendationContext(facts),
+      }),
+    );
+    const candidate = recommendations.find((recommendation) => {
+      return recommendation.playerId === "candidate-qb";
+    });
+
+    expect(candidate).toBeDefined();
+    expect(candidate?.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "roster_fit", delta: -6 }),
+        expect.objectContaining({ id: "draft_pocket_timing", delta: 6 }),
+      ]),
+    );
+    if (!candidate) {
+      throw new Error("Expected candidate QB recommendation.");
+    }
+    expectScoreToReconcile(candidate);
+  });
+
   it("excludes drafted players from draft state", () => {
     const rankings = [
       createRanking("player-1", 1, "RB"),

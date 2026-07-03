@@ -1,5 +1,7 @@
 import type {
+  CandidatePocketSignal,
   Draft,
+  DraftPocketForecast,
   LeagueSettings,
   PlayerRecommendation,
   Position,
@@ -13,6 +15,10 @@ import type {
   RecommendationTuningConfig,
   UserRosterPlayer,
 } from "@/types/draft";
+import {
+  createCandidatePocketSignal,
+  createDraftPocketForecast,
+} from "@/lib/draftPocketForecast";
 import { NEUTRAL_TIER } from "@/types/rankings";
 
 const DEFAULT_RECOMMENDATION_LIMIT = 5;
@@ -53,15 +59,11 @@ const OVERALL_TIER_MAX_DELTA = 6;
 const BEST_OVERALL_TIER_DELTA = 3;
 const LAST_IN_BEST_OVERALL_TIER_DELTA = 6;
 const OVERALL_TIER_COMPONENT_PRIORITY = 19;
-const ADP_AVAILABILITY_MIN_DELTA = 0;
-const ADP_AVAILABILITY_MAX_DELTA = 8;
-const ADP_AVAILABLE_PAST_DELTA = 8;
-const ADP_HIGH_NEXT_TURN_RISK_DELTA = 7;
-const ADP_MEANINGFUL_NEXT_TURN_RISK_DELTA = 5;
-const ADP_BORDERLINE_NEXT_TURN_RISK_DELTA = 3;
-const ADP_HIGH_NEXT_TURN_RISK_THRESHOLD = 2 / 3;
-const ADP_MEANINGFUL_NEXT_TURN_RISK_THRESHOLD = 1 / 3;
-const ADP_AVAILABILITY_COMPONENT_PRIORITY = 20;
+const DRAFT_POCKET_TIMING_MIN_DELTA = 0;
+const DRAFT_POCKET_TIMING_MAX_DELTA = 6;
+const LOW_SKIP_SAFETY_DELTA = 6;
+const MEDIUM_SKIP_SAFETY_DELTA = 3;
+const DRAFT_POCKET_TIMING_COMPONENT_PRIORITY = 20;
 const POSITIONAL_SCARCITY_MIN_DELTA = 0;
 const POSITIONAL_SCARCITY_MAX_DELTA = 6;
 const MILD_POSITIONAL_SCARCITY_DELTA = 3;
@@ -225,112 +227,60 @@ export function calculateOverallTierComponent({
   };
 }
 
-export function calculateAdpAvailabilityComponent({
-  ranking,
-  draft,
-  userTeamId,
+export function calculateDraftPocketTimingComponent({
+  signal,
+  forecast,
 }: {
-  ranking: RecommendationRankingFact;
-  draft: Draft;
-  userTeamId: string;
+  signal: CandidatePocketSignal;
+  forecast: DraftPocketForecast;
 }): RecommendationScoreComponent {
-  const decisionPoint = getAdpDecisionPoint(draft, userTeamId);
-  const { decisionPickNumber, nextTurnPickNumber, turnSpan, isPreview } =
-    decisionPoint;
   let delta = 0;
-  let turnProgress: number | null = null;
-  let thresholdMatched = "missing_adp";
+  let thresholdMatched = "neutral_candidate_signal";
 
-  if (ranking.adpRank === null) {
-    thresholdMatched = "missing_adp";
-  } else if (
-    decisionPickNumber === null ||
-    nextTurnPickNumber === null ||
-    turnSpan === null ||
-    turnSpan <= 0
-  ) {
-    thresholdMatched = "no_next_turn";
-  } else {
-    turnProgress = (nextTurnPickNumber - ranking.adpRank) / turnSpan;
-
-    if (ranking.adpRank <= decisionPickNumber) {
-      delta = ADP_AVAILABLE_PAST_DELTA;
-      thresholdMatched = "available_past_adp";
-    } else if (turnProgress >= ADP_HIGH_NEXT_TURN_RISK_THRESHOLD) {
-      delta = ADP_HIGH_NEXT_TURN_RISK_DELTA;
-      thresholdMatched = "high_next_turn_risk";
-    } else if (turnProgress >= ADP_MEANINGFUL_NEXT_TURN_RISK_THRESHOLD) {
-      delta = ADP_MEANINGFUL_NEXT_TURN_RISK_DELTA;
-      thresholdMatched = "meaningful_next_turn_risk";
-    } else if (turnProgress >= 0) {
-      delta = ADP_BORDERLINE_NEXT_TURN_RISK_DELTA;
-      thresholdMatched = "borderline_next_turn_risk";
-    } else {
-      thresholdMatched = "expected_available_next_turn";
-    }
+  if (forecast.status !== "active") {
+    thresholdMatched = "inactive_forecast";
+  } else if (!signal.candidateInCurrentPocket) {
+    thresholdMatched = "outside_current_pocket";
+  } else if (!urgencyPositions.has(signal.candidatePosition)) {
+    thresholdMatched = "ineligible_position";
+  } else if (signal.skipSafety === "low") {
+    delta = LOW_SKIP_SAFETY_DELTA;
+    thresholdMatched = "low_skip_safety";
+  } else if (signal.skipSafety === "medium") {
+    delta = MEDIUM_SKIP_SAFETY_DELTA;
+    thresholdMatched = "medium_skip_safety";
+  } else if (signal.skipSafety === "high") {
+    thresholdMatched = "high_skip_safety";
   }
 
   const boundedDelta = clamp(
     delta,
-    ADP_AVAILABILITY_MIN_DELTA,
-    ADP_AVAILABILITY_MAX_DELTA,
+    DRAFT_POCKET_TIMING_MIN_DELTA,
+    DRAFT_POCKET_TIMING_MAX_DELTA,
   );
 
   return {
-    id: "adp_availability",
+    id: "draft_pocket_timing",
     delta: boundedDelta,
     direction: boundedDelta > 0 ? "positive" : "neutral",
-    priority: ADP_AVAILABILITY_COMPONENT_PRIORITY,
+    priority: DRAFT_POCKET_TIMING_COMPONENT_PRIORITY,
     evidence: {
-      adpRank: ranking.adpRank,
-      decisionPickNumber,
-      nextTurnPickNumber,
-      turnSpan,
-      turnProgress,
-      isPreview,
+      forecastStatus: forecast.status,
+      targetPickNumber: forecast.targetPickNumber,
+      candidatePosition: signal.candidatePosition,
+      candidateInCurrentPocket: signal.candidateInCurrentPocket,
+      candidateInForecastedPocket: signal.candidateInForecastedPocket,
+      comparableReplacementCount: signal.comparableReplacementCount,
+      nearReplacementCount: signal.nearReplacementCount,
+      replacementQuality: signal.replacementQuality,
+      skipSafety: signal.skipSafety,
+      currentProfileCount: signal.currentProfileCount,
+      forecastedProfileCount: signal.forecastedProfileCount,
+      profileDisappeared: signal.profileDisappeared,
+      highestMeaningfulTierDisappeared:
+        signal.highestMeaningfulTierDisappeared,
       thresholdMatched,
     },
-  };
-}
-
-function getAdpDecisionPoint(draft: Draft, userTeamId: string): {
-  decisionPickNumber: number | null;
-  nextTurnPickNumber: number | null;
-  turnSpan: number | null;
-  isPreview: boolean;
-} {
-  const currentPick = draft.picks.find((pick) => {
-    return pick.pickNumber === draft.currentPickNumber;
-  });
-  const isPreview = currentPick?.teamId !== userTeamId;
-  const decisionPickNumber =
-    currentPick?.teamId === userTeamId
-      ? currentPick.pickNumber
-      : (draft.picks.find((pick) => {
-          return (
-            pick.teamId === userTeamId &&
-            pick.pickNumber > draft.currentPickNumber
-          );
-        })?.pickNumber ?? null);
-  const nextTurnPickNumber =
-    decisionPickNumber === null
-      ? null
-      : (draft.picks.find((pick) => {
-          return (
-            pick.teamId === userTeamId &&
-            pick.pickNumber > decisionPickNumber
-          );
-        })?.pickNumber ?? null);
-  const turnSpan =
-    decisionPickNumber === null || nextTurnPickNumber === null
-      ? null
-      : nextTurnPickNumber - decisionPickNumber;
-
-  return {
-    decisionPickNumber,
-    nextTurnPickNumber,
-    turnSpan,
-    isPreview,
   };
 }
 
@@ -340,6 +290,51 @@ function clamp(value: number, min: number, max: number) {
 
 function getDraftedPlayerIds(input: RecommendationInput) {
   return new Set(input.draft.picks.flatMap((pick) => (pick.playerId ? [pick.playerId] : [])));
+}
+
+function createPhase55ScoringContext(
+  input: RecommendationInput,
+  draftedPlayerIds: ReadonlySet<string>,
+): {
+  rankings: readonly RecommendationRankingFact[];
+  rankingsByPlayerId: ReadonlyMap<string, RecommendationRankingFact>;
+  availableRankings: readonly RecommendationRankingFact[];
+  forecast: DraftPocketForecast;
+} | null {
+  const context = input.recommendationRankingContext;
+
+  if (!context) {
+    return null;
+  }
+
+  const rawPlayerIds = new Set(input.rankings.map((ranking) => ranking.player.id));
+  const rankingsByPlayerId = new Map(
+    context.rankings.map((ranking) => [ranking.player.id, ranking] as const),
+  );
+  const identitiesAlign =
+    rawPlayerIds.size === input.rankings.length &&
+    rankingsByPlayerId.size === context.rankings.length &&
+    rawPlayerIds.size === rankingsByPlayerId.size &&
+    [...rawPlayerIds].every((playerId) => rankingsByPlayerId.has(playerId));
+
+  if (!identitiesAlign) {
+    throw new Error(
+      "Recommendation ranking context must match the raw ranking player identities.",
+    );
+  }
+
+  return {
+    rankings: context.rankings,
+    rankingsByPlayerId,
+    availableRankings: context.rankings.filter((ranking) => {
+      return !draftedPlayerIds.has(ranking.player.id);
+    }),
+    forecast: createDraftPocketForecast({
+      draft: input.draft,
+      rankings: context.rankings,
+      userTeamId: input.userTeamId,
+    }),
+  };
 }
 
 function compareRankingsByStableDraftOrder(a: RankingEntry, b: RankingEntry) {
@@ -1196,6 +1191,7 @@ export function generatePlayerRecommendations(
   }
 
   const draftedPlayerIds = getDraftedPlayerIds(input);
+  const phase55Context = createPhase55ScoringContext(input, draftedPlayerIds);
   const rosterPlayers = getUserRoster(input);
   const availableRankings = input.rankings.filter((ranking) => {
     return !draftedPlayerIds.has(ranking.player.id);
@@ -1209,6 +1205,16 @@ export function generatePlayerRecommendations(
 
   return availableRankings
     .map((ranking) => {
+      const recommendationRanking = phase55Context
+        ? phase55Context.rankingsByPlayerId.get(ranking.player.id)
+        : null;
+
+      if (phase55Context && !recommendationRanking) {
+        throw new Error(
+          `Recommendation ranking context is missing player ${ranking.player.id}.`,
+        );
+      }
+
       const baseScore = calculateBasePlayerValueScore(
         ranking.overallRank,
         tuning.baseScoreCurveCoefficient,
@@ -1247,13 +1253,34 @@ export function generatePlayerRecommendations(
         rosterFitDelta: rosterFitComponent.delta,
         tuning,
       });
+      const overallTierComponent = recommendationRanking
+        ? calculateOverallTierComponent({
+            ranking: recommendationRanking,
+            availableRankings: phase55Context?.availableRankings ?? [],
+          })
+        : null;
+      const draftPocketTimingComponent =
+        recommendationRanking && phase55Context
+          ? calculateDraftPocketTimingComponent({
+              signal: createCandidatePocketSignal({
+                candidate: recommendationRanking,
+                forecast: phase55Context.forecast,
+                rankings: phase55Context.rankings,
+              }),
+              forecast: phase55Context.forecast,
+            })
+          : null;
       const rawUrgencyScore =
         tierCliffComponent.delta +
         positionalScarcityComponent.delta +
-        positionalRunComponent.delta;
+        positionalRunComponent.delta +
+        (draftPocketTimingComponent?.delta ?? 0);
       const urgencyScore = Math.min(rawUrgencyScore, tuning.maxUrgencyScore);
       const rawContextScore =
-        rosterFitComponent.delta + urgencyScore + valueOpportunityComponent.delta;
+        rosterFitComponent.delta +
+        (overallTierComponent?.delta ?? 0) +
+        urgencyScore +
+        valueOpportunityComponent.delta;
       const contextScore = clamp(
         rawContextScore,
         tuning.maxNegativeContextScore,
@@ -1272,12 +1299,14 @@ export function generatePlayerRecommendations(
           },
         },
         rosterFitComponent,
+        ...(overallTierComponent ? [overallTierComponent] : []),
         ...(tierCliffComponent.evidence?.thresholdMatched ===
           "neutral_recommendation_tiers"
           ? []
           : [tierCliffComponent]),
         positionalScarcityComponent,
         positionalRunComponent,
+        ...(draftPocketTimingComponent ? [draftPocketTimingComponent] : []),
         valueOpportunityComponent,
       ];
       const scoreAdjustments: RecommendationScoreAdjustment[] = [];

@@ -352,7 +352,7 @@ Interpret one shared forecasted pocket for each current-pocket candidate without
 
 ## Task 8 - Integrate Overall-Tier and Draft-Pocket Timing Scoring
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 
@@ -612,7 +612,7 @@ Prove overall-tier quality and draft-pocket timing improve decisions without wea
 
 ## Testing Status
 
-Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, original direct-ADP component, deterministic board-forecast foundation, tier-aware pocket construction, and candidate replacement-quality and skip-safety tests are complete through Task 7. Draft-pocket scoring integration tests have not started.
+Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, candidate replacement quality, skip safety, and bounded scoring integration tests are complete through Task 8. The original direct-ADP component has been removed from executable code under its approved supersession. Score-backed Phase 5.5 reason tests have not started.
 
 Remaining Phase 5.5 work should prioritize pure forecast and pocket tests, exact candidate-signal and ordering assertions, score-backed explanation tests, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
 
