@@ -1,177 +1,203 @@
-# Current Slice: Add the ADP Availability Component
+# Current Slice: Add the Deterministic Board-Forecast Foundation
 
 ## Completion Status
 
-Complete. Added the pure bounded `adp_availability` component with schedule-derived on-turn and preview decision points, exact `+8`, `+7`, `+5`, `+3`, and neutral outcomes, nullable ADP support, final-turn neutrality, fractional progress, and deterministic evidence. The component is not called by recommendation generation, so current scores, ordering, and UI behavior remain unchanged. Focused validation passed with 1 test file and 79 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
+Planned. Not started.
 
 ## Goal
 
-Implement the pure, bounded `adp_availability` recommendation component that estimates the opportunity cost of waiting until the user's following turn, including deterministic preview decision points between user turns, without integrating the component into recommendation totals or UI behavior.
+Implement the pure, roster-agnostic foundation that deterministically projects the available board at the user's next scheduled selection from draft state and normalized ranking facts, without constructing draft pockets or changing recommendation behavior.
 
 ## Scope
 
 ### Goals
 
-- Derive the relevant user decision pick from the current draft schedule.
-- Use the current pick when the user is on the clock.
-- Use the next scheduled user pick as a preview decision point when another team is on the clock.
-- Derive the user's following scheduled pick after that decision point.
-- Calculate normalized ADP turn progress from the decision pick to the following user pick.
-- Apply the approved positive-only ADP risk bands from `0` through `+8`.
-- Return neutral behavior for null ADP, ADP after the following turn, and no following user turn.
-- Preserve fractional ADP without rounding.
-- Return deterministic direction, priority, and evidence for later scoring integration and explanations.
+- Derive the first user-owned pick strictly after the current overall pick from the generated draft schedule.
+- Calculate the exact number of selections to remove before that target pick.
+- Build the current available board from the normalized ranking context and recorded draft picks.
+- Use valid snapshot ADP only to order expected removals.
+- Assign individual missing ADP `max valid snapshot ADP + 1` when any valid ADP exists.
+- Return neutral forecast status when the complete snapshot has no ADP or the user has no later pick.
+- Expose deterministic current-board, removal-window, and forecasted-board player identities.
+- Keep the forecast pure, derived, roster-agnostic, unpersisted, and independent of recommendation scoring.
 
 ### Non-Goals
 
-- Do not call the component from `generatePlayerRecommendations`.
-- Do not change recommendation totals, context scores, ordering, caps, adjustments, tie-breaking, or reasons.
-- Do not display or activate between-turn previews in Draft Room; Task 7 owns user-visible preview integration.
-- Do not fetch, refresh, infer, or default missing ADP.
-- Do not simulate intervening opponent picks or claim probability or certainty.
-- Do not change ranking context, draft state, league settings, persistence, scenarios, UI, or dependencies.
-- Do not add tuning UI or a generic signal framework.
+- Do not construct the 6-12 player current or forecasted draft pockets; Task 6 owns pocket construction.
+- Do not derive tier composition, position composition, diversity labels, replacement quality, skip safety, or profile transitions.
+- Do not calculate or integrate `draft_pocket_timing`, overall-tier, or legacy ADP score components.
+- Do not call the forecast from `generatePlayerRecommendations` or change recommendation totals, ordering, caps, reasons, or UI behavior.
+- Do not modify or remove the completed legacy `adp_availability` component; Task 8 owns its scoring replacement.
+- Do not simulate opponent behavior, assign probabilities, or claim individual-player availability.
+- Do not persist normalized fallback ADP, forecast output, or recommendation output.
+- Do not change ranking normalization, snapshots, drafts, scenarios, repositories, UI, or dependencies.
 
 ## Implementation Decisions
 
-- Add an exported `calculateAdpAvailabilityComponent` function to `src/lib/recommendations.ts` beside the existing pure component functions.
-- Accept:
-  - one normalized `RecommendationRankingFact` candidate;
+- Add a focused pure module at `src/lib/draftPocketForecast.ts` rather than expanding the existing recommendation module.
+- Add the forecast domain types to `src/types/draft.ts` beside the existing recommendation types:
+  - `DraftPocketForecastStatus = "active" | "no-adp" | "no-next-pick"`;
+  - a readonly `DraftPocketForecast` foundation containing status, target metadata, fallback evidence, and board identity arrays.
+- The forecast function should accept:
   - the current `Draft`;
-  - the user team identity.
-- Derive decision points from `draft.picks`; do not hard-code league size, snake position, rounds, or turn distance.
-- Determine the decision pick as:
-  - `draft.currentPickNumber` with `isPreview: false` when the current scheduled pick belongs to the user;
-  - the first scheduled user pick after the current pick with `isPreview: true` when another team is on the clock;
-  - `null` when no user decision remains.
-- Determine `nextTurnPickNumber` as the first user pick strictly after `decisionPickNumber`.
-- Calculate `turnSpan = nextTurnPickNumber - decisionPickNumber` only when both picks exist.
-- For valid non-null ADP and a positive turn span, calculate:
+  - the complete normalized `RecommendationRankingFact[]` snapshot context;
+  - the explicit user team identity.
+- Include these foundation fields:
 
   ```text
-  turnProgress = (nextTurnPickNumber - adpRank) / turnSpan
+  status
+  targetPickNumber
+  picksToRemove
+  missingAdpFallback
+  currentBoardPlayerIds
+  removalWindowPlayerIds
+  forecastedBoardPlayerIds
   ```
 
-- Apply these fixed approved values in order:
-  - null ADP: `0` / `missing_adp`;
-  - no following user turn: `0` / `no_next_turn`;
-  - `adpRank <= decisionPickNumber`: `+8` / `available_past_adp`;
-  - `turnProgress >= 2/3`: `+7` / `high_next_turn_risk`;
-  - `turnProgress >= 1/3`: `+5` / `meaningful_next_turn_risk`;
-  - `turnProgress >= 0`: `+3` / `borderline_next_turn_risk`;
-  - ADP after the following user pick: `0` / `expected_available_next_turn`.
-- Keep the signal positive-only. A player expected to remain available receives no urgency, not a quality penalty.
-- Clamp the component to `0..8` and assign fixed component priority `20` for later reason selection.
-- Emit evidence with:
-  - `adpRank`;
-  - `decisionPickNumber`;
-  - `nextTurnPickNumber`;
-  - `turnSpan`;
-  - `turnProgress`;
-  - `isPreview`;
-  - `thresholdMatched`.
-- Use `null` evidence for unavailable numeric values rather than sentinel numbers.
-- Do not add these constants to `RecommendationTuningConfig` in this slice. Task 5 owns integration-level scoring configuration.
+- Build `currentBoardPlayerIds` by removing every recorded `playerId` from the complete ranking context, then order the remaining identities by overall rank and `player.id`.
+- Determine `targetPickNumber` as the first scheduled pick where:
+  - `pick.teamId === userTeamId`; and
+  - `pick.pickNumber > draft.currentPickNumber`.
+- Calculate `picksToRemove = targetPickNumber - draft.currentPickNumber`.
+- This target rule intentionally differs from the superseded direct ADP decision-point helper:
+  - when the user is on the clock, the count includes the current selection and intervening selections before the user picks again;
+  - between user turns, the count includes the pending selections before the user's upcoming pick.
+- Evaluate `no-next-pick` before ADP availability. With no later user pick:
+  - keep the deterministic current board;
+  - return null target, removal-count, and fallback fields;
+  - return empty removal-window and forecasted-board arrays.
+- When a target exists but the complete snapshot has no valid ADP:
+  - return `no-adp`;
+  - retain the target and removal count for diagnostics;
+  - set `missingAdpFallback` to null;
+  - return empty removal-window and forecasted-board arrays.
+- When any valid snapshot ADP exists:
+  - calculate the maximum across the complete normalized snapshot, including already drafted players;
+  - assign every missing ADP that maximum plus one for forecast ordering only;
+  - preserve fractional ADP without rounding;
+  - do not mutate ranking facts or expose fallback as player quality.
+- For active forecast removal, sort available players by:
+  1. normalized ADP;
+  2. overall rank;
+  3. `player.id`.
+- Preserve removal-window identities in removal order.
+- After removal, reorder the remaining forecasted board by overall rank and `player.id`. ADP must not become the board's quality order.
+- Use ordinary immutable array transformations and return new readonly arrays. Do not mutate the draft, ranking facts, or their nested players.
+- Rely on existing draft-state validation for coherent schedules and available-player invariants. Do not add repair logic for invalid drafts in this slice.
 
 ## Implementation Steps
 
-1. Add the pure ADP availability component.
+1. Add the forecast foundation types.
 
-   In `src/lib/recommendations.ts`:
+   In `src/types/draft.ts`:
 
-   - add private constants for the `0..8` bounds, four positive bands, fractional thresholds, and priority `20`;
-   - implement a small private decision-point helper over the draft's scheduled picks;
-   - implement `calculateAdpAvailabilityComponent` using the normalized candidate, draft, and user team identity;
-   - derive on-turn and preview decision points deterministically;
-   - handle missing ADP and missing following turns as explicit neutral states;
-   - preserve fractional ADP and turn progress without rounding;
-   - clamp the delta and return exact evidence;
-   - do not add the component to recommendation generation or reason selection.
+   - add the three-state forecast status union;
+   - add the readonly forecast foundation with nullable target/fallback metadata and readonly player-ID arrays;
+   - keep the types independent of persistence and UI models;
+   - do not change existing recommendation or ranking-context contracts.
 
-2. Add focused component tests.
+2. Implement the pure board forecast.
 
-   In `src/lib/recommendations.test.ts`:
+   In `src/lib/draftPocketForecast.ts`:
 
-   - import the new component and reuse the normalized-ranking helper from Task 3;
-   - use generated snake draft schedules rather than hand-written opponent assumptions;
-   - assert the current user pick is used with `isPreview: false` when the user is on the clock;
-   - assert the next user pick is used with `isPreview: true` between user turns;
-   - assert exact `+8`, `+7`, `+5`, and `+3` values at representative points and threshold boundaries;
-   - assert ADP after the following pick returns zero without a negative adjustment;
-   - assert null ADP returns zero and preserves `adpRank: null` evidence;
-   - assert the final user decision returns `no_next_turn` and zero;
-   - assert fractional ADP is not rounded;
-   - assert a non-default snake position derives the correct decision and following-turn picks;
-   - assert repeated equivalent inputs produce exact deterministic output;
-   - retain all existing recommendation and overall-tier tests unchanged.
+   - add deterministic overall-rank/player-ID and normalized-ADP comparators;
+   - filter recorded drafted player IDs from normalized ranking facts;
+   - derive the target user pick and removal count from `draft.picks`;
+   - implement the approved `no-next-pick` and `no-adp` neutral outputs;
+   - calculate the snapshot-wide missing-ADP fallback for active forecasts;
+   - create the exact removal window and remaining board without mutation;
+   - return the typed foundation output;
+   - do not import recommendation scoring functions or call this function from production recommendation generation.
 
-3. Run focused validation.
+3. Add focused forecast tests.
+
+   In `src/lib/draftPocketForecast.test.ts`:
+
+   - build schedules with `generateSnakeDraftOrder` instead of hand-writing turn assumptions;
+   - use normalized `RecommendationRankingFact` fixtures;
+   - assert on-turn targeting uses the user's following pick and includes the current selection in the removal count;
+   - assert between-turn targeting uses the user's upcoming pick;
+   - cover a non-default user draft position and snake-turn boundary;
+   - assert drafted players are absent from all board outputs;
+   - assert complete ADP produces exact removal order and a rank-ordered forecasted board;
+   - assert partial ADP uses the complete snapshot maximum plus one, including when that maximum belongs to a drafted player;
+   - assert equal and fractional ADP resolve without rounding through overall rank and player ID;
+   - assert wholly absent ADP returns `no-adp` with target metadata but no removal forecast;
+   - assert the final user pick and no-later-pick states return `no-next-pick`;
+   - assert the input draft and normalized ranking facts remain unchanged;
+   - assert repeated equivalent inputs return exact equivalent output.
+
+4. Run focused validation.
 
    Run:
 
    ```text
-   npm test -- src/lib/recommendations.test.ts
+   npm test -- src/lib/draftPocketForecast.test.ts
    npx tsc --noEmit
    npm run lint
    ```
 
-   Accept only already-recorded unrelated warnings if they remain unchanged. Manual QA is not required because this slice does not integrate the component into user-visible recommendations.
+   Accept only already-recorded unrelated warnings if they remain unchanged. Manual QA is not required because the new pure module is not connected to recommendation or UI behavior.
 
-4. Record completion only after validation passes.
+5. Record completion only after validation passes.
 
    - Update this file with the exact validation result.
-   - Mark Task 4 complete in `docs/tasks.md`.
-   - Stop without beginning Task 5 decision-timing integration.
+   - Mark Task 5 complete in `docs/tasks.md`.
+   - Stop without beginning Task 6 pocket construction.
 
 ## Expected Files
 
 Production:
 
-- `src/lib/recommendations.ts`
+- `src/types/draft.ts`
+- `src/lib/draftPocketForecast.ts`
 
 Focused tests:
 
-- `src/lib/recommendations.test.ts`
+- `src/lib/draftPocketForecast.test.ts`
 
 Planning and completion tracking:
 
 - `docs/current-slice.md`
 - `docs/tasks.md` only after validation passes
 
-Do not touch recommendation types, normalized context, Draft Room, page props, transient sessions, snapshot mapping, repositories, imports, scenarios, Prisma, dependencies, project scope, architecture, roadmap, or future-ideas documents.
+Do not touch `src/lib/recommendations.ts`, existing recommendation tests, normalized-context logic, Draft Room, page props, transient sessions, snapshot mapping, repositories, imports, scenarios, Prisma, dependencies, project scope, architecture, roadmap, or future-ideas documents.
 
 ## Acceptance Criteria
 
-- On the user's turn, the component uses the current pick as the decision point and marks it non-preview.
-- Between user turns, the component uses the next scheduled user pick as the decision point and marks it preview.
-- The following user pick and turn span are derived from the actual draft schedule.
-- Valid ADP maps deterministically to exact `+8`, `+7`, `+5`, `+3`, or `0` bands.
-- Null ADP contributes zero, remains null in evidence, and never blocks the candidate.
-- ADP after the following user pick contributes zero rather than a penalty.
-- The final user decision contributes zero because waiting another turn is impossible.
-- Fractional ADP and turn progress are preserved without rounding.
-- Component output remains bounded from `0` through `8` and positive-only.
-- Equivalent inputs return identical output and evidence.
-- No recommendation total, ordering, cap, adjustment, reason, UI, persisted draft, or replay behavior changes.
+- The forecast is a pure typed domain function with no persistence, React, repository, or roster dependency.
+- The current board contains every normalized ranking fact not already recorded as drafted, ordered by overall rank and stable player ID.
+- The target is the first user pick strictly after the current pick, with an exact schedule-derived removal count.
+- On the user's turn, the removal count includes the current selection; between turns, it targets the upcoming user selection.
+- Active forecasts remove players by normalized ADP, overall rank, and stable player ID in that order.
+- Missing individual ADP uses exactly the complete snapshot's maximum valid ADP plus one and does not mutate or penalize the player.
+- The removal window preserves forecast removal order, while the remaining forecasted board returns to overall-rank/player-ID order.
+- Wholly absent ADP returns `no-adp`, preserves target metadata, and constructs no removal forecast.
+- No later user pick returns `no-next-pick` with no future forecast, even when ADP exists.
+- Fractional and tied ADP remain deterministic without rounding.
+- Equivalent inputs return exact equivalent output, and no input is mutated.
+- No recommendation score, ordering, cap, adjustment, reason, UI, persistence, scenario, or replay behavior changes.
 - Focused tests, TypeScript, and lint pass with only explicitly recorded pre-existing warnings.
 
 ## Failure Handling
 
-- If draft schedules cannot distinguish the current user pick from an off-turn preview without new state, stop and report rather than adding UI state or opponent prediction.
-- If a valid draft can contain a non-positive span between consecutive user picks, return the neutral no-next-turn state and report the invariant before inventing arithmetic behavior.
-- If existing component evidence cannot carry nullable decision values or fractional progress, stop and report before changing shared evidence types.
-- If adding the pure function changes recommendation output without explicit integration, stop and remove the unintended call path.
+- If the normalized ranking facts do not contain enough identity and ADP information to construct the forecast without consulting persistence or import metadata, stop and report rather than widening the boundary.
+- If the target rule cannot be derived from the existing scheduled picks, stop and report rather than duplicating snake-draft arithmetic or adding UI state.
+- If the design would require using legacy direct-ADP decision semantics, stop and report the conflict rather than silently reusing the helper.
+- If a valid draft can require removing more players than remain before a scheduled user pick, report the draft-state invariant conflict rather than adding repair or clamping behavior.
+- If readonly forecast output requires changing unrelated shared contracts, stop and report before broadening the slice.
+- If the new unused module changes recommendation behavior, remove the unintended call path and report the discrepancy.
 - If focused validation exposes unrelated failures, report them without modifying out-of-scope code or weakening tests.
 
 ## Follow-Up
 
-After this slice passes, the next slice should promote Task 5: integrate overall-tier and ADP components under the decision-timing cap and existing total-context guardrails. Do not begin Task 5 automatically.
+After this slice passes, the next slice should promote Task 6: build the tier-aware current and forecasted draft pockets from this foundation. Do not begin Task 6 automatically.
 
 ## Slice Review
 
-- Smallest meaningful increment: yes. It implements one independent availability-risk signal and its decision-point semantics without integration side effects.
-- Executable by a lower-reasoning pass: yes. Inputs, schedule rules, formula, thresholds, evidence, files, and tests are explicit.
-- Avoids unnecessary architecture changes: yes. It follows the existing pure-component pattern and derives state from the current draft schedule.
-- Blast radius reasonable: yes. Implementation and tests are limited to the recommendation module and its focused test file.
-- Review/revert comfort: yes. The component is not called by production recommendation generation in this slice.
-- Observable/testable acceptance criteria: yes. Every decision state, risk band, neutral state, fractional behavior, and determinism rule has direct unit coverage.
+- Smallest meaningful increment: yes. It produces one deterministic forecasted-board foundation without combining pocket semantics or scoring.
+- Executable by a lower-reasoning pass: yes. Inputs, output fields, status precedence, target rule, fallback, sorting, files, and exact tests are defined.
+- Avoids unnecessary architecture changes: yes. It adds one pure domain module and typed value inside the existing Recommendation Engine boundary.
+- Blast radius reasonable: yes. Production work is limited to one type file and one new pure module, plus one focused test file and planning records.
+- Review/revert comfort: yes. The module remains uncalled by recommendation generation and cannot change user-visible behavior.
+- Observable/testable acceptance criteria: yes. Every target, neutral state, fallback, ordering rule, determinism rule, and mutation boundary has direct unit coverage.
