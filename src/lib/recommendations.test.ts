@@ -780,13 +780,15 @@ describe("generatePlayerRecommendations", () => {
       rounds: 4,
       picks: generateSnakeDraftOrder(2, 4),
     });
-    const recommendations = generatePlayerRecommendations(
-      createRecommendationInput({
-        draft,
-        rankings: toRawRankings(facts),
-        recommendationRankingContext: createRecommendationContext(facts),
-      }),
-    );
+    const input = createRecommendationInput({
+      draft,
+      rankings: toRawRankings(facts),
+      recommendationRankingContext: createRecommendationContext(facts),
+    });
+    const recommendations = generatePlayerRecommendations(input);
+    const recommendationsWithoutReasons = generatePlayerRecommendations(input, {
+      tuning: { ...defaultRecommendationTuningConfig, maxReasons: 0 },
+    });
     const candidate = recommendations.find((recommendation) => {
       return recommendation.playerId === "candidate-rb";
     });
@@ -817,6 +819,31 @@ describe("generatePlayerRecommendations", () => {
         });
       }),
     ).toBe(true);
+    expect(candidate.reasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "draft_pocket_timing:highest_meaningful_tier_disappeared",
+          text: "This overall tier is not represented in the forecasted next pocket.",
+        }),
+        expect.objectContaining({
+          id: "overall_tier:last_in_best_overall_tier",
+          text: "Last player remaining in the best available overall tier.",
+        }),
+      ]),
+    );
+    expect(
+      recommendations.map(({ playerId, totalScore, contextScore }) => ({
+        playerId,
+        totalScore,
+        contextScore,
+      })),
+    ).toEqual(
+      recommendationsWithoutReasons.map(({ playerId, totalScore, contextScore }) => ({
+        playerId,
+        totalScore,
+        contextScore,
+      })),
+    );
     expectScoreToReconcile(candidate);
   });
 
@@ -2072,6 +2099,315 @@ describe("generatePlayerRecommendations", () => {
     expect(
       recommendation.reasons.every((reason) => componentIds.has(reason.sourceComponentId)),
     ).toBe(true);
+  });
+
+  it.each([
+    {
+      label: "last player in the best overall tier",
+      evidence: {
+        overallTierOrigin: "source",
+        thresholdMatched: "last_in_best_overall_tier",
+        bestTierRemaining: 1,
+      },
+      id: "overall_tier:last_in_best_overall_tier",
+      text: "Last player remaining in the best available overall tier.",
+    },
+    {
+      label: "player in the best overall tier",
+      evidence: {
+        overallTierOrigin: "source",
+        thresholdMatched: "best_overall_tier_available",
+      },
+      id: "overall_tier:best_overall_tier_available",
+      text: "In the best available overall tier.",
+    },
+  ])("maps the $label evidence to its approved reason", ({ evidence, id, text }) => {
+    const reasons = selectRecommendationReasons({
+      ranking: createRanking("candidate-rb", 10, "RB"),
+      components: [
+        {
+          id: "overall_tier",
+          delta: 6,
+          direction: "positive",
+          priority: 19,
+          evidence: evidence as unknown as RecommendationScoreComponent["evidence"],
+        },
+      ],
+      availableValueRank: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(reasons).toEqual([
+      { id, text, sourceComponentId: "overall_tier", priority: 19 },
+    ]);
+  });
+
+  it.each([
+    {
+      label: "highest meaningful overall tier disappears",
+      evidence: {
+        highestMeaningfulTierDisappeared: true,
+        profileDisappeared: true,
+      },
+      id: "draft_pocket_timing:highest_meaningful_tier_disappeared",
+      text: "This overall tier is not represented in the forecasted next pocket.",
+    },
+    {
+      label: "position and tier profile disappears",
+      evidence: {
+        highestMeaningfulTierDisappeared: false,
+        profileDisappeared: true,
+      },
+      id: "draft_pocket_timing:profile_disappeared",
+      text: "Similar RB options are not represented in the forecasted next pocket.",
+    },
+    {
+      label: "low skip safety remains",
+      evidence: {
+        highestMeaningfulTierDisappeared: false,
+        profileDisappeared: false,
+      },
+      id: "draft_pocket_timing:low_skip_safety",
+      text: "Comparable RB options are thin in the forecasted next pocket.",
+    },
+  ])("uses the approved timing precedence when $label", ({ evidence, id, text }) => {
+    const reasons = selectRecommendationReasons({
+      ranking: createRanking("candidate-rb", 10, "RB"),
+      components: [
+        {
+          id: "draft_pocket_timing",
+          delta: 6,
+          direction: "positive",
+          priority: 20,
+          evidence: {
+            forecastStatus: "active",
+            candidateInCurrentPocket: true,
+            candidatePosition: "RB",
+            skipSafety: "low",
+            thresholdMatched: "low_skip_safety",
+            ...evidence,
+          },
+        },
+      ],
+      availableValueRank: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(reasons).toEqual([
+      { id, text, sourceComponentId: "draft_pocket_timing", priority: 20 },
+    ]);
+  });
+
+  it.each([
+    {
+      position: "QB" as const,
+      skipSafety: "low",
+      thresholdMatched: "low_skip_safety",
+      text: "Comparable QB options are thin in the forecasted next pocket.",
+    },
+    {
+      position: "RB" as const,
+      skipSafety: "low",
+      thresholdMatched: "low_skip_safety",
+      text: "Comparable RB options are thin in the forecasted next pocket.",
+    },
+    {
+      position: "WR" as const,
+      skipSafety: "medium",
+      thresholdMatched: "medium_skip_safety",
+      text: "Only limited comparable WR options remain in the forecasted next pocket.",
+    },
+    {
+      position: "TE" as const,
+      skipSafety: "medium",
+      thresholdMatched: "medium_skip_safety",
+      text: "Only limited comparable TE options remain in the forecasted next pocket.",
+    },
+  ])("uses the candidate's actual $position in timing wording", ({
+    position,
+    skipSafety,
+    thresholdMatched,
+    text,
+  }) => {
+    const reasons = selectRecommendationReasons({
+      ranking: createRanking(`candidate-${position}`, 10, position),
+      components: [
+        {
+          id: "draft_pocket_timing",
+          delta: skipSafety === "low" ? 6 : 3,
+          direction: "positive",
+          priority: 20,
+          evidence: {
+            forecastStatus: "active",
+            candidateInCurrentPocket: true,
+            candidatePosition: position,
+            skipSafety,
+            highestMeaningfulTierDisappeared: false,
+            profileDisappeared: false,
+            thresholdMatched,
+          },
+        },
+      ],
+      availableValueRank: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(reasons).toEqual([
+      expect.objectContaining({
+        id: `draft_pocket_timing:${thresholdMatched}`,
+        text,
+      }),
+    ]);
+  });
+
+  it.each([
+    {
+      label: "default-neutral overall tier",
+      id: "overall_tier",
+      evidence: {
+        overallTierOrigin: "defaulted-neutral",
+        thresholdMatched: "best_overall_tier_available",
+      },
+    },
+    {
+      label: "contradictory last-tier count",
+      id: "overall_tier",
+      evidence: {
+        overallTierOrigin: "source",
+        thresholdMatched: "last_in_best_overall_tier",
+        bestTierRemaining: 2,
+      },
+    },
+    {
+      label: "inactive forecast",
+      id: "draft_pocket_timing",
+      evidence: {
+        forecastStatus: "no-adp",
+        candidateInCurrentPocket: true,
+        candidatePosition: "RB",
+        skipSafety: "low",
+        thresholdMatched: "low_skip_safety",
+      },
+    },
+    {
+      label: "candidate outside the current pocket",
+      id: "draft_pocket_timing",
+      evidence: {
+        forecastStatus: "active",
+        candidateInCurrentPocket: false,
+        candidatePosition: "RB",
+        skipSafety: "low",
+        thresholdMatched: "low_skip_safety",
+      },
+    },
+    {
+      label: "high skip safety",
+      id: "draft_pocket_timing",
+      evidence: {
+        forecastStatus: "active",
+        candidateInCurrentPocket: true,
+        candidatePosition: "RB",
+        skipSafety: "high",
+        thresholdMatched: "high_skip_safety",
+      },
+    },
+    {
+      label: "ineligible position",
+      id: "draft_pocket_timing",
+      evidence: {
+        forecastStatus: "active",
+        candidateInCurrentPocket: true,
+        candidatePosition: "DST",
+        skipSafety: "low",
+        thresholdMatched: "low_skip_safety",
+      },
+    },
+    {
+      label: "contradictory timing threshold",
+      id: "draft_pocket_timing",
+      evidence: {
+        forecastStatus: "active",
+        candidateInCurrentPocket: true,
+        candidatePosition: "RB",
+        skipSafety: "medium",
+        thresholdMatched: "low_skip_safety",
+      },
+    },
+    {
+      label: "unsupported forecast metadata alone",
+      id: "draft_pocket_timing",
+      evidence: {
+        adpRank: 2,
+        exactPlayerDisappeared: true,
+        diversityLabel: "RB-heavy",
+        missingAdpFallback: 100,
+      },
+    },
+  ])("suppresses $label evidence", ({ id, evidence }) => {
+    const reasons = selectRecommendationReasons({
+      ranking: createRanking("candidate-rb", 10, "RB"),
+      components: [
+        {
+          id,
+          delta: 6,
+          direction: "positive",
+          priority: 20,
+          evidence: evidence as unknown as RecommendationScoreComponent["evidence"],
+        },
+      ],
+      availableValueRank: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(reasons).toEqual([]);
+  });
+
+  it("keeps new reasons within materiality, priority, caveat, and maximum limits", () => {
+    const components: RecommendationScoreComponent[] = [
+      {
+        id: "draft_pocket_timing",
+        delta: 6,
+        direction: "positive",
+        priority: 20,
+        evidence: {
+          forecastStatus: "active",
+          candidateInCurrentPocket: true,
+          candidatePosition: "RB",
+          skipSafety: "low",
+          thresholdMatched: "low_skip_safety",
+          highestMeaningfulTierDisappeared: false,
+          profileDisappeared: false,
+        },
+      },
+      {
+        id: "overall_tier",
+        delta: 2,
+        direction: "positive",
+        priority: 19,
+        evidence: {
+          overallTierOrigin: "source",
+          thresholdMatched: "best_overall_tier_available",
+        },
+      },
+      {
+        id: "roster_fit",
+        delta: -20,
+        direction: "negative",
+        priority: 20,
+        evidence: { position: "DST", timing: "early_def_k" },
+      },
+    ];
+    const reasons = selectRecommendationReasons({
+      ranking: createRanking("candidate-rb", 10, "RB"),
+      components,
+      availableValueRank: 10,
+      tuning: { ...defaultRecommendationTuningConfig, maxReasons: 2 },
+    });
+
+    expect(reasons.map((reason) => reason.id)).toEqual([
+      "draft_pocket_timing:low_skip_safety",
+      "roster_fit:early_def_k",
+    ]);
   });
 
   it("maps supported component evidence into deterministic reason text and priority order", () => {

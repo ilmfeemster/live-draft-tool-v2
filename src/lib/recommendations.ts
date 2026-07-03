@@ -854,6 +854,12 @@ function getNumberEvidence(component: RecommendationScoreComponent, key: string)
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function getBooleanEvidence(component: RecommendationScoreComponent, key: string) {
+  const value = component.evidence?.[key];
+
+  return typeof value === "boolean" ? value : null;
+}
+
 function createReasonCandidate(
   component: RecommendationScoreComponent,
   reasonId: string,
@@ -942,6 +948,99 @@ function buildTierCliffReasonCandidate(
   }
 
   return null;
+}
+
+function buildOverallTierReasonCandidate(
+  component: RecommendationScoreComponent,
+): RecommendationReasonCandidate | null {
+  if (component.id !== "overall_tier" || component.direction !== "positive") {
+    return null;
+  }
+
+  const overallTierOrigin = getStringEvidence(component, "overallTierOrigin");
+  const thresholdMatched = getStringEvidence(component, "thresholdMatched");
+
+  if (overallTierOrigin !== "source") {
+    return null;
+  }
+
+  if (thresholdMatched === "last_in_best_overall_tier") {
+    return getNumberEvidence(component, "bestTierRemaining") === 1
+      ? createReasonCandidate(
+          component,
+          "overall_tier:last_in_best_overall_tier",
+          "Last player remaining in the best available overall tier.",
+        )
+      : null;
+  }
+
+  if (thresholdMatched === "best_overall_tier_available") {
+    return createReasonCandidate(
+      component,
+      "overall_tier:best_overall_tier_available",
+      "In the best available overall tier.",
+    );
+  }
+
+  return null;
+}
+
+function buildDraftPocketTimingReasonCandidate(
+  component: RecommendationScoreComponent,
+): RecommendationReasonCandidate | null {
+  if (component.id !== "draft_pocket_timing" || component.direction !== "positive") {
+    return null;
+  }
+
+  const forecastStatus = getStringEvidence(component, "forecastStatus");
+  const candidateInCurrentPocket = getBooleanEvidence(
+    component,
+    "candidateInCurrentPocket",
+  );
+  const candidatePosition = getStringEvidence(component, "candidatePosition");
+  const skipSafety = getStringEvidence(component, "skipSafety");
+  const thresholdMatched = getStringEvidence(component, "thresholdMatched");
+
+  if (
+    forecastStatus !== "active" ||
+    candidateInCurrentPocket !== true ||
+    !candidatePosition ||
+    !urgencyPositions.has(candidatePosition as Position) ||
+    (skipSafety !== "low" && skipSafety !== "medium") ||
+    thresholdMatched !== `${skipSafety}_skip_safety`
+  ) {
+    return null;
+  }
+
+  if (getBooleanEvidence(component, "highestMeaningfulTierDisappeared") === true) {
+    return createReasonCandidate(
+      component,
+      "draft_pocket_timing:highest_meaningful_tier_disappeared",
+      "This overall tier is not represented in the forecasted next pocket.",
+    );
+  }
+
+  if (getBooleanEvidence(component, "profileDisappeared") === true) {
+    return createReasonCandidate(
+      component,
+      "draft_pocket_timing:profile_disappeared",
+      `Similar ${candidatePosition} options are not represented in the forecasted next pocket.`,
+    );
+  }
+
+  if (thresholdMatched === "low_skip_safety") {
+    return createReasonCandidate(
+      component,
+      "draft_pocket_timing:low_skip_safety",
+      `Comparable ${candidatePosition} options are thin in the forecasted next pocket.`,
+    );
+  }
+
+  return createReasonCandidate(
+    component,
+    "draft_pocket_timing:medium_skip_safety",
+    `Only limited comparable ${candidatePosition} options remain in the forecasted next pocket.`,
+  );
 }
 
 function buildScarcityReasonCandidate(
@@ -1057,12 +1156,20 @@ function buildContextReasonCandidate(
     return buildTierCliffReasonCandidate(component);
   }
 
+  if (component.id === "overall_tier") {
+    return buildOverallTierReasonCandidate(component);
+  }
+
   if (component.id === "positional_scarcity") {
     return buildScarcityReasonCandidate(component);
   }
 
   if (component.id === "positional_run") {
     return buildRunReasonCandidate(component);
+  }
+
+  if (component.id === "draft_pocket_timing") {
+    return buildDraftPocketTimingReasonCandidate(component);
   }
 
   if (component.id === "value_opportunity") {

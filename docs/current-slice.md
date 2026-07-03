@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Not yet implemented.
+Complete. Implemented and validated on 2026-07-02.
 
 ## Goal
 
@@ -127,6 +127,17 @@ git diff --check
 ```
 
 The existing unrelated lint warning in `src/lib/rankingNormalizer.test.ts` may remain, but this slice must introduce no new warnings.
+
+## Implementation Completion Notes
+
+- Added strict evidence-backed reason builders for `overall_tier` and `draft_pocket_timing`, including non-coercing boolean evidence reads and the approved timing precedence.
+- Added focused unit and integration coverage for wording, actual-position substitution, suppression, materiality, selection limits, caveats, normalized-context generation, and score preservation.
+- Validation passed:
+  - `npm test -- src/lib/draftPocketForecast.test.ts src/lib/recommendations.test.ts` (132 tests)
+  - `npx tsc --noEmit`
+  - `npm run lint` (only the documented pre-existing warning)
+  - `git diff --check`
+- No scoring, cap, ordering, forecast, pocket eligibility, or production-caller behavior changed.
 
 ## Follow-up
 

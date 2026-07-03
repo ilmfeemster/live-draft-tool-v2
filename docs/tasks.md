@@ -398,7 +398,7 @@ Integrate overall-tier quality and candidate-specific draft-pocket timing into t
 
 ## Task 9 - Add Score-Backed Overall-Tier and Draft-Pocket Reasons
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 
@@ -612,9 +612,9 @@ Prove overall-tier quality and draft-pocket timing improve decisions without wea
 
 ## Testing Status
 
-Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, candidate replacement quality, skip safety, and bounded scoring integration tests are complete through Task 8. The original direct-ADP component has been removed from executable code under its approved supersession. Score-backed Phase 5.5 reason tests have not started.
+Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, candidate replacement quality, skip safety, bounded scoring integration, and score-backed explanation tests are complete through Task 9. The original direct-ADP component has been removed from executable code under its approved supersession. Task 9 validation passed on 2026-07-02: 132 focused forecast/recommendation tests, TypeScript validation, lint with only the documented pre-existing `rankingNormalizer.test.ts` warning, and `git diff --check`.
 
-Remaining Phase 5.5 work should prioritize pure forecast and pocket tests, exact candidate-signal and ordering assertions, score-backed explanation tests, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
+Remaining Phase 5.5 work should prioritize live workflow integration, scenario portability and replay, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
 
 ---
 
