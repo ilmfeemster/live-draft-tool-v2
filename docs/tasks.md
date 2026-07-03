@@ -2,14 +2,15 @@
 
 ## Current Focus
 
-Phase 5.5: Overall Tier Recommendations - active.
+Phase 5.5: Overall Tier Recommendations and Draft Pocket Forecasting - active.
 
-Phase 5.5 expands the deterministic Recommendation Engine with an overall/source-tier signal and an ADP availability-risk signal. Overall rank remains the player-quality anchor. Missing ADP contributes no weight, and wholly absent overall-tier data becomes one neutral tier rather than blocking draft use.
+Phase 5.5 expands the deterministic Recommendation Engine with an overall/source-tier quality signal and a draft-pocket timing signal. Overall rank remains the player-quality anchor. ADP is used only to construct a deterministic forecast of the user's next decision space: individual missing ADP sorts after the highest supplied snapshot ADP, while wholly absent ADP produces neutral forecast timing. Wholly absent overall-tier data becomes one neutral tier rather than blocking draft use.
 
 The source documents for this task plan are:
 
 - `docs/project.md`
-- `docs/design/overall-tier-recommendations.md`
+- `docs/patches/phase5.5-patch.md`
+- `docs/domain/draft-pocket.md`
 - `docs/architecture.md`
 - `docs/testing.md`
 
@@ -19,20 +20,23 @@ Phase 5 is complete. Managed ranking sets, immutable ranking snapshots, persiste
 
 ## Phase 5.5 Task Ordering
 
-Tasks are ordered so ranking metadata becomes validated recommendation context before either new signal affects scoring:
+Tasks are ordered so validated ranking context feeds one shared board forecast before candidate timing affects scoring:
 
 1. Add the normalized recommendation ranking context.
 2. Preserve ranking snapshot context through draft workflows.
 3. Add the overall-tier score component.
-4. Add the ADP availability score component and preview decision point.
-5. Integrate decision-timing scoring and caps.
-6. Add score-backed overall-tier and ADP reasons.
-7. Integrate between-turn recommendation previews.
-8. Add a portable scenario contract for Phase 5.5 ranking context.
-9. Integrate Phase 5.5 context with scenario replay and workbench flows.
-10. Complete Phase 5.5 regression and exit validation.
+4. Complete the original direct ADP availability component and decision-point work, retained as implementation history but superseded by the approved forecast design.
+5. Add the deterministic board-forecast foundation.
+6. Build tier-aware current and forecasted draft pockets.
+7. Derive candidate replacement quality, skip safety, and profile transitions.
+8. Integrate overall-tier and draft-pocket timing scoring under existing caps while replacing direct ADP scoring.
+9. Add score-backed overall-tier and draft-pocket reasons.
+10. Integrate between-turn draft-pocket recommendation previews.
+11. Add a portable scenario contract for Phase 5.5 ranking context.
+12. Integrate forecast context with scenario replay and workbench flows.
+13. Complete Phase 5.5 regression and exit validation.
 
-Promote only one task at a time into `docs/current-slice.md`. Keep context normalization, workflow propagation, pure scoring, explanation behavior, UI integration, and scenario portability as separate reviewable increments.
+Promote only one task at a time into `docs/current-slice.md`. Keep forecast construction, pocket analysis, candidate interpretation, scoring integration, explanation behavior, UI integration, and scenario portability as separate reviewable increments.
 
 ---
 
@@ -168,6 +172,10 @@ Implement a pure, bounded score component that recognizes the best remaining ove
 
 - [x] Complete
 
+### Supersession Note
+
+This completed task records the original direct player-level ADP approach. The approved Draft Pocket Forecasting design supersedes that scoring behavior. Tasks 5-8 reuse any valid decision-point groundwork but replace the direct ADP component; the final engine must not run both approaches.
+
 ### Goal
 
 Implement the pure ADP signal that estimates the opportunity cost of waiting until the user's following turn for both on-turn decisions and between-turn previews.
@@ -210,268 +218,403 @@ Implement the pure ADP signal that estimates the opportunity cost of waiting unt
 
 ---
 
-## Task 5 - Integrate Decision-Timing Scoring and Caps
+## Task 5 - Add the Deterministic Board-Forecast Foundation
 
 - [ ] Not started
 
 ### Goal
 
-Integrate the overall-tier and ADP components into the existing bounded additive Recommendation Engine without allowing correlated urgency to overwhelm base player value.
+Create the pure, roster-agnostic forecast that projects the available board at the user's next scheduled selection without scoring candidates or simulating opponents.
 
 ### Scope
 
-- Consume the normalized recommendation ranking context at the Recommendation Engine boundary.
-- Add overall-tier and ADP components to each available player's inspectable score output.
-- Combine them under the approved decision-timing cap.
-- Preserve the independent existing position-urgency cap for recommendation-tier cliffs, scarcity, and observed runs.
-- Preserve total positive and negative context caps and deterministic tie-breaking.
-- Record score adjustments when the decision-timing or total-context cap changes a raw score.
-- Keep value opportunity distinct from ADP availability.
-- Preserve neutral behavior for missing ADP and defaulted overall tiers.
+- Define typed forecast statuses for active forecasting, wholly absent ADP, and no later user pick.
+- Derive the first user pick strictly after the current overall pick from the generated draft order and calculate the exact removal count.
+- When any valid snapshot ADP exists, assign missing ADP `max valid snapshot ADP + 1` for forecast ordering only.
+- Sort the current available pool by normalized ADP, overall rank, and stable player ID.
+- Remove the expected selections and expose deterministic removal-window and forecasted-board identities.
+- Keep forecast output derived, unpersisted, reproducible, and independent of roster state, React, repositories, and source formats.
+
+### Non-Goals
+
+- Do not build draft pockets yet.
+- Do not derive candidate replacement quality or skip safety.
+- Do not add or integrate score components or reasons.
+- Do not predict individual opponent behavior or assign probabilities.
+- Do not write normalized fallback ADP into ranking snapshots.
+
+### Acceptance Criteria
+
+- On-turn and between-turn states derive the approved later user pick and removal count from draft order.
+- Partial ADP uses the deterministic snapshot-wide fallback without changing player quality facts.
+- Wholly absent ADP returns neutral forecast status while keeping recommendations usable.
+- A final user turn returns neutral no-next-pick status.
+- Equal normalized ADP values resolve by overall rank and stable player ID.
+- Repeated equivalent inputs produce identical status, target, removal window, and forecasted board.
+
+### Suggested Tests
+
+- Pure target-pick tests from both ends and the middle of a snake turn.
+- Partial, tied, fractional, and wholly absent ADP tests.
+- Final-user-pick and completed-draft boundary tests.
+- Exact removal-order and determinism tests.
+
+---
+
+## Task 6 - Build Tier-Aware Current and Forecasted Draft Pockets
+
+- [ ] Not started
+
+### Goal
+
+Convert current and forecasted boards into the bounded, tier-aware decision spaces used by Phase 5.5 analysis.
+
+### Scope
+
+- Build pockets by overall rank and stable player ID through one shared pure function.
+- Take at least the top six available players when possible, extend through the sixth player's meaningful overall/source tier, and cap the pocket at 12.
+- Keep a defaulted-neutral tier from extending the pocket because it is not a real quality boundary.
+- Return every remaining player when fewer than six are available.
+- Build the current pocket from the current available board and the forecasted pocket from the forecasted board.
+- Expose player identities, highest meaningful overall tier, overall-tier counts, position counts, and deterministic diversity labels.
+- Keep `thin`, position-heavy, `onesie-heavy`, `balanced`, and `mixed` labels descriptive and non-scoring.
+
+### Non-Goals
+
+- Do not derive candidate replacement quality, skip safety, or timing score.
+- Do not create position tiers or extend pockets from defaulted-neutral tier data.
+- Do not add UI presentation for pockets or labels.
+- Do not persist pocket output.
+
+### Acceptance Criteria
+
+- Pockets contain 6-12 players whenever enough players remain and follow the approved tier-boundary rule.
+- A meaningful sixth-player tier extends deterministically but never beyond 12 players.
+- Defaulted-neutral tiers produce a six-player pocket rather than a guessed quality group.
+- End-of-draft pockets safely contain every remaining player when fewer than six exist.
+- Current and forecasted pockets expose exact deterministic tier, position, and diversity observations.
+- Diversity labels never produce scoring behavior.
+
+### Suggested Tests
+
+- Pocket tests at 5, 6, 7, 12, and more than 12 available players.
+- Tier-boundary, long-tier, and defaulted-neutral fixtures.
+- Exact position-count and diversity-label tests.
+- Deterministic ordering regressions.
+
+---
+
+## Task 7 - Derive Candidate Replacement Quality and Skip Safety
+
+- [ ] Not started
+
+### Goal
+
+Interpret one shared forecasted pocket for each current-pocket candidate without creating per-candidate board simulations.
+
+### Scope
+
+- Evaluate only candidates in the current pocket for forecast timing eligibility.
+- Define rank proximity as an absolute overall-rank difference of 12 or fewer.
+- Classify same-position forecasted players as comparable, near, or not replacements using meaningful overall/source tier and rank proximity.
+- Derive high, medium, or low replacement quality from comparable and near-replacement counts.
+- Derive skip safety from replacement quality plus whether the candidate remains in the forecasted pocket.
+- Expose candidate profile disappearance, highest-meaningful-tier transition, replacement counts, and forecasted-pocket presence as objective evidence.
+- Preserve RB/WR depth interpretation and QB/TE onesie caution without hardcoded position preferences or roster knowledge.
+- Return neutral candidate signals when the shared forecast is neutral or the candidate is outside the current pocket.
+
+### Non-Goals
+
+- Do not score candidate signals yet.
+- Do not create separate forecasts for candidates.
+- Do not treat exact-player removal, diversity labels, or missing-ADP fallback as candidate urgency.
+- Do not infer position tiers or subjective player preferences.
+- Do not read roster construction inside forecast analysis.
+
+### Acceptance Criteria
+
+- Comparable and near replacements follow the exact position, rank-window, and overall-tier rules.
+- Replacement-quality and skip-safety categories match the approved deterministic thresholds.
+- A candidate remaining in the forecasted pocket cannot receive low skip safety solely because no replacement exists.
+- Deep WR profiles remain safe to skip, disappearing RB profiles become low-safety cases, and both-deep or both-thin cases defer appropriately to player quality and later roster scoring.
+- QB/TE thinness creates no independent signal beyond candidate-specific profile loss.
+- One shared forecast produces identical candidate evidence across repeated runs.
+
+### Suggested Tests
+
+- Comparable, near, absent, and candidate-still-present fixtures.
+- Rank-window boundary tests at 12 and 13 places.
+- Source-tier and defaulted-neutral comparison tests.
+- RB/WR both-deep, asymmetric, and both-thin scenarios.
+- QB/TE profile-loss and generic onesie-thinness regressions.
+
+---
+
+## Task 8 - Integrate Overall-Tier and Draft-Pocket Timing Scoring
+
+- [ ] Not started
+
+### Goal
+
+Integrate overall-tier quality and candidate-specific draft-pocket timing into the bounded additive Recommendation Engine while removing direct player-level ADP urgency.
+
+### Scope
+
+- Consume normalized ranking context and the shared forecast at the pure Recommendation Engine boundary.
+- Add the completed overall-tier component to inspectable candidate score output.
+- Add one `draft_pocket_timing` component with approved low, medium, and high skip-safety deltas of `+6`, `+3`, and `0`.
+- Restrict forecast timing to active forecasts, current-pocket candidates, and QB/RB/WR/TE positions.
+- Remove the direct `adp_availability` component from final scoring so ADP market timing is not counted twice.
+- Include forecast timing under the existing urgency cap and preserve total positive and negative context caps.
+- Preserve roster-fit effects for QB/TE so forecast timing cannot invent a onesie roster need.
+- Preserve deterministic tie-breaking and component evidence for later reason generation.
 
 ### Non-Goals
 
 - Do not add user-facing reason text yet.
-- Do not retune unrelated roster, scarcity, run, tier-cliff, or base-value rules.
-- Do not add a generic modifier framework.
-- Do not persist recommendation output.
+- Do not retune unrelated roster, scarcity, run, tier-cliff, value-opportunity, or base-value rules.
+- Do not add position-specific forecast weights or a generic modifier framework.
+- Do not persist forecast or recommendation output.
 
 ### Acceptance Criteria
 
-- Both new components affect ordering only through the approved bounded scoring model.
-- Overall tier and ADP cannot exceed the decision-timing cap when combined.
-- Existing position urgency remains independently capped.
-- Total context caps continue protecting substantially stronger base-value cases.
-- Missing ADP and neutral overall tiers add exactly zero weight.
-- Identical draft state and snapshot context produce identical components, adjustments, scores, and order.
+- Low, medium, and high skip safety produce exactly the approved bounded deltas.
+- Raw ADP gap, exact-player removal, diversity labels, and missing-ADP fallback never score directly.
+- The direct ADP component no longer contributes to final scores or creates duplicate evidence.
+- Forecast timing participates in existing urgency and total-context caps with inspectable adjustments.
+- Stronger base player-quality cases remain protected from forecast-only overrides.
+- QB/TE roster penalties remain effective when a onesie position is already sufficiently filled.
+- Identical draft and snapshot inputs produce identical components, adjustments, scores, and ordering.
 
 ### Suggested Tests
 
-- Unit tests for decision-timing and total-context cap adjustments.
-- Ordering scenarios with aligned and conflicting rank, tier, ADP, and roster signals.
-- Regression tests for existing position-urgency caps and deterministic tie-breaking.
-- Neutral-fallback scoring regressions.
+- Exact component tests for every eligibility and skip-safety state.
+- Regression proving the legacy direct ADP component is absent from integrated scoring.
+- Urgency and total-context cap interaction tests.
+- Close-rank and clearly-superior-player ordering scenarios.
+- QB/TE roster-fit interaction and DST/K neutrality tests.
 
 ---
 
-## Task 6 - Add Score-Backed Overall-Tier and ADP Reasons
+## Task 9 - Add Score-Backed Overall-Tier and Draft-Pocket Reasons
 
 - [ ] Not started
 
 ### Goal
 
-Explain material overall-tier and ADP contributions using only evidence produced by their score components.
+Explain material overall-tier and draft-pocket timing contributions using only evidence produced by their integrated score components.
 
 ### Scope
 
-- Add concise reasons for the best remaining overall tier and last player in that tier.
-- Add concise reasons for a player available past ADP or whose ADP falls before the user's following turn.
-- Route both reason types through the existing priority, materiality, caveat, and maximum-reason rules.
-- Suppress reasons for null ADP, defaulted-neutral tiers, neutral components, and immaterial contributions.
-- Describe ADP as availability evidence rather than player quality or certainty.
-- Keep overall-tier wording free of position-tier, scarcity, and roster-need claims.
+- Add concise reasons for the best remaining meaningful overall tier and the last player in that tier.
+- Add forecast reasons for thin comparable options, disappeared position/tier profiles, limited replacements, and applicable highest-tier transitions.
+- Use the candidate's actual position and the forecasted next pocket in reason wording.
+- Route new reasons through existing materiality, priority, caveat, and maximum-reason rules.
+- Suppress reasons for neutral forecasts, high skip safety, defaulted-neutral tiers, candidates outside the current pocket, and immaterial components.
+- Keep reason wording free of certainty, player-quality claims from ADP, subjective market claims, and position-tier language.
 
 ### Non-Goals
 
+- Do not add raw ADP, exact-player-gone, diversity-only, or missing-ADP reasons.
 - Do not add AI-generated or conversational reasoning.
-- Do not claim a specific opponent will select a player.
 - Do not redesign recommendation presentation.
 - Do not change component scoring or caps.
 
 ### Acceptance Criteria
 
-- Every new reason references a score component that materially affected the recommendation.
-- Null ADP and defaulted-neutral tiers never produce reasons.
-- ADP reasons describe timing and the following user pick without certainty claims.
-- Overall-tier reasons never describe position-tier pressure.
-- Existing reason limits, priorities, and deterministic selection remain intact.
+- Every new reason traces to a material non-zero score component and exact component evidence.
+- Forecast reasons explain loss of comparable options rather than asserting individual availability.
+- Defaulted-neutral tiers and neutral forecast states never create unsupported reasons.
+- Generic WR-heavy, RB-heavy, or onesie-heavy labels never produce reasons by themselves.
+- Existing reason limits, priorities, caveats, and deterministic selection remain intact.
 
 ### Suggested Tests
 
-- Exact reason tests for each positive threshold.
-- Suppression tests for neutral, missing, defaulted, and immaterial inputs.
+- Exact overall-tier and forecast-reason tests for each scored threshold.
+- Suppression tests for neutral, missing, defaulted, descriptive-only, and immaterial evidence.
 - Reason-priority and maximum-count interaction tests.
-- Regression proving all displayed reasons remain score-backed.
+- Regression proving every displayed reason remains score-backed.
 
 ---
 
-## Task 7 - Integrate Between-Turn Recommendation Previews
+## Task 10 - Integrate Between-Turn Draft-Pocket Recommendation Previews
 
 - [ ] Not started
 
 ### Goal
 
-Keep recommendations current after every recorded pick and present off-turn output as a preview of the user's next decision.
+Keep recommendations and their draft-pocket forecast current after every recorded state change, including previews between user turns.
 
 ### Scope
 
-- Recalculate recommendations after every accepted pick, undo, reset, load, and replay-state change.
-- Use the normalized snapshot context consistently in persisted and transient sessions.
-- Distinguish between on-turn recommendations and between-turn preview output without changing scoring semantics.
-- Remove drafted players before each recalculation.
-- Preserve current Draft Room responsiveness and recommendation ordering.
-- Keep on-turn-only calculation as a future performance option rather than premature behavior.
+- Recalculate recommendations and the shared forecast after every accepted pick, undo, reset, load, and replay-state change.
+- Use the normalized immutable snapshot context consistently in persisted and transient sessions.
+- Use the approved later-user-pick target in both on-turn and between-turn states.
+- Remove actually drafted players before each forecast and recommendation calculation.
+- Distinguish preview output without changing forecast, scoring, or reason semantics.
+- Preserve current Draft Room responsiveness and recommendation ordering behavior.
 
 ### Non-Goals
 
+- Do not persist forecasts or recommendation output.
 - Do not add background workers, caching, debouncing infrastructure, or speculative precomputation.
-- Do not simulate picks between the preview decision point and the following turn.
-- Do not redesign unrelated Draft Room controls.
-- Do not add live provider behavior.
+- Do not simulate opponents or create probability-based availability UI.
+- Do not redesign unrelated Draft Room controls or add live-provider behavior.
 
 ### Acceptance Criteria
 
-- Recommendations refresh after every draft-state change.
-- Off-turn output uses the next scheduled user pick as its preview decision point.
-- A player drafted by another team disappears from the next preview.
-- On-turn and preview calculations use the same score components and caps.
-- Existing pick, undo, reset, resume, and transient-session behavior remains valid.
+- Recommendations and forecast evidence refresh after every supported draft-state change.
+- On-turn and between-turn states derive their target from the same deterministic rule.
+- A player drafted by any team disappears from the next board, pocket, and recommendation calculation.
+- Final-user-pick previews remain usable with neutral future timing.
+- Persisted, transient, undo, reset, and resume workflows preserve existing draft invariants.
 
 ### Suggested Tests
 
 - Draft Room integration tests across user and opponent picks.
 - Undo, reset, persisted-load, and transient-session preview regressions.
-- Test proving drafted players never remain in preview results.
-- Manual QA through both ends of a snake-draft turn.
+- Tests proving drafted players never remain in board, pocket, or recommendation output.
+- Manual QA through both ends of multiple snake-draft turns and the user's final pick.
 
 ---
 
-## Task 8 - Add a Portable Scenario Contract for Phase 5.5 Ranking Context
+## Task 11 - Add a Portable Scenario Contract for Phase 5.5 Ranking Context
 
 - [ ] Not started
 
 ### Goal
 
-Define and implement a versioned portable scenario representation that preserves supplied overall-tier metadata while retaining Scenario V1 compatibility.
+Define a versioned portable scenario representation that preserves the ranking facts required to recompute draft-pocket forecasts while retaining Scenario V1 compatibility.
 
 ### Scope
 
-- Add a new explicit scenario version capable of carrying Ranking Snapshot V2-equivalent ranking context.
+- Add an explicit scenario version capable of carrying Ranking Snapshot V2-equivalent ranking context.
 - Preserve ranking entries, nullable ADP, tier semantics, and overall/source-tier values required for deterministic Phase 5.5 recommendations.
 - Keep Scenario V1 readable with its existing entries, nullable ADP, and defaulted-neutral overall-tier behavior.
-- Validate supplied tier metadata before scenario acceptance.
-- Serialize the new contract deterministically.
+- Validate supplied tier metadata before scenario acceptance and serialize the new contract deterministically.
 - Keep ranking-set identity and mutable source data non-authoritative.
+- Recompute fallback ADP and forecast output after load rather than serializing derived values.
 
 ### Non-Goals
 
+- Do not persist removal windows, pockets, candidate signals, score components, or recommendation output in scenarios.
 - Do not reinterpret Scenario V1's legacy `tier` field as an overall tier.
-- Do not rewrite existing scenario files.
-- Do not add scenario migrations beyond explicit version readers.
+- Do not rewrite existing scenarios or add migrations beyond explicit version readers.
 - Do not change replay behavior yet.
-- Do not add new scenario authoring features unrelated to ranking context.
+- Do not add unrelated scenario authoring features.
 
 ### Acceptance Criteria
 
 - The new scenario version round-trips supplied overall-tier context and nullable ADP exactly.
 - Scenario V1 remains readable and normalizes to one neutral overall tier.
 - Invalid or partial supplied overall-tier metadata fails with structured diagnostics.
-- Serialization is deterministic and keeps mutable ranking-set dependencies out of the document.
-- Scenario format selection remains explicit and version-safe.
+- Derived forecast output is absent from the portable document and reproducible from captured inputs.
+- Serialization is deterministic, explicit, version-safe, and independent of mutable ranking sets.
 
 ### Suggested Tests
 
 - Exact serialization and round-trip tests for the new version.
 - V1 compatibility and neutral-tier fallback regressions.
 - Partial, malformed, and mismatched tier-metadata failures.
-- Complete, partial, and absent ADP fixtures.
+- Complete, partial, and absent ADP fixtures proving derived fallback is not serialized.
 
 ---
 
-## Task 9 - Integrate Phase 5.5 Context with Scenario Replay and Workbench Flows
+## Task 12 - Integrate Forecast Context with Scenario Replay and Workbench Flows
 
 - [ ] Not started
 
 ### Goal
 
-Use preserved or defaulted Phase 5.5 ranking context throughout scenario replay, transient sessions, and workbench import/export workflows.
+Recompute deterministic Phase 5.5 forecasts and recommendations throughout scenario replay, transient sessions, and workbench import/export workflows.
 
 ### Scope
 
 - Build normalized recommendation context from each supported scenario version.
 - Use supplied overall tiers for the new scenario version and neutral overall tiers for Scenario V1.
-- Preserve nullable ADP behavior in replay recommendations.
-- Recalculate deterministic on-turn and preview recommendations as replay state changes.
+- Preserve nullable ADP and apply forecast fallback rules only after scenario load.
+- Recalculate shared forecasts, pockets, candidate signals, scores, and reasons as replay state changes.
 - Export new portable scenarios with the ranking context used by the workbench session.
-- Keep replay independent of mutable ranking sets and persistence records.
+- Keep replay independent of mutable ranking sets, persistence records, and previously derived forecast output.
 - Preserve existing validation, replay targets, reset, import, and export behavior.
 
 ### Non-Goals
 
-- Do not add new replay controls or scenario-library features.
+- Do not add replay controls or scenario-library features.
 - Do not infer missing overall tiers from recommendation tiers.
-- Do not fetch current ADP during replay.
+- Do not fetch current ADP or preserve stale forecast output during replay.
 - Do not change draft-state replay rules.
 
 ### Acceptance Criteria
 
-- Replaying the new scenario version reproduces the same recommendation order, components, adjustments, and reasons.
+- Replaying the new scenario version reproduces the same forecasted board, pockets, candidate evidence, recommendation order, adjustments, and reasons.
 - Scenario V1 continues replaying with neutral overall-tier behavior and its stored nullable ADP.
-- Workbench reset and replay preserve the scenario's normalized ranking context.
-- Scenario export/import does not require the original ranking set to exist.
+- Workbench reset and replay recompute forecast state from the scenario's captured inputs.
+- Scenario export/import does not require the original ranking set or serialized recommendation output.
 - Existing replay errors and draft invariants remain intact.
 
 ### Suggested Tests
 
-- Deterministic replay tests for both scenario versions.
+- Exact deterministic replay tests for both scenario versions.
 - Workbench import, reset, export, and re-import integration tests.
 - Source-ranking deletion independence regression.
-- Preview recommendation tests during stepped replay.
+- On-turn, between-turn, and final-pick forecast tests during stepped replay.
 
 ---
 
-## Task 10 - Complete Phase 5.5 Regression and Exit Validation
+## Task 13 - Complete Phase 5.5 Regression and Exit Validation
 
 - [ ] Not started
 
 ### Goal
 
-Prove the new recommendation signals improve draft-timing decisions without weakening deterministic scoring, snapshot reproducibility, or existing draft workflows.
+Prove overall-tier quality and draft-pocket timing improve decisions without weakening deterministic scoring, snapshot reproducibility, or existing draft workflows.
 
 ### Scope
 
-- Run focused and full automated validation across context normalization, scoring, explanations, persistence, Draft Room, scenarios, and replay.
-- Validate all approved overall-tier and ADP thresholds, neutral states, caps, and interactions.
-- Confirm missing ADP never blocks import, draft creation, recommendation generation, or replay.
-- Confirm wholly absent tiers use one neutral tier and partial or malformed supplied tiers never create guessed boundaries.
-- Compare representative scenarios where rank, overall tier, ADP, roster fit, and position urgency align or conflict.
-- Confirm recommendation previews update after every pick without violating draft invariants.
-- Complete focused manual QA across managed rankings, new and historical drafts, snake-turn previews, persistence reload, and scenario replay.
+- Run focused and full validation across context normalization, forecast construction, pocket analysis, scoring, explanations, persistence, Draft Room, scenarios, and replay.
+- Validate pocket sizes and tier boundaries, ADP fallback and neutral states, target-pick boundaries, replacement classification, skip safety, and deterministic ordering.
+- Cover RB/WR deep, disappearing, both-deep, and both-thin cases plus QB/TE onesie and roster-fit interactions.
+- Confirm raw ADP, exact-player removal, diversity labels, defaulted tiers, and missing-ADP fallback never create unsupported score or reason output.
+- Confirm the superseded direct ADP component does not remain active or double-count market timing.
+- Validate urgency and total-context caps across aligned and conflicting player-quality, forecast, roster, scarcity, and run signals.
+- Complete focused manual QA across managed rankings, new and historical drafts, snake-turn previews, final picks, persistence reload, scenarios, and replay.
 - Validate linting, type checking, production build, persistence integration, and the full automated suite.
 
 ### Non-Goals
 
-- Do not add new recommendation features during exit validation.
-- Do not tune behavior by weakening assertions or changing unrelated expected output.
-- Do not add default ADP feeds, projections, VORP, position tiers, simulations, or Phase 6 insights.
+- Do not add features or new tuning dimensions during exit validation.
+- Do not weaken assertions or change unrelated expected behavior to make validation pass.
+- Do not add projections, VORP, position tiers, probabilistic forecasts, opponent modeling, or Phase 6 insights.
 - Do not begin live-provider integration or performance infrastructure without measured need.
 
 ### Acceptance Criteria
 
 - Every Phase 5.5 task acceptance criterion is satisfied.
-- Identical draft and ranking snapshot inputs produce exact deterministic recommendation output.
-- Overall tiers affect only the approved overall-tier component and never masquerade as position-tier pressure.
-- ADP affects availability timing only when supplied and contributes zero when absent.
-- Decision-timing, position-urgency, and total-context caps prevent a single or correlated signal from overwhelming player quality.
-- Persisted drafts and portable scenarios reproduce their captured recommendation context.
-- Manual, persisted, preview, reset, undo, and replay workflows remain usable.
+- Identical draft and ranking snapshot inputs reproduce exact forecast and recommendation output.
+- Overall/source tiers remain quality groupings and never masquerade as position-tier pressure.
+- ADP affects only deterministic forecast order and contributes no direct player-quality or individual-availability score.
+- Missing individual ADP and wholly absent ADP follow their distinct approved behaviors without blocking workflows.
+- Forecast timing influences close decisions while urgency and total-context caps protect clearly stronger player-quality cases.
+- Persisted drafts and portable scenarios reproduce their captured recommendation context and derived forecast behavior.
+- Manual, persisted, preview, final-pick, reset, undo, and replay workflows remain usable.
 - Full automated and manual validation passes with no Phase 5.5 non-goals introduced.
 
 ### Suggested Tests
 
 - Run the full automated suite and project validation commands.
-- Run exact deterministic scenario fixtures for aligned and conflicting signals.
+- Run exact forecast and recommendation fixtures for all approved domain transitions.
 - Complete persistence and scenario round trips with complete, partial, and absent optional data.
-- Complete manual QA through multiple snake turns and between-turn previews.
-- Compare repeated recommendation output for identical captured inputs.
+- Complete manual QA through multiple snake turns, between-turn previews, and the user's final pick.
+- Compare repeated forecast and recommendation output for identical captured inputs.
 
 ---
 
 ## Testing Status
 
-Phase 5 exit validation is complete. Phase 5.5 testing has not started.
+Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, and original direct-ADP component tests are complete through Task 4. Draft Pocket Forecasting tests have not started.
 
-Phase 5.5 should prioritize pure component tests, exact ordering and explanation assertions, realistic scenario tests, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
+Remaining Phase 5.5 work should prioritize pure forecast and pocket tests, exact candidate-signal and ordering assertions, score-backed explanation tests, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
 
 ---
 
