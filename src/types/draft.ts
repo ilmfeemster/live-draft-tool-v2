@@ -33,6 +33,21 @@ export type RecommendationRankingContext = Readonly<{
   rankings: readonly RecommendationRankingFact[];
 }>;
 
+export type DraftPocketForecastStatus =
+  | "active"
+  | "no-adp"
+  | "no-next-pick";
+
+export type DraftPocketForecast = Readonly<{
+  status: DraftPocketForecastStatus;
+  targetPickNumber: number | null;
+  picksToRemove: number | null;
+  missingAdpFallback: number | null;
+  currentBoardPlayerIds: readonly string[];
+  removalWindowPlayerIds: readonly string[];
+  forecastedBoardPlayerIds: readonly string[];
+}>;
+
 export type RecommendationRankingContextErrorCode =
   | "invalid-adp"
   | "partial-overall-tiers"

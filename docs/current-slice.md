@@ -2,7 +2,7 @@
 
 ## Completion Status
 
-Planned. Not started.
+Complete. Added the typed, pure `DraftPocketForecast` foundation and a focused `createDraftPocketForecast` module that derives the next user pick, normalizes missing ADP for removal ordering, excludes drafted players, and returns deterministic current-board, removal-window, and forecasted-board identities. The module remains uncalled by recommendation generation, so scoring and UI behavior are unchanged. Focused validation passed with 1 test file and 8 tests, TypeScript passed, and lint passed with only the previously recorded unrelated `stripLocations` unused-helper warning.
 
 ## Goal
 

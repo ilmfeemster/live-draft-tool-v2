@@ -220,7 +220,7 @@ Implement the pure ADP signal that estimates the opportunity cost of waiting unt
 
 ## Task 5 - Add the Deterministic Board-Forecast Foundation
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 
@@ -612,7 +612,7 @@ Prove overall-tier quality and draft-pocket timing improve decisions without wea
 
 ## Testing Status
 
-Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, and original direct-ADP component tests are complete through Task 4. Draft Pocket Forecasting tests have not started.
+Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, original direct-ADP component, and deterministic board-forecast foundation tests are complete through Task 5. Tier-aware pocket construction tests have not started.
 
 Remaining Phase 5.5 work should prioritize pure forecast and pocket tests, exact candidate-signal and ordering assertions, score-backed explanation tests, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
 
