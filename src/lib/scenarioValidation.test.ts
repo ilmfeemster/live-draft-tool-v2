@@ -1,18 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { createDraftTeams } from "@/lib/draftOrder";
 import { buildLeagueSetup, type LeagueSetupInput } from "@/lib/leagueSetup";
-import { serializeScenarioV1 } from "@/lib/scenarioSerialization";
+import {
+  serializeScenarioV1,
+  serializeScenarioV2,
+} from "@/lib/scenarioSerialization";
 import {
   materializeScenarioV1Rankings,
+  parseScenarioJson,
   parseScenarioV1Json,
+  parseScenarioV2Json,
   SCENARIO_VALIDATION_LIMITS,
+  type ParseScenarioResult,
   type ScenarioValidationErrorCode,
 } from "@/lib/scenarioValidation";
 import type { Position, RankingEntry } from "@/types/draft";
 import { NEUTRAL_TIER } from "@/types/rankings";
 import {
   SCENARIO_SCHEMA_VERSION,
+  SCENARIO_V2_SCHEMA_VERSION,
   type ScenarioV1,
+  type ScenarioV2,
 } from "@/types/scenario";
 
 describe("scenario v1 parsing and validation", () => {
@@ -368,6 +376,210 @@ describe("scenario v1 parsing and validation", () => {
   });
 });
 
+describe("scenario v2 parsing and validation", () => {
+  it.each([
+    ["complete", [1, 2, 3, 4]],
+    ["partial", [1, null, 3, null]],
+    ["absent", [null, null, null, null]],
+  ] as const)("round-trips %s ADP without inventing fallback values", (_label, adpRanks) => {
+    const scenario = createValidScenarioV2(adpRanks);
+    const result = parseScenarioV2Json(serializeScenarioV2(scenario));
+
+    expect(result).toEqual({ ok: true, scenario });
+    if (!result.ok) {
+      throw new Error("Expected a valid Scenario V2 document.");
+    }
+    expect(result.scenario.rankingContext.rankings.map(({ adpRank }) => adpRank)).toEqual(
+      adpRanks,
+    );
+    expect(result.scenario.rankingContext).not.toBe(scenario.rankingContext);
+    expect(result.scenario.rankingContext.rankings).not.toBe(
+      scenario.rankingContext.rankings,
+    );
+    expect(result.scenario.rankingContext.tierSemantics).not.toBe(
+      scenario.rankingContext.tierSemantics,
+    );
+  });
+
+  it("preserves recommendation tiers separately from source-overall tiers", () => {
+    const scenario = createValidScenarioV2([1, 2, 3, 4]);
+    scenario.rankingContext.rankings[0].tier = 1;
+    scenario.rankingContext.rankings[1].tier = 1;
+    scenario.rankingContext.rankings[2].tier = 2;
+    scenario.rankingContext.rankings[3].tier = 2;
+    scenario.rankingContext.tierSemantics = {
+      ...scenario.rankingContext.tierSemantics,
+      recommendation: {
+        QB: "recommendation-position",
+        RB: "recommendation-position",
+        WR: "recommendation-position",
+        TE: "recommendation-position",
+      },
+    };
+
+    const result = parseScenarioV2Json(serializeScenarioV2(scenario));
+
+    expect(result).toEqual({ ok: true, scenario });
+  });
+
+  it("dispatches V1 and V2 without changing V1 neutral-tier behavior", () => {
+    const v1 = createValidScenario();
+    v1.rankingContext.rankings.forEach((ranking, index) => {
+      ranking.tier = index + 2;
+    });
+    const parsedV1 = parseScenarioJson(serializeScenarioV1(v1));
+    const v2 = createValidScenarioV2([1, null, 3, null]);
+    const parsedV2 = parseScenarioJson(serializeScenarioV2(v2));
+
+    expect(parsedV1.ok).toBe(true);
+    expect(parsedV2).toEqual({ ok: true, scenario: v2 });
+    if (!parsedV1.ok) {
+      throw new Error("Expected Scenario V1 dispatch to succeed.");
+    }
+    expect(parsedV1.scenario.schemaVersion).toBe(SCENARIO_SCHEMA_VERSION);
+    expect(parsedV1.scenario.rankingContext.rankings.every(({ tier }) => {
+      return tier === NEUTRAL_TIER;
+    })).toBe(true);
+  });
+
+  it.each([
+    ["partial source tiers", (document: ScenarioV2Document) => {
+      document.rankingContext.tierSemantics?.source.values?.pop();
+    }, "rankingContext.tierSemantics.source.values", "partial-overall-tiers"],
+    ["decreasing source tiers", (document: ScenarioV2Document) => {
+      const values = document.rankingContext.tierSemantics?.source.values;
+      if (values) {
+        values[1].tier = 2;
+        values[2].tier = 1;
+      }
+    }, "rankingContext.tierSemantics.source.values[2].tier", "invalid-overall-tiers"],
+    ["rank-mismatched source tier", (document: ScenarioV2Document) => {
+      const values = document.rankingContext.tierSemantics?.source.values;
+      if (values) values[0].overallRank = 99;
+    }, "rankingContext.tierSemantics", "invalid-value"],
+    ["unknown source player", (document: ScenarioV2Document) => {
+      const values = document.rankingContext.tierSemantics?.source.values;
+      if (values) values[0].playerId = "missing-player";
+    }, "rankingContext.tierSemantics", "invalid-value"],
+    ["duplicate source player", (document: ScenarioV2Document) => {
+      const values = document.rankingContext.tierSemantics?.source.values;
+      if (values) values[1] = { ...values[0] };
+    }, "rankingContext.tierSemantics", "invalid-value"],
+    ["invalid recommendation semantics", (document: ScenarioV2Document) => {
+      document.rankingContext.rankings[0].tier = 2;
+    }, "rankingContext.tierSemantics", "invalid-value"],
+    ["invalid ADP", (document: ScenarioV2Document) => {
+      document.rankingContext.rankings[0].adpRank = -1;
+    }, "rankingContext.rankings[0].adpRank", "invalid-adp"],
+  ] as const)("rejects %s with structured diagnostics", (_label, mutate, path, code) => {
+    const document = createScenarioV2Document();
+    mutate(document);
+
+    expectFailure(parseScenarioV2Json(JSON.stringify(document)), path, code);
+  });
+
+  it("requires V2 tier semantics and rejects unsupported versions", () => {
+    const missingSemantics = createScenarioV2Document();
+    delete missingSemantics.rankingContext.tierSemantics;
+    expectFailure(
+      parseScenarioV2Json(JSON.stringify(missingSemantics)),
+      "rankingContext.tierSemantics",
+      "missing-field",
+    );
+
+    const unsupported = createScenarioV2Document();
+    unsupported.schemaVersion = 3;
+    expectFailure(
+      parseScenarioJson(JSON.stringify(unsupported)),
+      "schemaVersion",
+      "unsupported-version",
+    );
+  });
+
+  it("applies common consistency rules and discards derived output", () => {
+    const inconsistent = createScenarioV2Document();
+    inconsistent.userTeamContext.userTeamId = "team-99";
+    expectFailure(
+      parseScenarioV2Json(JSON.stringify(inconsistent)),
+      "userTeamContext.userTeamId",
+      "invalid-reference",
+    );
+
+    const document = createScenarioV2Document();
+    document.forecast = { status: "active" };
+    document.recommendations = [{ playerId: "player-qb" }];
+    const result = parseScenarioV2Json(JSON.stringify(document));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("Expected valid Scenario V2 document.");
+    }
+    expect(result.scenario).not.toHaveProperty("forecast");
+    expect(result.scenario).not.toHaveProperty("recommendations");
+  });
+});
+
+type ScenarioV2Document = Record<string, unknown> & {
+  schemaVersion: number;
+  rankingContext: {
+    rankings: RankingEntry[];
+    tierSemantics?: {
+      source: {
+        kind: string;
+        values?: Array<{
+          playerId: string;
+          overallRank: number;
+          tier: number;
+        }>;
+      };
+      recommendation: Record<string, string>;
+    };
+  };
+  userTeamContext: { userTeamId: string };
+};
+
+function createValidScenarioV2(
+  adpRanks: readonly (number | null)[],
+): ScenarioV2 {
+  const scenario = createValidScenario();
+  const rankings = scenario.rankingContext.rankings.map((ranking, index) => ({
+    ...ranking,
+    player: { ...ranking.player },
+    adpRank: adpRanks[index] ?? null,
+    tier: NEUTRAL_TIER,
+  }));
+
+  return {
+    ...scenario,
+    schemaVersion: SCENARIO_V2_SCHEMA_VERSION,
+    rankingContext: {
+      rankings,
+      tierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: rankings.map((ranking, index) => ({
+            playerId: ranking.player.id,
+            overallRank: ranking.overallRank,
+            tier: index < 2 ? 1 : 2,
+          })),
+        },
+        recommendation: {
+          QB: "neutral",
+          RB: "neutral",
+          WR: "neutral",
+          TE: "neutral",
+        },
+      },
+    },
+  };
+}
+
+function createScenarioV2Document(): ScenarioV2Document {
+  return JSON.parse(
+    serializeScenarioV2(createValidScenarioV2([1, null, 3, null])),
+  ) as ScenarioV2Document;
+}
+
 type ScenarioDocument = Record<string, unknown> & {
   schemaVersion?: unknown;
   metadata: Record<string, unknown> & {
@@ -498,7 +710,7 @@ function getRankings(
 }
 
 function expectFailure(
-  result: ReturnType<typeof parseScenarioV1Json>,
+  result: ParseScenarioResult,
   path: string,
   code: ScenarioValidationErrorCode,
 ): void {

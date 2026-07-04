@@ -480,7 +480,7 @@ Keep recommendations and their draft-pocket forecast current after every recorde
 
 ## Task 11 - Add a Portable Scenario Contract for Phase 5.5 Ranking Context
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 
@@ -612,9 +612,9 @@ Prove overall-tier quality and draft-pocket timing improve decisions without wea
 
 ## Testing Status
 
-Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, candidate replacement quality, skip safety, bounded scoring integration, score-backed explanations, and persisted/transient preview wiring are complete through Task 10. The original direct-ADP component has been removed from executable code under its approved supersession. Task 10 validation passed on 2026-07-03: 151 focused forecast, recommendation, Draft Room, and transient-session tests; TypeScript validation; lint with only the documented pre-existing `rankingNormalizer.test.ts` warning; and `git diff --check`.
+Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, candidate replacement quality, skip safety, bounded scoring integration, score-backed explanations, persisted/transient preview wiring, and the portable Scenario V2 ranking-context contract are complete through Task 11. The original direct-ADP component has been removed from executable code under its approved supersession. Task 11 validation passed on 2026-07-03: 109 focused scenario, portability, ranking-snapshot, and recommendation-context tests; TypeScript validation; lint with only the documented pre-existing `rankingNormalizer.test.ts` warning; and `git diff --check`.
 
-Remaining Phase 5.5 work should prioritize scenario portability and version-aware replay, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
+Remaining Phase 5.5 work should prioritize version-aware scenario replay and workbench integration, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
 
 ---
 

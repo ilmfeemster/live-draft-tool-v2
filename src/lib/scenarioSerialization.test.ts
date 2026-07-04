@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { createDraftTeams } from "@/lib/draftOrder";
-import { serializeScenarioV1 } from "@/lib/scenarioSerialization";
+import {
+  serializeScenarioV1,
+  serializeScenarioV2,
+} from "@/lib/scenarioSerialization";
+import { parseScenarioV2Json } from "@/lib/scenarioValidation";
 import type { LeagueSettings, Position, RankingEntry } from "@/types/draft";
 import {
   SCENARIO_SCHEMA_VERSION,
+  SCENARIO_V2_SCHEMA_VERSION,
   type ScenarioV1,
+  type ScenarioV2,
 } from "@/types/scenario";
 
 describe("scenario v1 serialization", () => {
@@ -122,6 +128,66 @@ describe("scenario v1 serialization", () => {
   });
 });
 
+describe("scenario v2 serialization", () => {
+  it("serializes and parses the complete portable ranking context", () => {
+    const scenario = createScenarioV2();
+    const serialized = serializeScenarioV2(scenario);
+    const document = JSON.parse(serialized) as Record<string, unknown>;
+
+    expect(document).toEqual(scenario);
+    expect(parseScenarioV2Json(serialized)).toEqual({ ok: true, scenario });
+  });
+
+  it("is deterministic, newline-terminated, and non-mutating", () => {
+    const scenario = createScenarioV2();
+    const before = structuredClone(scenario);
+
+    const first = serializeScenarioV2(scenario);
+    const second = serializeScenarioV2(scenario);
+
+    expect(first).toBe(second);
+    expect(first.endsWith("\n")).toBe(true);
+    expect(first.endsWith("\n\n")).toBe(false);
+    expect(scenario).toEqual(before);
+  });
+
+  it("canonicalizes recommendation semantic position order", () => {
+    const scenario = createScenarioV2();
+    scenario.rankingContext.tierSemantics = {
+      ...scenario.rankingContext.tierSemantics,
+      recommendation: {
+        TE: "neutral",
+        WR: "neutral",
+        RB: "neutral",
+        QB: "neutral",
+      },
+    };
+    const serialized = JSON.parse(serializeScenarioV2(scenario)) as ScenarioV2;
+
+    expect(Object.keys(serialized.rankingContext.tierSemantics.recommendation)).toEqual([
+      "QB",
+      "RB",
+      "WR",
+      "TE",
+    ]);
+  });
+
+  it("omits mutable source identity and all derived recommendation output", () => {
+    const document = JSON.parse(
+      serializeScenarioV2(createScenarioV2()),
+    ) as Record<string, unknown>;
+    const json = JSON.stringify(document);
+
+    expect(json).not.toContain("sourceRankingSetId");
+    expect(json).not.toContain("sourceRankingSetName");
+    expect(json).not.toContain("capturedAt");
+    expect(document).not.toHaveProperty("forecast");
+    expect(document).not.toHaveProperty("recommendations");
+    expect(document).not.toHaveProperty("scoreComponents");
+    expect(json).not.toContain("missingAdpFallback");
+  });
+});
+
 type CreateScenarioOptions = {
   includeOptionalFields?: boolean;
   metadata?: ScenarioV1["metadata"];
@@ -173,6 +239,46 @@ function createScenario(options: CreateScenarioOptions = {}): ScenarioV1 {
     ],
     replayTarget: {
       appliedPickCount: 2,
+    },
+  };
+}
+
+function createScenarioV2(): ScenarioV2 {
+  const scenario = createScenario();
+  const rankings = scenario.rankingContext.rankings.map((ranking, index) => ({
+    ...ranking,
+    player: { ...ranking.player },
+    adpRank: index % 2 === 0 ? index + 1 : null,
+  }));
+
+  return {
+    ...scenario,
+    schemaVersion: SCENARIO_V2_SCHEMA_VERSION,
+    leagueSettings: {
+      ...scenario.leagueSettings,
+      rosterSlots: scenario.leagueSettings.rosterSlots.map((slot) => ({
+        ...slot,
+        id: slot.id.toLowerCase(),
+      })),
+    },
+    rankingContext: {
+      rankings,
+      tierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: rankings.map((ranking, index) => ({
+            playerId: ranking.player.id,
+            overallRank: ranking.overallRank,
+            tier: index < 2 ? 1 : 2,
+          })),
+        },
+        recommendation: {
+          QB: "neutral",
+          RB: "neutral",
+          WR: "neutral",
+          TE: "neutral",
+        },
+      },
     },
   };
 }

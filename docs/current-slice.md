@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Not yet implemented.
+Complete. Implemented and validated on 2026-07-03.
 
 ## Goal
 
@@ -128,6 +128,19 @@ git diff --check
 ```
 
 The existing unrelated lint warning in `src/lib/rankingNormalizer.test.ts` may remain, but this slice must introduce no new warnings.
+
+## Implementation Completion Notes
+
+- Added explicit additive Scenario V2 types while retaining `SCENARIO_SCHEMA_VERSION` and every V1 API as the compatibility/default-export path.
+- Added V2-only and version-dispatching parsers that preserve nullable ADP and ranking tiers, reuse Ranking Snapshot V2 tier validation, and apply normalized recommendation-context checks with structured paths.
+- Added deterministic V2 serialization for canonical rankings and tier semantics without ranking-set identity, timestamps, fallback ADP, forecast output, or recommendations.
+- Added focused coverage for complete, partial, and absent ADP; source-overall and recommendation-tier separation; malformed/partial/mismatched tier metadata; V1 dispatch compatibility; common envelope validation; deterministic serialization; and derived-output exclusion.
+- Validation passed:
+  - `npm test -- src/lib/scenarioValidation.test.ts src/lib/scenarioSerialization.test.ts src/lib/scenarioPortability.test.ts src/lib/rankingSnapshot.test.ts src/lib/recommendationRankingContext.test.ts` (109 tests)
+  - `npx tsc --noEmit`
+  - `npm run lint` (only the documented pre-existing warning)
+  - `git diff --check`
+- No replay, workbench, transient-session, persistence, database, forecast, scoring, or recommendation behavior changed.
 
 ## Follow-up
 

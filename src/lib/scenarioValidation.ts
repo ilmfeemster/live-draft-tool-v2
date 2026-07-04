@@ -7,16 +7,26 @@ import {
   type LeagueSetupValidationField,
 } from "@/lib/leagueSetup";
 import { parseLeagueSettingsSnapshotJson } from "@/lib/leagueSettingsSnapshot";
-import { parseRankingSnapshotJson } from "@/lib/rankingSnapshot";
-import type { RankingEntry } from "@/types/draft";
-import { NEUTRAL_TIER } from "@/types/rankings";
+import { createRecommendationRankingContext } from "@/lib/recommendationRankingContext";
+import {
+  parsePersistedDraftRankingSnapshotJson,
+  parseRankingSnapshotJson,
+} from "@/lib/rankingSnapshot";
+import type {
+  RankingEntry,
+  RecommendationRankingContextErrorCode,
+} from "@/types/draft";
+import { NEUTRAL_TIER, type RankingSnapshot } from "@/types/rankings";
 import {
   SCENARIO_SCHEMA_VERSION,
+  SCENARIO_V2_SCHEMA_VERSION,
+  type ScenarioDocument,
   type ScenarioMetadata,
   type ScenarioPick,
   type ScenarioProvenance,
   type ScenarioSourceKind,
   type ScenarioV1,
+  type ScenarioV2,
 } from "@/types/scenario";
 
 export const SCENARIO_VALIDATION_LIMITS = {
@@ -35,7 +45,8 @@ export type ScenarioValidationErrorCode =
   | "invalid-value"
   | "duplicate-identity"
   | "invalid-reference"
-  | "inconsistent-configuration";
+  | "inconsistent-configuration"
+  | RecommendationRankingContextErrorCode;
 
 export type ScenarioValidationError = {
   code: ScenarioValidationErrorCode;
@@ -43,9 +54,19 @@ export type ScenarioValidationError = {
   message: string;
 };
 
+type ParseScenarioFailure = { ok: false; errors: ScenarioValidationError[] };
+
 export type ParseScenarioV1Result =
   | { ok: true; scenario: ScenarioV1 }
-  | { ok: false; errors: ScenarioValidationError[] };
+  | ParseScenarioFailure;
+
+export type ParseScenarioV2Result =
+  | { ok: true; scenario: ScenarioV2 }
+  | ParseScenarioFailure;
+
+export type ParseScenarioResult =
+  | { ok: true; scenario: ScenarioDocument }
+  | ParseScenarioFailure;
 
 export function materializeScenarioV1Rankings(
   rankings: readonly RankingEntry[],
@@ -64,6 +85,45 @@ class ScenarioValidationFailure extends Error {
 }
 
 export function parseScenarioV1Json(json: string): ParseScenarioV1Result {
+  return parseScenarioJsonWith(json, (value) =>
+    parseScenario(value, SCENARIO_SCHEMA_VERSION),
+  );
+}
+
+export function parseScenarioV2Json(json: string): ParseScenarioV2Result {
+  return parseScenarioJsonWith(json, (value) =>
+    parseScenario(value, SCENARIO_V2_SCHEMA_VERSION),
+  );
+}
+
+export function parseScenarioJson(json: string): ParseScenarioResult {
+  return parseScenarioJsonWith(json, (value) => {
+    const root = expectRecord(value, "$", "Scenario");
+    const schemaVersion = parseSchemaVersion(
+      required(root, "schemaVersion", "schemaVersion"),
+    );
+
+    if (
+      schemaVersion !== SCENARIO_SCHEMA_VERSION &&
+      schemaVersion !== SCENARIO_V2_SCHEMA_VERSION
+    ) {
+      reject(
+        "unsupported-version",
+        "schemaVersion",
+        `schemaVersion must be ${SCENARIO_SCHEMA_VERSION} or ${SCENARIO_V2_SCHEMA_VERSION}.`,
+      );
+    }
+
+    return schemaVersion === SCENARIO_SCHEMA_VERSION
+      ? parseScenario(value, SCENARIO_SCHEMA_VERSION)
+      : parseScenario(value, SCENARIO_V2_SCHEMA_VERSION);
+  });
+}
+
+function parseScenarioJsonWith<TScenario extends ScenarioDocument>(
+  json: string,
+  parser: (value: unknown) => TScenario,
+): { ok: true; scenario: TScenario } | ParseScenarioFailure {
   if (new TextEncoder().encode(json).byteLength > SCENARIO_VALIDATION_LIMITS.maxJsonBytes) {
     return failure(
       "limit-exceeded",
@@ -81,7 +141,7 @@ export function parseScenarioV1Json(json: string): ParseScenarioV1Result {
   }
 
   try {
-    return { ok: true, scenario: parseScenario(parsed) };
+    return { ok: true, scenario: parser(parsed) };
   } catch (error) {
     if (error instanceof ScenarioValidationFailure) {
       return { ok: false, errors: [error.validationError] };
@@ -91,23 +151,30 @@ export function parseScenarioV1Json(json: string): ParseScenarioV1Result {
   }
 }
 
-function parseScenario(value: unknown): ScenarioV1 {
+function parseScenario(
+  value: unknown,
+  schemaVersion: typeof SCENARIO_SCHEMA_VERSION,
+): ScenarioV1;
+function parseScenario(
+  value: unknown,
+  schemaVersion: typeof SCENARIO_V2_SCHEMA_VERSION,
+): ScenarioV2;
+function parseScenario(
+  value: unknown,
+  schemaVersion:
+    | typeof SCENARIO_SCHEMA_VERSION
+    | typeof SCENARIO_V2_SCHEMA_VERSION,
+): ScenarioDocument {
   const root = expectRecord(value, "$", "Scenario");
-  const schemaVersionValue = required(root, "schemaVersion", "schemaVersion");
+  const schemaVersionValue = parseSchemaVersion(
+    required(root, "schemaVersion", "schemaVersion"),
+  );
 
-  if (typeof schemaVersionValue !== "number") {
-    reject("invalid-type", "schemaVersion", "schemaVersion must be a number.");
-  }
-
-  if (!Number.isInteger(schemaVersionValue)) {
-    reject("invalid-value", "schemaVersion", "schemaVersion must be an integer.");
-  }
-
-  if (schemaVersionValue !== SCENARIO_SCHEMA_VERSION) {
+  if (schemaVersionValue !== schemaVersion) {
     reject(
       "unsupported-version",
       "schemaVersion",
-      `schemaVersion must be ${SCENARIO_SCHEMA_VERSION}.`,
+      `schemaVersion must be ${schemaVersion}.`,
     );
   }
 
@@ -126,17 +193,20 @@ function parseScenario(value: unknown): ScenarioV1 {
       "draftConfiguration.teams",
     ),
   );
-  const rankings = parseRankings(
-    required(
-      expectRecord(
-        required(root, "rankingContext", "rankingContext"),
-        "rankingContext",
-        "rankingContext",
-      ),
-      "rankings",
-      "rankingContext.rankings",
-    ),
+  const rankingContextRecord = expectRecord(
+    required(root, "rankingContext", "rankingContext"),
+    "rankingContext",
+    "rankingContext",
   );
+  const rankingsValue = required(
+    rankingContextRecord,
+    "rankings",
+    "rankingContext.rankings",
+  );
+  const rankingContext =
+    schemaVersion === SCENARIO_SCHEMA_VERSION
+      ? { rankings: parseRankings(rankingsValue, true) }
+      : parseScenarioV2RankingContext(rankingContextRecord, rankingsValue);
   const userTeamId = expectNonEmptyString(
     required(
       expectRecord(
@@ -174,19 +244,41 @@ function parseScenario(value: unknown): ScenarioV1 {
     );
   }
 
-  const scenario: ScenarioV1 = {
-    schemaVersion: SCENARIO_SCHEMA_VERSION,
+  const commonScenario = {
     metadata,
     leagueSettings,
     draftConfiguration: { teams },
-    rankingContext: { rankings },
     userTeamContext: { userTeamId },
     pickHistory,
     replayTarget: { appliedPickCount },
   };
+  const scenario: ScenarioDocument =
+    schemaVersion === SCENARIO_SCHEMA_VERSION
+      ? {
+          schemaVersion: SCENARIO_SCHEMA_VERSION,
+          ...commonScenario,
+          rankingContext: { rankings: rankingContext.rankings },
+        }
+      : {
+          schemaVersion: SCENARIO_V2_SCHEMA_VERSION,
+          ...commonScenario,
+          rankingContext: rankingContext as ScenarioV2["rankingContext"],
+        };
 
   validateConsistency(scenario);
   return scenario;
+}
+
+function parseSchemaVersion(value: unknown): number {
+  if (typeof value !== "number") {
+    reject("invalid-type", "schemaVersion", "schemaVersion must be a number.");
+  }
+
+  if (!Number.isInteger(value)) {
+    reject("invalid-value", "schemaVersion", "schemaVersion must be an integer.");
+  }
+
+  return value;
 }
 
 function parseMetadata(value: unknown): ScenarioMetadata {
@@ -314,7 +406,10 @@ function parseTeams(value: unknown): ScenarioV1["draftConfiguration"]["teams"] {
   });
 }
 
-function parseRankings(value: unknown): ScenarioV1["rankingContext"]["rankings"] {
+function parseRankings(
+  value: unknown,
+  materializeNeutralTiers: boolean,
+): ScenarioV1["rankingContext"]["rankings"] {
   if (!Array.isArray(value)) {
     reject(
       "invalid-type",
@@ -340,7 +435,11 @@ function parseRankings(value: unknown): ScenarioV1["rankingContext"]["rankings"]
   }
 
   try {
-    return materializeScenarioV1Rankings(parseRankingSnapshotJson(value));
+    const rankings = parseRankingSnapshotJson(value);
+
+    return materializeNeutralTiers
+      ? materializeScenarioV1Rankings(rankings)
+      : rankings;
   } catch {
     reject(
       "invalid-value",
@@ -348,6 +447,59 @@ function parseRankings(value: unknown): ScenarioV1["rankingContext"]["rankings"]
       "rankingContext.rankings must contain typed ranking entries.",
     );
   }
+}
+
+function parseScenarioV2RankingContext(
+  rankingContext: Record<string, unknown>,
+  rankingsValue: unknown,
+): ScenarioV2["rankingContext"] {
+  const rankings = parseRankings(rankingsValue, false);
+  const tierSemanticsValue = required(
+    rankingContext,
+    "tierSemantics",
+    "rankingContext.tierSemantics",
+  );
+  let snapshot: RankingSnapshot;
+
+  try {
+    snapshot = parsePersistedDraftRankingSnapshotJson({
+      schemaVersion: 2,
+      rankings,
+      tierSemantics: tierSemanticsValue,
+      capturedAt: "1970-01-01T00:00:00.000Z",
+    });
+  } catch {
+    reject(
+      "invalid-value",
+      "rankingContext.tierSemantics",
+      "rankingContext.tierSemantics must contain valid ranking tier semantics.",
+    );
+  }
+
+  const recommendationContext = createRecommendationRankingContext(snapshot);
+
+  if (!recommendationContext.ok) {
+    const error = recommendationContext.errors[0];
+
+    reject(
+      error.code,
+      `rankingContext.${error.path}`,
+      error.message,
+    );
+  }
+
+  if (!snapshot.tierSemantics) {
+    reject(
+      "missing-field",
+      "rankingContext.tierSemantics",
+      "rankingContext.tierSemantics is required.",
+    );
+  }
+
+  return {
+    rankings: [...snapshot.rankings],
+    tierSemantics: snapshot.tierSemantics,
+  };
 }
 
 function parsePickHistory(value: unknown): ScenarioPick[] {
@@ -386,7 +538,7 @@ function parsePickHistory(value: unknown): ScenarioPick[] {
   });
 }
 
-function validateConsistency(scenario: ScenarioV1): void {
+function validateConsistency(scenario: ScenarioDocument): void {
   const { leagueSettings, draftConfiguration, rankingContext, userTeamContext } = scenario;
   const capacity = leagueSettings.teamCount * leagueSettings.rounds;
 
@@ -716,6 +868,6 @@ function failure(
   code: ScenarioValidationErrorCode,
   path: string,
   message: string,
-): ParseScenarioV1Result {
+): ParseScenarioFailure {
   return { ok: false, errors: [{ code, path, message }] };
 }
