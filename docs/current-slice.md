@@ -1,124 +1,137 @@
-# Current Slice — Task 12C: Integrate Scenario V2 With Workbench Flows
+# Current Slice - Phase 5.5 Bug Fix: Prevent Same-Position Draft-Pocket Quality Inversions
 
 ## Status
 
-Complete. Implemented and validated on 2026-07-03.
+Planned. Awaiting implementation and validation.
+
+## Context
+
+Phase 5.5 exit validation exposed a draft-pocket scoring inversion in the default rankings:
+
+- Justin Jefferson is overall rank 9, ADP 10, WR6, overall/source tier 2.
+- Drake London is overall rank 11, ADP 18, WR7, overall/source tier 2.
+- The shared forecast can remove Jefferson while retaining London and one lower-tier WR.
+- London then counts as a comparable replacement for Jefferson, giving Jefferson high skip safety and no timing bonus.
+- Jefferson cannot count as a replacement for London after leaving the forecasted pocket, so London can receive medium skip safety and a `+3` timing bonus.
+- Their base-score gap is about two points, allowing the lower-ranked London to outrank the available higher-ranked Jefferson solely through draft-pocket timing.
+
+The candidate-level forecast observations are internally consistent, but using them directly for both same-position candidates creates a circular recommendation: London makes Jefferson safe to skip, then London is rewarded because Jefferson is forecasted to disappear.
+
+This bug fix temporarily replaces the Task 13 exit-validation slice. Task 13 remains incomplete and resumes after this regression is fixed.
 
 ## Goal
 
-Complete Task 12 by connecting the version-aware scenario APIs and authoritative tier semantics to transient sessions and the Draft Room workbench, making Scenario V2 the workbench export format while preserving Scenario V1 import compatibility.
+Prevent draft-pocket timing from boosting a lower-ranked candidate while a higher-ranked candidate at the same position is currently available, while preserving candidate forecast analysis, player-quality scoring, deterministic forecast construction, and timing behavior for the best currently available option at each position.
 
-Task 12A completed V1/V2 replay and import. Task 12B preserved authoritative tier semantics through persisted and transient state. This final slice wires those completed boundaries into import, reset, replay-target, restart, and export workflows without changing draft-state, forecast, scoring, or reason semantics.
+## Approved Rule
+
+Draft-pocket timing is eligible only for the highest-ranked candidate at a position within the current draft pocket.
+
+Candidate replacement quality and skip safety remain objective, candidate-specific forecast observations for every current-pocket candidate. A lower-ranked same-position candidate retains those observations for inspection but receives a neutral `draft_pocket_timing` score while the higher-ranked option is available.
+
+Use overall rank followed by stable player ID to identify the highest-ranked current-pocket option at a position, matching existing deterministic board ordering. Do not compare ADP, projected removal order, score, or roster context when selecting that option.
 
 ## Scope
 
 ### Goals
 
-- Add a Scenario V2 workspace exporter that requires authoritative `RankingTierSemantics` rather than reconstructing them.
-- Keep the existing Scenario V1 exporter unchanged for compatibility and curated/test callers.
-- Switch transient scenario creation from V1-only import to the version-aware import API.
-- Retain the parsed scenario version in transient session state.
-- Use V1 neutral semantics for legacy imports and exact supplied V2 semantics for V2 imports.
-- Preserve nullable ADP and recompute normalized context, forecasts, recommendations, adjustments, and reasons after import, local pick, undo, reset, restart, and replay-target replacement.
-- Re-export both imported V1 and imported V2 sessions as Scenario V2 using the active rankings and authoritative semantics.
-- Export persisted and restarted-manual workbench sessions as Scenario V2 without requiring the original mutable ranking set.
-- Make the live Home-to-DraftRoom boundary require mapped tier semantics while keeping a compatibility guard for older isolated DraftRoom test constructors.
-- Preserve existing download naming, provenance, dirty-state confirmations, replay-target controls, and validation/replay error presentation.
+- Expose whether each candidate is the highest-ranked current-pocket option at their position as deterministic candidate-signal evidence.
+- Keep replacement counts, replacement quality, skip safety, profile transitions, and forecasted-pocket presence unchanged.
+- Make `draft_pocket_timing` neutral for a current-pocket candidate when a higher-ranked same-position candidate is also in the current pocket.
+- Preserve low and medium skip-safety deltas for the highest-ranked current-pocket candidate at each eligible position.
+- Suppress draft-pocket reasons when timing is neutralized by the same-position quality guard.
+- Reproduce the Jefferson/London inversion and prove Jefferson remains ordered above London.
+- Prove London becomes timing-eligible after Jefferson is drafted or otherwise unavailable.
 
 ### Non-goals
 
-- Do not remove or change Scenario V1 types, parsing, serialization, replay, export, curated fixtures, or compatibility APIs.
-- Do not migrate or rewrite existing scenario files.
-- Do not serialize forecasts, fallback ADP, pockets, candidate signals, recommendation components, scores, adjustments, reasons, or recommendation output.
-- Do not infer overall/source tiers from recommendation tiers or normalized recommendation facts.
-- Do not infer recommendation-tier eligibility from numeric tier values.
-- Do not query mutable ranking sets, persistence repositories, or external data during import/export/replay.
-- Do not add new workbench controls, scenario-library features, database fields, migrations, caching, or background work.
-- Do not change draft-state replay rules, forecast construction, scoring, caps, ordering, or reason wording.
+- Do not change Drake London’s or Justin Jefferson’s rank, ADP, tier, or source data.
+- Do not change forecast removal order, current/forecast pocket construction, replacement windows, replacement thresholds, or skip-safety categories.
+- Do not make per-candidate forecasts or simulate drafting a candidate.
+- Do not add a final-sort override, hidden score adjustment, or hard-coded player/position exception.
+- Do not retune base value, timing deltas, urgency caps, context caps, roster fit, scarcity, run pressure, tier pressure, or overall-tier scoring.
+- Do not change reason wording, scenario contracts, persistence, ranking normalization, or UI behavior.
+- Do not resume the broader Task 13 exit-validation matrix in this slice.
 
 ## Implementation Steps
 
-1. Add `exportWorkspaceToScenarioV2` to `src/lib/scenarioPortability.ts`. Require a workspace value with authoritative `rankingTierSemantics`, reuse the existing metadata/pick-history/target validation behavior, copy canonical rankings and tier semantics into the Task 11 V2 contract, and avoid emitting snapshot identity, timestamps, capabilities, or derived output.
-2. Refactor only the small common export-envelope code needed to keep V1 and V2 exports consistent. Preserve `exportWorkspaceToScenarioV1` output byte-for-byte at the object level and retain its public signature.
-3. Update `src/lib/scenarioSession.ts` to use `importScenarioJson` and store `ScenarioDocument` rather than `ScenarioV1` in scenario sessions. Derive session tier semantics by version:
-   - V1: explicit source kind `none` plus neutral recommendation semantics for represented positions;
-   - V2: a fresh copy of `scenario.rankingContext.tierSemantics`.
-4. Build transient normalized context and recommendations from the same rankings and tier semantics. Preserve them through local pick, undo, and restart; reset reparses the original source JSON through the version-aware importer.
-5. Extend `src/lib/scenarioSession.test.ts` with V2 fixtures and integration assertions covering exact source-overall context, complete/partial/absent ADP, score-backed reasons, pick/undo/reset/restart behavior, version retention, V1 compatibility, and V2 export/re-import equality. Exercise `exportWorkspaceToScenarioV2` here using persisted-style, V1-transient, V2-transient, and restarted-manual session inputs so no additional test file is required.
-6. Update `src/app/page.tsx` to require `workspace.rankingTierSemantics` alongside the existing normalized-context result and pass it to `DraftRoom`. A mapped persisted workspace missing either value should fail explicitly rather than export guessed semantics.
-7. Update `src/components/DraftRoom.tsx` to accept an optional compatibility prop for `rankingTierSemantics`, select transient semantics when a transient session is active, and use `exportWorkspaceToScenarioV2` plus `serializeScenarioV2` for every workbench export.
-8. In Draft Room replay-target replacement, serialize the active scenario with the serializer matching its existing version before recreating the transient session. Do not upgrade the cached source document during target changes; only explicit export produces V2.
-9. If authoritative semantics are unavailable in an isolated compatibility render, keep recommendations usable but report a workbench export error instead of emitting V1 or guessed V2 data.
-10. Run focused scenario session, portability, replay, Draft Room, repository mapping, forecast, and recommendation tests, followed by TypeScript validation, lint, `git diff --check`, and a local workbench smoke pass when the in-app browser is available.
-11. After all required automated validation passes, mark Task 12 complete in `docs/tasks.md` and add completion notes to this file.
+1. Extend `CandidatePocketSignal` in `src/types/draft.ts` with an explicit boolean indicating whether the candidate is the highest-ranked current-pocket option at their position. Keep the field required so every signal state is inspectable and no caller silently bypasses the rule.
+2. In `src/lib/draftPocketForecast.ts`, derive the boolean from the already-resolved current-pocket rankings using overall rank and stable player ID. Populate it for active, neutral-forecast, and outside-current-pocket signal results without changing any existing replacement or skip-safety calculation.
+3. In `calculateDraftPocketTimingComponent` in `src/lib/recommendations.ts`, check the new eligibility evidence after active-forecast, current-pocket, and supported-position checks but before mapping skip safety to a delta. When the candidate is not the highest-ranked current-pocket option at the position:
+   - emit delta `0`;
+   - use a deterministic threshold such as `higher_ranked_same_position_available`;
+   - retain the candidate’s raw replacement and skip-safety evidence;
+   - include the new eligibility boolean in component evidence.
+4. Keep reason generation unchanged except for relying on the new neutral threshold. Existing low/medium draft-pocket reasons must not be emitted for a component neutralized by the guard.
+5. Update `src/lib/draftPocketForecast.test.ts` to prove:
+   - the highest-ranked current-pocket candidate at a position is marked eligible;
+   - a lower-ranked same-position candidate is marked ineligible even when its raw skip safety is medium or low;
+   - stable player ID resolves an otherwise tied overall rank deterministically;
+   - removing the higher-ranked candidate makes the next-ranked option eligible;
+   - replacement counts, skip safety, profile transitions, and neutral forecast behavior remain unchanged.
+6. Update `src/lib/recommendations.test.ts` with the reported regression using the default ranking facts for Jefferson (rank 9, ADP 10, tier 2) and London (rank 11, ADP 18, tier 2), plus the lower-tier WR needed to create the asymmetric forecast:
+   - Jefferson has high raw skip safety because London is a comparable replacement and another WR is near;
+   - London has medium raw skip safety but is not the highest-ranked current-pocket WR;
+   - London’s timing component is neutral with the same-position guard threshold and produces no draft-pocket reason;
+   - Jefferson remains ordered above London and every score reconciles exactly;
+   - after Jefferson is unavailable, London is the highest-ranked current-pocket WR and receives the approved timing delta when his skip safety is low or medium.
+7. Preserve direct timing-component tests for active/inactive forecasts, pocket membership, eligible positions, and low/medium/high skip safety. Add the new boolean to their fixtures and add an exact neutralization test for a lower-ranked same-position candidate.
+8. Run focused validation:
+
+   ```powershell
+   npm test -- src/lib/draftPocketForecast.test.ts src/lib/recommendations.test.ts src/lib/scenarioSession.test.ts src/components/DraftRoom.test.tsx
+   npx tsc --noEmit
+   npm run lint
+   git diff --check
+   ```
+
+9. Manually reproduce the original ranking state in the Draft Room. Confirm Jefferson remains above London, London shows no score-backed draft-pocket reason while Jefferson is available, and London becomes timing-eligible after Jefferson leaves the available pool.
+10. After validation passes, add completion notes to this file. Do not mark Task 13 complete and do not begin the remaining exit-validation work.
 
 ## Expected Files
 
-- `src/lib/scenarioPortability.ts`
-- `src/lib/scenarioSession.ts`
-- `src/lib/scenarioSession.test.ts`
-- `src/app/page.tsx`
-- `src/components/DraftRoom.tsx`
-- `docs/tasks.md` after complete validation
+- `src/types/draft.ts`
+- `src/lib/draftPocketForecast.ts`
+- `src/lib/draftPocketForecast.test.ts`
+- `src/lib/recommendations.ts`
+- `src/lib/recommendations.test.ts`
 - `docs/current-slice.md` for completion notes
 
-Expected implementation blast radius: five implementation/test files, plus two status-only documentation updates after validation.
+Expected production/test blast radius: five code and test files. The slice document is the only documentation file expected to change.
 
 ## Acceptance Criteria
 
-- Version-aware transient import accepts Scenario V1 and Scenario V2 while retaining strict validation/replay failures.
-- Scenario V1 sessions remain default-neutral for overall tiers and use stored nullable ADP.
-- Scenario V2 sessions preserve supplied ranking tiers, tier semantics, source-overall values, and nullable ADP exactly.
-- Import, accepted/rejected pick, undo, reset, restart, and replay-target replacement recompute deterministic recommendations from captured inputs without stale derived output.
-- Replay-target replacement preserves the active source scenario version; explicit workbench export always emits Scenario V2.
-- Persisted, V1-transient, V2-transient, and restarted-manual workbench states export valid Scenario V2 documents with authoritative tier semantics.
-- Exported Scenario V2 re-import reproduces the same target draft, normalized ranking context, recommendation ordering, components, adjustments, evidence, and reasons.
-- Export/import remains independent of mutable ranking-set identity, source deletion, snapshot timestamps, and serialized recommendation output.
-- Missing authoritative semantics blocks only export with an explicit workbench error; draft state and recommendations remain usable.
-- Existing Scenario V1 APIs, curated scenarios, workbench controls, download naming, dirty-state behavior, draft invariants, forecast/scoring semantics, and reason wording remain unchanged.
-- Focused tests, TypeScript validation, and lint pass without new warnings.
+- With Jefferson and London available in the reported forecast state, London retains medium raw skip safety but receives exactly `0` draft-pocket timing points.
+- Jefferson remains ordered above London when the only previous reason for inversion was London’s larger draft-pocket timing delta.
+- London emits no draft-pocket timing reason while the same-position quality guard neutralizes the component.
+- The highest-ranked current-pocket option at each eligible position continues to receive exactly `+6`, `+3`, or `0` for low, medium, or high skip safety.
+- When the higher-ranked same-position player becomes unavailable, the next-ranked current-pocket candidate becomes timing-eligible without special-case logic.
+- Candidate replacement counts, replacement quality, skip safety, forecast membership, profile transitions, pocket construction, and forecast removal order are unchanged.
+- Overall rank then stable player ID selects the eligible same-position candidate deterministically.
+- Overall-tier, roster-fit, tier-pressure, scarcity, run-pressure, value-opportunity, urgency-cap, context-cap, ordering, and score-reconciliation behavior remain unchanged.
+- Neutralized timing evidence cannot generate a positive draft-pocket reason.
+- Identical draft and ranking inputs continue to produce exact equivalent signals, components, scores, reasons, and ordering.
+- Focused tests, TypeScript validation, lint, manual reproduction, and `git diff --check` pass with no new warnings.
 
 ## Failure Conditions
 
 Stop and report instead of broadening the slice if:
 
-- exporting V2 requires reconstructing tier semantics from normalized facts or numeric tiers;
-- V1 compatibility requires interpreting legacy tiers as overall tiers;
-- workbench integration requires persisting derived recommendation or forecast output;
-- implementation requires changing the database schema, ranking snapshot contract, draft-state replay rules, forecast, scoring, or reason semantics;
-- validation fails for an issue unrelated to this slice.
-
-## Validation Commands
-
-```powershell
-npm test -- src/lib/scenarioSession.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioReplay.test.ts src/components/DraftRoom.test.tsx src/lib/draftRepositoryMapping.test.ts src/lib/draftPocketForecast.test.ts src/lib/recommendations.test.ts
-npx tsc --noEmit
-npm run lint
-git diff --check
-```
-
-Manual smoke QA should import both a Scenario V1 and Scenario V2 file, change replay targets, make and undo a local pick, reset/restart, export each active state, and re-import the downloaded V2 document. Confirm refreshed Phase 5.5 evidence and reasons and no dependency on the original ranking set.
-
-The existing unrelated lint warning in `src/lib/rankingNormalizer.test.ts` may remain, but this slice must introduce no new warnings.
-
-## Follow-up
-
-After Task 12 is complete, Task 13 should run the Phase 5.5 regression, scenario, workflow, and manual exit-validation matrix without adding new product behavior.
-
-## Completion Notes
-
-- Added authoritative Scenario V2 workspace export while retaining the existing Scenario V1 compatibility exporter.
-- Made transient scenario sessions version-aware: V1 imports receive explicit neutral tier semantics, while V2 imports retain copied source semantics and nullable ADP.
-- Wired persisted and transient Draft Room exports to Scenario V2, preserved scenario versions during replay-target changes, and blocked export explicitly when authoritative semantics are unavailable.
-- Added integration coverage for V2 complete, partial, and absent ADP; exact tier semantics; reset behavior; and V1, V2, and restarted-manual export/re-import flows.
-- Validation passed: 208 focused tests, `npx tsc --noEmit`, `npm run lint`, and `git diff --check`. Lint reports only the documented pre-existing `stripLocations` warning in `src/lib/rankingNormalizer.test.ts`.
-- Manual in-app browser smoke QA was not run; Task 13 remains responsible for the complete Phase 5.5 manual exit-validation matrix.
+- enforcing the rule requires a final-sort override or a score that no longer reconciles from components and adjustments;
+- the guard requires changing candidate replacement, skip-safety, forecast, pocket, ADP, or overall-tier semantics;
+- correct reason behavior requires new user-facing wording rather than suppressing a neutral component;
+- the Jefferson/London case cannot be reproduced from deterministic fixture inputs;
+- validation exposes an unrelated failure or requires changes outside the expected files.
 
 ## Slice Review
 
-1. Smallest meaningful increment: yes — this is the remaining vertical integration needed to make the completed V2 contract and replay path usable from the existing workbench.
-2. Executable without redefining the approach: yes — export ownership, version handling, state selection, compatibility guards, tests, and error behavior are explicit.
-3. Avoids unnecessary architecture changes: yes — it connects existing domain boundaries and adds no persistence, reconstruction, or generic registry.
-4. Reasonable blast radius: yes — five implementation/test files; direct export coverage is intentionally colocated with transient-session integration tests.
-5. Comfortably reviewable and revertible: yes — changes are isolated to portability, transient sessions, and the existing workbench caller boundary.
-6. Observable and testable acceptance criteria: yes — exact V2 documents, re-import equality, version preservation, state transitions, export blocking, and unchanged V1 behavior are deterministic outputs.
+1. Smallest meaningful increment: yes - it fixes one observed scoring inversion without resuming general exit validation.
+2. Executable without redefining the approach: yes - eligibility, ordering keys, evidence, scoring behavior, regression inputs, and validation are explicit.
+3. Avoids unnecessary architecture changes: yes - it adds one fact to the existing candidate signal and one scoring eligibility check.
+4. Reasonable blast radius: yes - two production files, one shared type, and two focused test files.
+5. Comfortably reviewable and revertible: yes - the guard is isolated from forecast and replacement calculations.
+6. Observable and testable acceptance criteria: yes - exact component deltas, thresholds, reasons, ordering, and post-removal eligibility are deterministic.
+
+## Follow-up
+
+After this bug-fix slice passes, restore and execute Task 13: Complete Phase 5.5 Regression and Exit Validation, including the same-position quality invariant in its regression matrix.
