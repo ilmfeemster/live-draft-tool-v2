@@ -18,9 +18,12 @@ import type {
   Draft,
   DraftWorkspace,
   PlayerRecommendation,
+  Position,
 } from "@/types/draft";
+import type { RankingTierSemantics } from "@/types/rankings";
 import {
   SCENARIO_SCHEMA_VERSION,
+  SCENARIO_V2_SCHEMA_VERSION,
   type ScenarioDocument,
   type ScenarioProvenance,
   type ScenarioV1,
@@ -166,6 +169,24 @@ export function exportWorkspaceToScenarioV1(
   };
 }
 
+export function exportWorkspaceToScenarioV2(
+  workspace: DraftWorkspace & {
+    rankingTierSemantics: RankingTierSemantics;
+  },
+  options: ExportWorkspaceScenarioOptions = {},
+): ScenarioV2 {
+  const scenarioV1 = exportWorkspaceToScenarioV1(workspace, options);
+
+  return {
+    ...scenarioV1,
+    schemaVersion: SCENARIO_V2_SCHEMA_VERSION,
+    rankingContext: {
+      rankings: scenarioV1.rankingContext.rankings,
+      tierSemantics: copyTierSemantics(workspace.rankingTierSemantics),
+    },
+  };
+}
+
 export function importScenarioV1Json(json: string): ImportScenarioV1Result {
   return importParsedScenario(parseScenarioV1Json(json), replayScenarioV1);
 }
@@ -209,5 +230,35 @@ function importParsedScenario<TScenario extends ScenarioDocument>(
     scenario,
     draft: replayed.draft,
     recommendations: replayed.recommendations,
+  };
+}
+
+function copyTierSemantics(
+  tierSemantics: RankingTierSemantics,
+): RankingTierSemantics {
+  const recommendation: Partial<
+    Record<Position, "neutral" | "recommendation-position">
+  > = {};
+
+  Object.entries(tierSemantics.recommendation).forEach(
+    ([position, semantics]) => {
+      recommendation[position as Position] = semantics;
+    },
+  );
+
+  return {
+    source: {
+      kind: tierSemantics.source.kind,
+      ...(tierSemantics.source.values === undefined
+        ? {}
+        : {
+            values: tierSemantics.source.values.map((value) => ({
+              playerId: value.playerId,
+              overallRank: value.overallRank,
+              tier: value.tier,
+            })),
+          }),
+    },
+    recommendation,
   };
 }

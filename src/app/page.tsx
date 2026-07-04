@@ -29,10 +29,17 @@ export default async function Home({ searchParams }: HomeProps) {
     : rankingLibraryResult.errors;
   const recommendationRankingContextResult =
     workspace.recommendationRankingContextResult;
+  const rankingTierSemantics = workspace.rankingTierSemantics;
 
   if (!recommendationRankingContextResult) {
     throw new Error(
       "Persisted draft workspace is missing its recommendation ranking context result.",
+    );
+  }
+
+  if (!rankingTierSemantics) {
+    throw new Error(
+      "Persisted draft workspace is missing its ranking tier semantics.",
     );
   }
 
@@ -99,6 +106,7 @@ export default async function Home({ searchParams }: HomeProps) {
           defaultRankingSetId={MANAGED_SEED_RANKING_SET_ID}
           rankingSummaries={rankingSummaries}
           rankings={workspace.rankings}
+          rankingTierSemantics={rankingTierSemantics}
           recommendationRankingContextResult={
             recommendationRankingContextResult
           }

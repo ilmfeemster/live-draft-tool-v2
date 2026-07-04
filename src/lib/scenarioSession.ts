@@ -1,8 +1,8 @@
 import { hydrateDraftFromSettings } from "@/lib/draftHydration";
 import { draftPlayerInDraft, undoLastDraftPick } from "@/lib/draftState";
 import {
-  importScenarioV1Json,
-  type ImportScenarioV1Result,
+  importScenarioJson,
+  type ImportScenarioResult,
 } from "@/lib/scenarioPortability";
 import { createRecommendationRankingContext } from "@/lib/recommendationRankingContext";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
@@ -15,7 +15,7 @@ import type {
   RecommendationRankingContextResult,
 } from "@/types/draft";
 import type { RankingTierSemantics } from "@/types/rankings";
-import type { ScenarioV1 } from "@/types/scenario";
+import type { ScenarioDocument } from "@/types/scenario";
 
 export const TRANSIENT_MANUAL_DRAFT_ID = "transient-manual" as const;
 
@@ -33,7 +33,7 @@ export type TransientSessionCore = {
 export type TransientScenarioSession = TransientSessionCore & {
   kind: "scenario";
   sourceJson: string;
-  scenario: ScenarioV1;
+  scenario: ScenarioDocument;
 };
 
 export type TransientManualSession = TransientSessionCore & {
@@ -46,7 +46,7 @@ export type TransientDraftSession =
 
 export type TransientSessionLoadResult =
   | { ok: true; session: TransientScenarioSession }
-  | Extract<ImportScenarioV1Result, { ok: false }>;
+  | Extract<ImportScenarioResult, { ok: false }>;
 
 export type TransientSessionResetResult = TransientSessionLoadResult;
 
@@ -55,14 +55,17 @@ export type TransientDestructiveAction = "reset" | "restart" | "replace";
 export function createTransientScenarioSession(
   sourceJson: string,
 ): TransientSessionLoadResult {
-  const imported = importScenarioV1Json(sourceJson);
+  const imported = importScenarioJson(sourceJson);
 
   if (!imported.ok) {
     return imported;
   }
 
   const rankings = imported.scenario.rankingContext.rankings;
-  const rankingTierSemantics = createScenarioV1TierSemantics(rankings);
+  const rankingTierSemantics =
+    imported.scenario.schemaVersion === 1
+      ? createScenarioV1TierSemantics(rankings)
+      : copyTierSemantics(imported.scenario.rankingContext.tierSemantics);
   const recommendationRankingContextResult =
     createRecommendationRankingContext({
       rankings,
@@ -236,5 +239,25 @@ function createScenarioV1TierSemantics(
   return {
     source: { kind: "none" },
     recommendation,
+  };
+}
+
+function copyTierSemantics(
+  tierSemantics: RankingTierSemantics,
+): RankingTierSemantics {
+  return {
+    source: {
+      kind: tierSemantics.source.kind,
+      ...(tierSemantics.source.values === undefined
+        ? {}
+        : {
+            values: tierSemantics.source.values.map((value) => ({
+              playerId: value.playerId,
+              overallRank: value.overallRank,
+              tier: value.tier,
+            })),
+          }),
+    },
+    recommendation: { ...tierSemantics.recommendation },
   };
 }

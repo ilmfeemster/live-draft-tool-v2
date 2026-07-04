@@ -4,6 +4,11 @@ import { draftPlayerInDraft, undoLastDraftPick } from "@/lib/draftState";
 import { createRecommendationRankingContext } from "@/lib/recommendationRankingContext";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import {
+  exportWorkspaceToScenarioV2,
+  importScenarioJson,
+} from "@/lib/scenarioPortability";
+import { serializeScenarioV2 } from "@/lib/scenarioSerialization";
+import {
   createTransientScenarioSession,
   draftPlayerInTransientSession,
   requiresTransientSessionConfirmation,
@@ -14,7 +19,11 @@ import {
   undoLastPickInTransientSession,
 } from "@/lib/scenarioSession";
 import { NEUTRAL_TIER } from "@/types/rankings";
-import type { ScenarioV1 } from "@/types/scenario";
+import {
+  SCENARIO_V2_SCHEMA_VERSION,
+  type ScenarioV1,
+  type ScenarioV2,
+} from "@/types/scenario";
 
 describe("transient scenario sessions", () => {
   it("creates a clean scenario session at the declared target", () => {
@@ -105,6 +114,112 @@ describe("transient scenario sessions", () => {
       session.rankingTierSemantics,
     );
     expect(nextSession.isDirty).toBe(true);
+  });
+
+  it.each([
+    ["complete", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], "active"],
+    ["partial", [1, null, 3, null, 5, null, 7, null, 9, null, 11, null, 13, null, 15, null], "active"],
+    ["absent", Array(16).fill(null), "no-adp"],
+  ] as const)("loads Scenario V2 with %s ADP and exact tier semantics", (
+    _label,
+    adpRanks,
+    forecastStatus,
+  ) => {
+    const session = createEarlyScenarioV2Session(adpRanks);
+
+    expect(session.scenario.schemaVersion).toBe(SCENARIO_V2_SCHEMA_VERSION);
+    if (session.scenario.schemaVersion !== SCENARIO_V2_SCHEMA_VERSION) {
+      throw new Error("Expected Scenario V2 session.");
+    }
+    expect(session.rankingTierSemantics).toEqual(
+      session.scenario.rankingContext.tierSemantics,
+    );
+    expect(session.rankingTierSemantics).not.toBe(
+      session.scenario.rankingContext.tierSemantics,
+    );
+    expect(session.recommendationRankingContextResult.ok).toBe(true);
+    if (!session.recommendationRankingContextResult.ok) {
+      throw new Error("Expected Scenario V2 recommendation context.");
+    }
+    expect(
+      session.recommendationRankingContextResult.context.rankings.find(
+        ({ player }) => player.id === "target-rb",
+      ),
+    ).toMatchObject({ overallTier: 1, overallTierOrigin: "source" });
+    expect(getTimingEvidence(session)).toMatchObject({ forecastStatus });
+    expect(session.recommendations).toEqual(
+      generateRecommendationsForSession(session),
+    );
+    expect(session.recommendations[0].components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "overall_tier", delta: 6 }),
+      ]),
+    );
+  });
+
+  it("resets Scenario V2 from source and preserves its version and semantics", () => {
+    const original = createEarlyScenarioV2Session(
+      Array.from({ length: 16 }, (_, index) => index + 1),
+    );
+    const explored = draftPlayerInTransientSession(original, "target-rb");
+    const corrupted: TransientScenarioSession = {
+      ...explored,
+      rankingTierSemantics: {
+        source: { kind: "none" as const },
+        recommendation: {},
+      },
+    };
+    const reset = resetTransientScenarioSession(corrupted);
+
+    expect(reset.ok).toBe(true);
+    if (!reset.ok) {
+      throw new Error("Expected Scenario V2 reset success.");
+    }
+    expect(reset.session.scenario.schemaVersion).toBe(
+      SCENARIO_V2_SCHEMA_VERSION,
+    );
+    expect(reset.session.rankingTierSemantics).toEqual(
+      original.rankingTierSemantics,
+    );
+    expect(reset.session.rankingTierSemantics).not.toBe(
+      original.rankingTierSemantics,
+    );
+    expect(reset.session.recommendations).toEqual(original.recommendations);
+  });
+
+  it.each([
+    ["V1 scenario", () => createEarlyScenarioSession()],
+    [
+      "V2 scenario",
+      () => createEarlyScenarioV2Session(
+        Array.from({ length: 16 }, (_, index) => index + 1),
+      ),
+    ],
+    ["restarted manual", () => restartTransientSession(createEarlyScenarioSession())],
+  ] as const)("exports and re-imports %s state as Scenario V2", (_label, createSession) => {
+    const session = createSession();
+    const scenario = exportWorkspaceToScenarioV2({
+      draft: session.draft,
+      rankings: session.rankings,
+      leagueSettings: session.leagueSettings,
+      rankingTierSemantics: session.rankingTierSemantics,
+    });
+    const imported = importScenarioJson(serializeScenarioV2(scenario));
+
+    expect(scenario.schemaVersion).toBe(SCENARIO_V2_SCHEMA_VERSION);
+    expect(scenario.rankingContext.tierSemantics).toEqual(
+      session.rankingTierSemantics,
+    );
+    expect(imported.ok).toBe(true);
+    if (!imported.ok) {
+      throw new Error("Expected exported Scenario V2 to re-import.");
+    }
+    expect(imported.scenario.schemaVersion).toBe(SCENARIO_V2_SCHEMA_VERSION);
+    expect(imported.draft).toEqual({
+      ...session.draft,
+      id: imported.draft.id,
+    });
+    expect(imported.recommendations).toEqual(session.recommendations);
   });
 
   it("refreshes active forecast evidence between turns, on turn, and at the final user pick", () => {
@@ -490,6 +605,59 @@ function createEarlyScenarioSessionWithAdp(): TransientScenarioSession {
   }
 
   return result.session;
+}
+
+function createEarlyScenarioV2Session(
+  adpRanks: readonly (number | null)[],
+): TransientScenarioSession {
+  const result = createTransientScenarioSession(
+    createEarlyScenarioV2Json(adpRanks),
+  );
+
+  if (!result.ok) {
+    throw new Error(`Expected Scenario V2 session: ${JSON.stringify(result)}`);
+  }
+
+  return result.session;
+}
+
+function createEarlyScenarioV2Json(
+  adpRanks: readonly (number | null)[],
+): string {
+  const scenarioV1 = JSON.parse(getEarlyScenarioJson()) as ScenarioV1;
+  const rankings = scenarioV1.rankingContext.rankings.map((ranking, index) => ({
+    ...ranking,
+    player: { ...ranking.player },
+    adpRank: adpRanks[index] ?? null,
+    tier: NEUTRAL_TIER,
+  }));
+  const scenarioV2: ScenarioV2 = {
+    ...scenarioV1,
+    schemaVersion: SCENARIO_V2_SCHEMA_VERSION,
+    rankingContext: {
+      rankings,
+      tierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: rankings.map((ranking, index) => ({
+            playerId: ranking.player.id,
+            overallRank: ranking.overallRank,
+            tier: index < 9 ? 1 : 2,
+          })),
+        },
+        recommendation: {
+          QB: "neutral",
+          RB: "neutral",
+          WR: "neutral",
+          TE: "neutral",
+          DST: "neutral",
+          K: "neutral",
+        },
+      },
+    },
+  };
+
+  return serializeScenarioV2(scenarioV2);
 }
 
 function createEarlyScenarioJsonWithAdp(appliedPickCount: number): string {

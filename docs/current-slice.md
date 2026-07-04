@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Not yet implemented.
+Complete. Implemented and validated on 2026-07-03.
 
 ## Goal
 
@@ -104,6 +104,15 @@ The existing unrelated lint warning in `src/lib/rankingNormalizer.test.ts` may r
 ## Follow-up
 
 After Task 12 is complete, Task 13 should run the Phase 5.5 regression, scenario, workflow, and manual exit-validation matrix without adding new product behavior.
+
+## Completion Notes
+
+- Added authoritative Scenario V2 workspace export while retaining the existing Scenario V1 compatibility exporter.
+- Made transient scenario sessions version-aware: V1 imports receive explicit neutral tier semantics, while V2 imports retain copied source semantics and nullable ADP.
+- Wired persisted and transient Draft Room exports to Scenario V2, preserved scenario versions during replay-target changes, and blocked export explicitly when authoritative semantics are unavailable.
+- Added integration coverage for V2 complete, partial, and absent ADP; exact tier semantics; reset behavior; and V1, V2, and restarted-manual export/re-import flows.
+- Validation passed: 208 focused tests, `npx tsc --noEmit`, `npm run lint`, and `git diff --check`. Lint reports only the documented pre-existing `stripLocations` warning in `src/lib/rankingNormalizer.test.ts`.
+- Manual in-app browser smoke QA was not run; Task 13 remains responsible for the complete Phase 5.5 manual exit-validation matrix.
 
 ## Slice Review
 

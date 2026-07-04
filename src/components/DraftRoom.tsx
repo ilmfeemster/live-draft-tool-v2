@@ -23,7 +23,7 @@ import {
 } from "@/app/actions/draftActions";
 import type { CreateConfiguredDraftFromRankingSetError } from "@/lib/draftCreationWorkflow";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
-import { exportWorkspaceToScenarioV1 } from "@/lib/scenarioPortability";
+import { exportWorkspaceToScenarioV2 } from "@/lib/scenarioPortability";
 import {
   createTransientScenarioSession,
   draftPlayerInTransientSession,
@@ -34,7 +34,10 @@ import {
   type TransientSessionLoadResult,
   undoLastPickInTransientSession,
 } from "@/lib/scenarioSession";
-import { serializeScenarioV1 } from "@/lib/scenarioSerialization";
+import {
+  serializeScenarioV1,
+  serializeScenarioV2,
+} from "@/lib/scenarioSerialization";
 import type {
   Draft,
   LeagueSettings,
@@ -42,7 +45,10 @@ import type {
   RecommendationRankingContextResult,
   UserRosterPlayer,
 } from "@/types/draft";
-import type { RankingSetSummary } from "@/types/rankings";
+import type {
+  RankingSetSummary,
+  RankingTierSemantics,
+} from "@/types/rankings";
 
 type DraftRoomProps = {
   draft: Draft;
@@ -50,6 +56,7 @@ type DraftRoomProps = {
   defaultRankingSetId: string;
   rankingSummaries: readonly RankingSetSummary[];
   rankings: RankingEntry[];
+  rankingTierSemantics?: RankingTierSemantics;
   recommendationRankingContextResult: RecommendationRankingContextResult;
 };
 
@@ -63,6 +70,7 @@ export function DraftRoom({
   defaultRankingSetId,
   rankingSummaries,
   rankings,
+  rankingTierSemantics,
   recommendationRankingContextResult,
 }: DraftRoomProps) {
   const router = useRouter();
@@ -88,6 +96,8 @@ export function DraftRoom({
   const displayedDraft = transientSession?.draft ?? activeDraft;
   const activeRankings = transientSession?.rankings ?? rankings;
   const activeLeagueSettings = transientSession?.leagueSettings ?? leagueSettings;
+  const activeRankingTierSemantics =
+    transientSession?.rankingTierSemantics ?? rankingTierSemantics;
   const isAnyPending = isMutationPending || isWorkbenchPending;
 
   useLayoutEffect(() => {
@@ -412,14 +422,22 @@ export function DraftRoom({
 
     setWorkbenchErrors([]);
 
+    if (!activeRankingTierSemantics) {
+      setWorkbenchErrors([
+        "Unable to export without authoritative ranking tier semantics.",
+      ]);
+      return;
+    }
+
     try {
       const activeScenario =
         transientSession?.kind === "scenario" ? transientSession.scenario : null;
-      const scenario = exportWorkspaceToScenarioV1(
+      const scenario = exportWorkspaceToScenarioV2(
         {
           draft: displayedDraft,
           rankings: activeRankings,
           leagueSettings: activeLeagueSettings,
+          rankingTierSemantics: activeRankingTierSemantics,
         },
         {
           name: activeScenario?.metadata.name,
@@ -436,7 +454,7 @@ export function DraftRoom({
           },
         },
       );
-      const json = serializeScenarioV1(scenario);
+      const json = serializeScenarioV2(scenario);
       const blob = new Blob([json], { type: "application/json" });
       const objectUrl = URL.createObjectURL(blob);
 
@@ -513,10 +531,14 @@ export function DraftRoom({
       return;
     }
 
-    const sourceJson = serializeScenarioV1({
+    const updatedScenario = {
       ...transientSession.scenario,
       replayTarget: { appliedPickCount: target },
-    });
+    };
+    const sourceJson =
+      updatedScenario.schemaVersion === 1
+        ? serializeScenarioV1(updatedScenario)
+        : serializeScenarioV2(updatedScenario);
     const result = createTransientScenarioSession(sourceJson);
 
     if (!result.ok) {

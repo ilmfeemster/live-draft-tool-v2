@@ -522,7 +522,7 @@ Define a versioned portable scenario representation that preserves the ranking f
 
 ## Task 12 - Integrate Forecast Context with Scenario Replay and Workbench Flows
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 
@@ -612,9 +612,9 @@ Prove overall-tier quality and draft-pocket timing improve decisions without wea
 
 ## Testing Status
 
-Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, candidate replacement quality, skip safety, bounded scoring integration, score-backed explanations, persisted/transient preview wiring, and the portable Scenario V2 ranking-context contract are complete through Task 11. The original direct-ADP component has been removed from executable code under its approved supersession. Task 11 validation passed on 2026-07-03: 109 focused scenario, portability, ranking-snapshot, and recommendation-context tests; TypeScript validation; lint with only the documented pre-existing `rankingNormalizer.test.ts` warning; and `git diff --check`.
+Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, candidate replacement quality, skip safety, bounded scoring integration, score-backed explanations, persisted/transient preview wiring, the portable Scenario V2 ranking-context contract, and version-aware replay/workbench integration are complete through Task 12. The original direct-ADP component has been removed from executable code under its approved supersession. Task 12 validation passed on 2026-07-03: 208 focused scenario, portability, replay, Draft Room, repository-mapping, forecast, and recommendation tests; TypeScript validation; lint with only the documented pre-existing `rankingNormalizer.test.ts` warning; and `git diff --check`.
 
-Remaining Phase 5.5 work should prioritize version-aware scenario replay and workbench integration, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
+Remaining Phase 5.5 work is Task 13: realistic positional scenarios, workflow regressions, full automated validation, and focused manual exit QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
 
 ---
 
