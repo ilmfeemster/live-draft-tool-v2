@@ -1,102 +1,104 @@
-# Current Slice — Task 12A: Integrate Version-Aware Scenario Replay and Import
+# Current Slice — Task 12B: Preserve Authoritative Tier Semantics Through Workspace State
 
 ## Status
 
-Complete. Implemented and validated on 2026-07-03.
+Planned. Not yet implemented.
 
 ## Goal
 
-Make the pure scenario replay and portability import boundaries consume both Scenario V1 and Scenario V2, rebuilding normalized recommendation context and deterministic Phase 5.5 recommendations from each document’s captured ranking inputs.
+Carry authoritative `RankingTierSemantics` alongside canonical rankings through persisted draft workspace hydration and transient-session state so the final workbench slice can export Scenario V2 without reconstructing or inferring tier meaning.
 
-This is the first of three Task 12 slices. It completes version-aware replay/import without changing workspace types, transient sessions, Draft Room controls, or workbench export. Task 12B will propagate authoritative tier semantics through persisted/transient workspace state, and Task 12C will switch workbench import/export and replay-target flows to the version-aware APIs.
+This is the second of three Task 12 slices. Task 12A completed version-aware replay/import. This slice changes state propagation only. Task 12C will connect the preserved semantics to Draft Room props and version-aware workbench import/export.
 
-## Why Task 12 Is Split
+## Current Constraint
 
-The current domain replay/import boundary can support V2 in four focused files. Workbench export additionally requires preserving authoritative `RankingTierSemantics` through `DraftWorkspace`, repository mapping, page props, transient sessions, and Draft Room export/replay-target handlers.
-
-Combining these concerns would exceed the project’s normal five-file implementation blast radius and mix pure-domain replay changes with persistence-facing and UI wiring. Task 12 remains incomplete until the follow-up state-propagation and workbench slices are implemented.
+- Persisted snapshot parsing already materializes validated V2-equivalent `tierSemantics`, but `mapDraftRecordToWorkspace` drops them after creating normalized recommendation context.
+- `DraftWorkspace` therefore exposes canonical rankings and normalized recommendation facts but not the authoritative distinction between recommendation tiers and overall/source tiers.
+- Transient V1 sessions retain normalized context but not an explicit portable tier-semantics value that can be carried through restart and later exported as Scenario V2.
+- Reconstructing recommendation-tier eligibility from numeric `tier` values or overall tiers from recommendation facts would violate the approved tier-semantics boundary.
 
 ## Scope
 
 ### Goals
 
-- Add one version-aware replay function for the `ScenarioDocument` union.
-- Keep `replayScenarioV1` as a compatibility wrapper with its existing signature and draft-transition behavior.
-- Add an explicit Scenario V2 replay wrapper for typed callers.
-- Build recommendation ranking context from the replayed document:
-  - Scenario V1 uses freshly materialized neutral recommendation tiers and default-neutral overall tiers;
-  - Scenario V2 uses its preserved ranking entries and authoritative `tierSemantics`.
-- Pass successful normalized context into `generatePlayerRecommendations` so V1 stored ADP and V2 ADP/overall tiers produce the existing forecast, components, caps, ordering, and Task 9 reasons.
-- Add version-aware JSON import that dispatches through `parseScenarioJson` and the shared replay function.
-- Preserve the existing V1-only import API and failure shape for compatibility.
-- Add an explicit V2 import API for callers that require that version.
-- Preserve replay determinism, full-history validation, metadata independence, no-mutation behavior, and draft invariants.
+- Add an optional `rankingTierSemantics` field to `DraftWorkspace` for compatibility with existing test/workflow constructors.
+- Populate that field for every persisted workspace mapped from a ranking snapshot.
+- Preserve the exact validated source and recommendation semantics from V2 snapshot envelopes.
+- Preserve the materialized legacy-ambiguous/neutral semantics produced for historical array-only snapshots.
+- Add required `rankingTierSemantics` ownership to transient session core state.
+- Materialize explicit V1-compatible semantics for transient Scenario V1 sessions:
+  - source kind `none` with no source values;
+  - `neutral` recommendation semantics for every represented position.
+- Use the same transient tier-semantics value to build normalized recommendation context and to generate recommendations.
+- Preserve semantics through accepted pick, rejected pick, undo, reset, restart, and dirty-state transitions without mutation or reconstruction.
+- Keep semantics independent of mutable ranking-set identity and provenance.
 
 ### Non-goals
 
-- Do not change scenario types, validation rules, or serializers completed in Task 11.
-- Do not add Scenario V2 workspace export yet.
-- Do not change `DraftWorkspace`, repository mapping, persistence, page props, transient sessions, Draft Room, or workbench controls; those belong to Task 12B.
-- Do not make V2 the UI’s default export format in this slice.
-- Do not persist or return forecasts, pockets, recommendation components, or recommendation output inside scenario documents.
-- Do not infer Scenario V1 overall tiers from its legacy `tier` values.
-- Do not infer missing Scenario V2 tier semantics, synthesize ADP, fetch rankings, or consult mutable ranking sets.
-- Do not change draft-state replay rules or replay error semantics.
+- Do not change scenario replay/import APIs completed in Task 12A.
+- Do not import Scenario V2 into transient sessions yet; Task 12C owns switching the workbench to version-aware import.
+- Do not add Draft Room props, page wiring, Scenario V2 workspace export, serializer selection, download behavior, or replay-target UI changes; those belong to Task 12C.
+- Do not make `rankingTierSemantics` mandatory on every historical `DraftWorkspace` test fixture or repository collaborator in this slice.
+- Do not infer recommendation-tier eligibility from numeric `tier` values.
+- Do not infer overall/source tiers from recommendation tiers or normalized recommendation facts.
+- Do not alter ranking snapshot parsing, tier validation, forecast behavior, scoring, reasons, draft transitions, persistence schema, or database records.
 
 ## Implementation Steps
 
-1. Refactor `src/lib/scenarioReplay.ts` around a shared `replayScenario(scenario: ScenarioDocument)` implementation while retaining `replayScenarioV1` and adding `replayScenarioV2` as thin typed wrappers.
-2. Preserve the existing draft hydration, complete pick-history validation, target-state capture, and `pick-rejected` result exactly.
-3. At the recommendation boundary, materialize a ranking snapshot by version:
-   - for V1, clone rankings through `materializeScenarioV1Rankings` and omit source tier semantics so `createRecommendationRankingContext` produces default-neutral overall tiers;
-   - for V2, clone the parsed rankings and supply the document’s `tierSemantics` unchanged.
-4. Require the normalized recommendation context to succeed for a validated scenario, then pass it into `generatePlayerRecommendations`. Do not add a context-free fallback or reinterpret invalid typed input.
-5. Refactor `src/lib/scenarioPortability.ts` to share validation-stage and replay-stage result mapping across versions.
-6. Add `importScenarioJson` using `parseScenarioJson` plus `replayScenario`, and add `importScenarioV2Json` using the V2-only parser plus the V2 replay wrapper. Preserve `importScenarioV1Json` as a V1-only API with its existing return type and behavior.
-7. Extend `src/lib/scenarioReplay.test.ts` with parsed V2 fixtures containing source-overall tiers and complete/partial/absent ADP. Assert exact equality with direct context-aware engine output, material overall-tier/timing components and reasons when eligible, neutral fallbacks, deterministic target changes, V1 neutral-tier behavior, unchanged replay errors, and no mutation.
-8. Extend `src/lib/scenarioPortability.test.ts` with version-aware and V2-only import coverage for validation failures, replay failures, exact draft/recommendation output, V1 compatibility, provenance independence, and absence of serialized derived output.
-9. Run focused replay, portability, scenario contract, forecast, and recommendation tests, followed by TypeScript validation, lint, and `git diff --check`.
-10. After validation, add completion notes to this file. Do not mark Task 12 complete in `docs/tasks.md`; Task 12B workbench integration remains.
+1. Extend `DraftWorkspace` in `src/types/draft.ts` with `rankingTierSemantics?: RankingTierSemantics`. Keep it optional as a compatibility boundary; live persisted mapping must populate it, while older in-memory test collaborators remain valid until explicitly upgraded.
+2. Update `mapDraftRecordToWorkspace` in `src/lib/draftRepositoryMapping.ts` to return the parsed snapshot’s validated `tierSemantics` alongside rankings and `recommendationRankingContextResult`. Do not expose ranking-set ID/name, capabilities, or capture timestamps.
+3. Extend `src/lib/draftRepositoryMapping.test.ts` to prove:
+   - complete source-overall values and recommendation semantics survive mapping exactly;
+   - explicitly eligible recommendation-position semantics remain distinct from source semantics;
+   - historical array-only snapshots expose their materialized `legacy-ambiguous` source semantics and neutral recommendation semantics;
+   - `none` and legacy source kinds remain neutral for overall-tier normalization;
+   - mapped semantics are fresh and persisted input is not mutated;
+   - structured normalized-context failures do not discard the authoritative tier semantics.
+4. Add required `rankingTierSemantics: RankingTierSemantics` to `TransientSessionCore` in `src/lib/scenarioSession.ts`.
+5. When creating a current Scenario V1 transient session, derive explicit V1 portable semantics from the already-neutralized imported rankings: source kind `none`, no source values, and neutral recommendation semantics for each represented position. Pass this same value into `createRecommendationRankingContext`.
+6. Retain the field unchanged through `updateTransientSessionDraft`, rejected no-op transitions, undo, and generic spread-based updates. Explicitly copy it into `restartTransientSession`; reset continues to reparse source JSON and recreate clean semantics rather than trusting cached values.
+7. Update `src/lib/scenarioSession.test.ts` to assert exact semantics at initial load, identity preservation through pick/undo/restart, clean recreation on reset after cached corruption, stable neutral behavior across represented positions, no mutation, and recommendation equality using the session’s rankings plus retained semantics.
+8. Run focused workspace mapping, repository, transient-session, recommendation-context, and Scenario V1 compatibility tests, followed by TypeScript validation, lint, and `git diff --check`.
+9. After validation, add completion notes to this file. Do not mark Task 12 complete in `docs/tasks.md`; Task 12C workbench integration remains.
 
 ## Expected Files
 
-- `src/lib/scenarioReplay.ts`
-- `src/lib/scenarioReplay.test.ts`
-- `src/lib/scenarioPortability.ts`
-- `src/lib/scenarioPortability.test.ts`
+- `src/types/draft.ts`
+- `src/lib/draftRepositoryMapping.ts`
+- `src/lib/draftRepositoryMapping.test.ts`
+- `src/lib/scenarioSession.ts`
+- `src/lib/scenarioSession.test.ts`
 - `docs/current-slice.md` for completion notes after validation
 
-Expected blast radius: four implementation/test files plus this active-slice status update.
+Expected blast radius: five implementation/test files plus this active-slice status update.
 
 ## Acceptance Criteria
 
-- The shared replay function accepts parsed Scenario V1 and Scenario V2 documents and preserves the existing draft-state replay result.
-- Scenario V2 replay uses its captured nullable ADP and tier semantics to reproduce direct-engine recommendation ordering, components, adjustments, evidence, and reasons exactly.
-- Scenario V1 replay keeps legacy tiers neutral while using its stored nullable ADP for the existing deterministic forecast behavior.
-- Complete, partial, and absent ADP retain the approved active/active-with-fallback/no-ADP behavior after replay without serializing fallback values.
-- Replaying different valid targets recomputes recommendation and forecast evidence from that target draft rather than retaining stale output.
-- V1-only, V2-only, and version-dispatching import APIs reject the wrong or unsupported version without coercion.
-- Validation-stage and replay-stage failures retain structured deterministic result shapes.
-- Metadata and provenance do not affect replay output.
-- Repeated equivalent replay/import calls are deterministic and do not mutate their scenario input.
-- Existing replay errors, draft invariants, Scenario V1 portability behavior, forecast/scoring semantics, and recommendation ordering rules remain intact.
+- Every workspace produced by persisted snapshot mapping exposes the snapshot’s authoritative `RankingTierSemantics` separately from normalized recommendation facts.
+- A V2 snapshot with source-overall tiers preserves every source value exactly and keeps recommendation-tier semantics distinct.
+- A historical array-only snapshot exposes materialized legacy-ambiguous source semantics and neutral recommendation semantics without activating overall-tier or position-tier pressure.
+- A structured recommendation-context failure does not erase or replace otherwise parsed authoritative tier semantics.
+- Every transient session owns explicit tier semantics consistent with the rankings used for its normalized context and recommendations.
+- Current Scenario V1 sessions use source kind `none`, no source values, and neutral recommendation semantics for all represented positions.
+- Pick, rejected pick, undo, restart, and other local transient transitions retain the same immutable semantics value; reset recreates equivalent fresh semantics from source JSON.
+- No semantics are reconstructed from numeric tiers, normalized overall-tier facts, ranking-set identity, or provenance.
+- Existing draft invariants, recommendation output, transient dirty-state behavior, persistence mapping, and Scenario V1 compatibility remain unchanged.
 - Focused tests, TypeScript validation, and lint pass without new warnings.
 
 ## Failure Conditions
 
 Stop and report instead of broadening the slice if:
 
-- replaying V2 requires changing the Scenario V2 contract or tier-validation semantics completed in Task 11;
-- correct replay requires querying persistence, mutable ranking sets, or external data;
-- supporting V2 requires serializing or trusting stale forecast/recommendation output;
-- V1 compatibility requires interpreting its legacy `tier` values as overall tiers;
-- implementation requires changing workspace, transient-session, or Draft Room APIs before the Task 12B slice;
+- authoritative persisted semantics cannot be exposed without changing the database schema or stored snapshot contract;
+- transient V1 semantics require interpreting legacy `tier` values rather than explicitly neutralizing them;
+- state propagation requires changing Draft Room, workbench, or Scenario V2 import/export behavior before Task 12C;
+- implementation requires weakening snapshot or recommendation-context validation;
 - validation fails for an issue unrelated to this slice.
 
 ## Validation Commands
 
 ```powershell
-npm test -- src/lib/scenarioReplay.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioSerialization.test.ts src/lib/draftPocketForecast.test.ts src/lib/recommendations.test.ts
+npm test -- src/lib/draftRepositoryMapping.test.ts src/lib/draftRepository.test.ts src/lib/scenarioSession.test.ts src/lib/recommendationRankingContext.test.ts src/lib/scenarioPortability.test.ts
 npx tsc --noEmit
 npm run lint
 git diff --check
@@ -104,28 +106,15 @@ git diff --check
 
 The existing unrelated lint warning in `src/lib/rankingNormalizer.test.ts` may remain, but this slice must introduce no new warnings.
 
-## Implementation Completion Notes
-
-- Added shared `replayScenario` support for the V1/V2 document union while retaining typed V1 and V2 replay wrappers.
-- V1 replay now supplies default-neutral normalized context and uses stored nullable ADP; V2 replay supplies its captured tier semantics and nullable ADP directly to the existing recommendation engine.
-- Added version-aware and V2-only import APIs while preserving the V1-only import contract and structured validation/replay failures.
-- Added focused coverage for complete, partial, and absent ADP; source-overall scoring/reasons; V1 neutral tiers; changing replay targets; strict version APIs; provenance independence; determinism; and direct-engine equivalence.
-- Validation passed:
-  - `npm test -- src/lib/scenarioReplay.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioSerialization.test.ts src/lib/draftPocketForecast.test.ts src/lib/recommendations.test.ts` (222 tests)
-  - `npx tsc --noEmit`
-  - `npm run lint` (only the documented pre-existing warning)
-  - `git diff --check`
-- Task 12 remains incomplete; no workspace, transient-session, Draft Room, or workbench behavior changed.
-
 ## Follow-up
 
-Plan Task 12B to preserve authoritative tier semantics through persisted and transient workspace state. Task 12C should then use version-aware workbench import, export Scenario V2 from the active session, preserve replay-target/reset behavior, and prove export/import independence from the original ranking set.
+Plan Task 12C to require the preserved semantics at the live Draft Room boundary, switch workbench import/reset/replay-target flows to version-aware Scenario V1/V2 APIs, export Scenario V2 from persisted and transient sessions, and prove export/import independence from the original ranking set and derived recommendation output.
 
 ## Slice Review
 
-1. Smallest meaningful increment: yes — it makes the new portable contract executable at the pure replay/import boundary without mixing in UI or workspace propagation.
-2. Executable without redefining the approach: yes — version-specific snapshot construction, wrapper compatibility, import APIs, error behavior, tests, and deferred boundaries are explicit.
-3. Avoids unnecessary architecture changes: yes — it reuses the existing parser, normalizer, recommendation engine, and draft replay loop.
-4. Reasonable blast radius: yes — four implementation/test files plus active-slice completion notes.
-5. Comfortably reviewable and revertible: yes — V2 support is additive and existing V1 entry points remain intact.
-6. Observable and testable acceptance criteria: yes — exact engine equality, evidence/status transitions, structured failures, determinism, and invariants are directly assertable.
+1. Smallest meaningful increment: yes — it closes the authoritative state-ownership gap without mixing in UI or export behavior.
+2. Executable without redefining the approach: yes — field ownership, V1 materialization, transition behavior, compatibility handling, tests, and deferred boundaries are explicit.
+3. Avoids unnecessary architecture changes: yes — it carries an existing validated domain value and adds no persistence, registry, or reconstruction abstraction.
+4. Reasonable blast radius: yes — five implementation/test files plus active-slice completion notes.
+5. Comfortably reviewable and revertible: yes — propagation is additive and isolated from replay, UI, serialization, and scoring.
+6. Observable and testable acceptance criteria: yes — exact semantics, reference preservation, reset recreation, context consistency, and regression output are directly assertable.
