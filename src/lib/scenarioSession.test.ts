@@ -13,6 +13,7 @@ import {
   undoLastPickInTransientSession,
 } from "@/lib/scenarioSession";
 import { NEUTRAL_TIER } from "@/types/rankings";
+import type { ScenarioV1 } from "@/types/scenario";
 
 describe("transient scenario sessions", () => {
   it("creates a clean scenario session at the declared target", () => {
@@ -83,6 +84,90 @@ describe("transient scenario sessions", () => {
       session.recommendationRankingContextResult,
     );
     expect(nextSession.isDirty).toBe(true);
+  });
+
+  it("refreshes active forecast evidence between turns, on turn, and at the final user pick", () => {
+    const initial = createEarlyScenarioSessionWithAdp();
+
+    expect(getTimingEvidence(initial)).toMatchObject({
+      forecastStatus: "active",
+      targetPickNumber: 12,
+    });
+
+    const afterOpponentPick = draftPlayerInTransientSession(
+      initial,
+      "target-rb",
+    );
+
+    expect(
+      afterOpponentPick.recommendations.some(
+        (recommendation) => recommendation.playerId === "target-rb",
+      ),
+    ).toBe(false);
+    expect(getTimingEvidence(afterOpponentPick)).toMatchObject({
+      forecastStatus: "active",
+      targetPickNumber: 12,
+    });
+
+    const onUserTurn = ["available-wr", "available-qb"].reduce(
+      (session, playerId) => draftPlayerInTransientSession(session, playerId),
+      afterOpponentPick,
+    );
+
+    expect(onUserTurn.draft.currentPickNumber).toBe(12);
+    expect(getTimingEvidence(onUserTurn)).toMatchObject({
+      forecastStatus: "active",
+      targetPickNumber: 13,
+    });
+
+    const finalUserPick = [
+      "available-te",
+      "available-dst",
+      "available-k",
+      "next-tier-rb",
+    ].reduce(
+      (session, playerId) => draftPlayerInTransientSession(session, playerId),
+      onUserTurn,
+    );
+
+    expect(finalUserPick.draft.currentPickNumber).toBe(16);
+    expect(finalUserPick.recommendations).toHaveLength(1);
+    expect(getTimingEvidence(finalUserPick)).toMatchObject({
+      forecastStatus: "no-next-pick",
+      targetPickNumber: null,
+      thresholdMatched: "inactive_forecast",
+    });
+  });
+
+  it("recomputes context-aware recommendations when the replay target changes", () => {
+    const targetEight = createEarlyScenarioSessionWithAdp();
+    const targetSevenResult = createTransientScenarioSession(
+      createEarlyScenarioJsonWithAdp(7),
+    );
+
+    expect(targetSevenResult.ok).toBe(true);
+    if (!targetSevenResult.ok) {
+      throw new Error("Expected the earlier replay target to load.");
+    }
+
+    expect(targetSevenResult.session.draft.currentPickNumber).toBe(8);
+    expect(targetEight.draft.currentPickNumber).toBe(9);
+    expect(
+      targetSevenResult.session.recommendations.some(
+        (recommendation) => recommendation.playerId === "run-rb-3",
+      ),
+    ).toBe(true);
+    expect(
+      targetEight.recommendations.some(
+        (recommendation) => recommendation.playerId === "run-rb-3",
+      ),
+    ).toBe(false);
+    expect(targetSevenResult.session.recommendations).toEqual(
+      generateRecommendationsForSession(targetSevenResult.session),
+    );
+    expect(targetEight.recommendations).toEqual(
+      generateRecommendationsForSession(targetEight),
+    );
   });
 
   it("returns the original session for a rejected local pick", () => {
@@ -349,10 +434,50 @@ function createEarlyScenarioSession(): TransientScenarioSession {
   return result.session;
 }
 
+function createEarlyScenarioSessionWithAdp(): TransientScenarioSession {
+  const result = createTransientScenarioSession(createEarlyScenarioJsonWithAdp(8));
+
+  if (!result.ok) {
+    throw new Error(`Expected ADP scenario session: ${JSON.stringify(result)}`);
+  }
+
+  return result.session;
+}
+
+function createEarlyScenarioJsonWithAdp(appliedPickCount: number): string {
+  const scenario = JSON.parse(getEarlyScenarioJson()) as ScenarioV1;
+
+  return JSON.stringify({
+    ...scenario,
+    rankingContext: {
+      rankings: scenario.rankingContext.rankings.map((ranking) => ({
+        ...ranking,
+        adpRank: ranking.overallRank,
+      })),
+    },
+    replayTarget: { appliedPickCount },
+  });
+}
+
+function getTimingEvidence(session: TransientScenarioSession) {
+  const component = session.recommendations[0]?.components.find(
+    (candidate) => candidate.id === "draft_pocket_timing",
+  );
+
+  if (!component?.evidence) {
+    throw new Error("Expected draft-pocket timing evidence.");
+  }
+
+  return component.evidence;
+}
+
 function generateRecommendationsForSession(
   session: Pick<
     TransientScenarioSession,
-    "draft" | "rankings" | "leagueSettings"
+    | "draft"
+    | "rankings"
+    | "leagueSettings"
+    | "recommendationRankingContextResult"
   >,
 ) {
   return generatePlayerRecommendations({
@@ -360,5 +485,11 @@ function generateRecommendationsForSession(
     rankings: session.rankings,
     leagueSettings: session.leagueSettings,
     userTeamId: session.draft.userTeamId,
+    ...(session.recommendationRankingContextResult.ok
+      ? {
+          recommendationRankingContext:
+            session.recommendationRankingContextResult.context,
+        }
+      : {}),
   });
 }

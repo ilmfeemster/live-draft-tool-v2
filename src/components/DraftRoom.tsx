@@ -63,6 +63,7 @@ export function DraftRoom({
   defaultRankingSetId,
   rankingSummaries,
   rankings,
+  recommendationRankingContextResult,
 }: DraftRoomProps) {
   const router = useRouter();
   const pendingDraftScrollPositionRef = useRef<{
@@ -143,8 +144,19 @@ export function DraftRoom({
       rankings,
       leagueSettings,
       userTeamId: activeDraft.userTeamId,
+      ...(recommendationRankingContextResult.ok
+        ? {
+            recommendationRankingContext:
+              recommendationRankingContextResult.context,
+          }
+        : {}),
     });
-  }, [activeDraft, leagueSettings, rankings]);
+  }, [
+    activeDraft,
+    leagueSettings,
+    rankings,
+    recommendationRankingContextResult,
+  ]);
   const recommendations =
     transientSession?.recommendations ?? persistedRecommendations;
 

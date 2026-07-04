@@ -54,11 +54,16 @@ describe("DraftRoom loaded workspace recommendations", () => {
     if (!recommendationRankingContextResult) {
       throw new Error("Expected persisted recommendation context result.");
     }
+    if (!recommendationRankingContextResult.ok) {
+      throw new Error("Expected persisted recommendation context to succeed.");
+    }
     const expectedRecommendations = generatePlayerRecommendations({
       draft: workspace.draft,
       rankings: workspace.rankings,
       leagueSettings: workspace.leagueSettings,
       userTeamId: workspace.draft.userTeamId,
+      recommendationRankingContext:
+        recommendationRankingContextResult.context,
     });
     const markup = renderToStaticMarkup(
       <DraftRoom
@@ -104,6 +109,12 @@ describe("DraftRoom loaded workspace recommendations", () => {
     expect(expectedRecommendations.some((recommendation) => {
       return recommendation.reasons.length > 0;
     })).toBe(true);
+    expect(expectedRecommendations.some((recommendation) => {
+      return recommendation.components.some(
+        (component) => component.id === "draft_pocket_timing",
+      );
+    })).toBe(true);
+    expect(markup).toContain("draft_pocket_timing");
 
     const draftedPlayer = workspace.rankings[0];
     expect(draftedPlayer.player.id).toBe("drafted-player");
@@ -127,6 +138,33 @@ describe("DraftRoom loaded workspace recommendations", () => {
         expect(markup).toContain(reason.text);
       }
     }
+  });
+
+  it("does not fabricate ranking context after structured normalization failure", () => {
+    const workspace = createPersistedWorkspace();
+    const markup = renderToStaticMarkup(
+      <DraftRoom
+        draft={workspace.draft}
+        defaultRankingSetId={MANAGED_SEED_RANKING_SET_ID}
+        rankings={workspace.rankings}
+        rankingSummaries={[createRankingSummary()]}
+        leagueSettings={workspace.leagueSettings}
+        recommendationRankingContextResult={{
+          ok: false,
+          errors: [
+            {
+              code: "partial-overall-tiers",
+              path: "tierSemantics.source.values",
+              message: "Supplied tiers are incomplete.",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(markup).not.toContain("overall_tier");
+    expect(markup).not.toContain("draft_pocket_timing");
+    expect(markup).toContain("River Stone");
   });
 });
 

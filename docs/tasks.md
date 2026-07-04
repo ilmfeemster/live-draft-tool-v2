@@ -439,7 +439,7 @@ Explain material overall-tier and draft-pocket timing contributions using only e
 
 ## Task 10 - Integrate Between-Turn Draft-Pocket Recommendation Previews
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 
@@ -612,9 +612,9 @@ Prove overall-tier quality and draft-pocket timing improve decisions without wea
 
 ## Testing Status
 
-Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, candidate replacement quality, skip safety, bounded scoring integration, and score-backed explanation tests are complete through Task 9. The original direct-ADP component has been removed from executable code under its approved supersession. Task 9 validation passed on 2026-07-02: 132 focused forecast/recommendation tests, TypeScript validation, lint with only the documented pre-existing `rankingNormalizer.test.ts` warning, and `git diff --check`.
+Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, candidate replacement quality, skip safety, bounded scoring integration, score-backed explanations, and persisted/transient preview wiring are complete through Task 10. The original direct-ADP component has been removed from executable code under its approved supersession. Task 10 validation passed on 2026-07-03: 151 focused forecast, recommendation, Draft Room, and transient-session tests; TypeScript validation; lint with only the documented pre-existing `rankingNormalizer.test.ts` warning; and `git diff --check`.
 
-Remaining Phase 5.5 work should prioritize live workflow integration, scenario portability and replay, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
+Remaining Phase 5.5 work should prioritize scenario portability and version-aware replay, realistic positional scenarios, workflow regressions, and focused manual QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
 
 ---
 

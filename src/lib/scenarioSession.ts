@@ -62,6 +62,7 @@ export function createTransientScenarioSession(
     createRecommendationRankingContext({
       rankings: imported.scenario.rankingContext.rankings,
     });
+  const rankings = imported.scenario.rankingContext.rankings;
 
   return {
     ok: true,
@@ -71,9 +72,14 @@ export function createTransientScenarioSession(
       scenario: imported.scenario,
       draft: imported.draft,
       baselineDraft: imported.draft,
-      rankings: imported.scenario.rankingContext.rankings,
+      rankings,
       leagueSettings: imported.scenario.leagueSettings,
-      recommendations: imported.recommendations,
+      recommendations: generateRecommendations(
+        imported.draft,
+        rankings,
+        imported.scenario.leagueSettings,
+        recommendationRankingContextResult,
+      ),
       recommendationRankingContextResult,
       isDirty: false,
     },
@@ -151,6 +157,7 @@ export function restartTransientSession(
       draft,
       session.rankings,
       session.leagueSettings,
+      session.recommendationRankingContextResult,
     ),
     recommendationRankingContextResult:
       session.recommendationRankingContextResult,
@@ -180,6 +187,7 @@ function updateTransientSessionDraft<TSession extends TransientDraftSession>(
       draft,
       session.rankings,
       session.leagueSettings,
+      session.recommendationRankingContextResult,
     ),
     isDirty: !areDraftsEqual(draft, session.baselineDraft),
   };
@@ -189,12 +197,19 @@ function generateRecommendations(
   draft: Draft,
   rankings: RankingEntry[],
   leagueSettings: LeagueSettings,
+  recommendationRankingContextResult: RecommendationRankingContextResult,
 ): PlayerRecommendation[] {
   return generatePlayerRecommendations({
     draft,
     rankings,
     leagueSettings,
     userTeamId: draft.userTeamId,
+    ...(recommendationRankingContextResult.ok
+      ? {
+          recommendationRankingContext:
+            recommendationRankingContextResult.context,
+        }
+      : {}),
   });
 }
 

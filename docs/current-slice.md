@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Not yet implemented.
+Complete. Implemented and validated on 2026-07-03.
 
 ## Goal
 
@@ -10,7 +10,7 @@ Use the normalized immutable ranking context at the existing persisted and trans
 
 This slice wires existing Phase 5.5 behavior into live session flows. It must not change forecast construction, scoring, reason semantics, draft transitions, scenario contracts, or recommendation presentation.
 
-## Current Behavior
+## Pre-Implementation Behavior
 
 - `DraftRoom` receives `recommendationRankingContextResult` from the loaded persisted workspace but does not pass a successful context into `generatePlayerRecommendations`.
 - Transient sessions create and retain `recommendationRankingContextResult`, but their shared recommendation helper does not pass it to the engine.
@@ -103,6 +103,19 @@ git diff --check
 Manual QA should exercise a persisted draft through opponent and user picks, undo, and reset; then repeat with a transient scenario across a replay-target change and the user's final pick. Confirm that recommendation score details show refreshed `overall_tier` and `draft_pocket_timing` evidence where eligible and neutral timing at the final user pick.
 
 The existing unrelated lint warning in `src/lib/rankingNormalizer.test.ts` may remain, but this slice must introduce no new warnings.
+
+## Implementation Completion Notes
+
+- Wired successful normalized ranking context into persisted `DraftRoom` recommendation generation while preserving structured-failure behavior without inferred fallback context.
+- Recomputed transient recommendations with the retained normalized context at initial scenario load, local pick, undo, restart, reset recreation, and replay-target recreation.
+- Added focused coverage for render-boundary Phase 5.5 output, failed-context suppression, between-turn and on-turn targets, drafted-player exclusion, replay-target refresh, and neutral final-user-pick timing.
+- Validation passed:
+  - `npm test -- src/lib/draftPocketForecast.test.ts src/lib/recommendations.test.ts src/components/DraftRoom.test.tsx src/lib/scenarioSession.test.ts` (151 tests)
+  - `npx tsc --noEmit`
+  - `npm run lint` (only the documented pre-existing warning)
+  - `git diff --check`
+- The in-app browser connection was unavailable, so the optional manual smoke pass was not completed; automated integration coverage exercised the planned persisted and transient state transitions.
+- No forecast, scoring, reason, draft-state, scenario-contract, standalone replay, or presentation semantics changed.
 
 ## Follow-up
 
