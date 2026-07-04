@@ -1,3 +1,5 @@
+import type { RankingTierSemantics } from "@/types/rankings";
+
 export type Position = "QB" | "RB" | "WR" | "TE" | "DST" | "K";
 export type DraftType = "SNAKE";
 export type ScoringFormat = "PPR";
@@ -241,5 +243,6 @@ export type DraftWorkspace = {
   draft: Draft;
   rankings: RankingEntry[];
   leagueSettings: LeagueSettings;
+  rankingTierSemantics?: RankingTierSemantics;
   recommendationRankingContextResult?: RecommendationRankingContextResult;
 };

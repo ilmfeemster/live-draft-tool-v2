@@ -45,6 +45,7 @@ export function mapDraftRecordToWorkspace(
     draft,
     rankings: [...rankingSnapshot.rankings],
     leagueSettings,
+    rankingTierSemantics: rankingSnapshot.tierSemantics,
     recommendationRankingContextResult,
   };
 }

@@ -10,9 +10,11 @@ import type {
   Draft,
   LeagueSettings,
   PlayerRecommendation,
+  Position,
   RankingEntry,
   RecommendationRankingContextResult,
 } from "@/types/draft";
+import type { RankingTierSemantics } from "@/types/rankings";
 import type { ScenarioV1 } from "@/types/scenario";
 
 export const TRANSIENT_MANUAL_DRAFT_ID = "transient-manual" as const;
@@ -22,6 +24,7 @@ export type TransientSessionCore = {
   baselineDraft: Draft;
   rankings: RankingEntry[];
   leagueSettings: LeagueSettings;
+  rankingTierSemantics: RankingTierSemantics;
   recommendations: PlayerRecommendation[];
   recommendationRankingContextResult: RecommendationRankingContextResult;
   isDirty: boolean;
@@ -58,11 +61,13 @@ export function createTransientScenarioSession(
     return imported;
   }
 
+  const rankings = imported.scenario.rankingContext.rankings;
+  const rankingTierSemantics = createScenarioV1TierSemantics(rankings);
   const recommendationRankingContextResult =
     createRecommendationRankingContext({
-      rankings: imported.scenario.rankingContext.rankings,
+      rankings,
+      tierSemantics: rankingTierSemantics,
     });
-  const rankings = imported.scenario.rankingContext.rankings;
 
   return {
     ok: true,
@@ -74,6 +79,7 @@ export function createTransientScenarioSession(
       baselineDraft: imported.draft,
       rankings,
       leagueSettings: imported.scenario.leagueSettings,
+      rankingTierSemantics,
       recommendations: generateRecommendations(
         imported.draft,
         rankings,
@@ -153,6 +159,7 @@ export function restartTransientSession(
     baselineDraft: draft,
     rankings: session.rankings,
     leagueSettings: session.leagueSettings,
+    rankingTierSemantics: session.rankingTierSemantics,
     recommendations: generateRecommendations(
       draft,
       session.rankings,
@@ -215,4 +222,19 @@ function generateRecommendations(
 
 function areDraftsEqual(left: Draft, right: Draft): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function createScenarioV1TierSemantics(
+  rankings: readonly RankingEntry[],
+): RankingTierSemantics {
+  const recommendation: Partial<Record<Position, "neutral">> = {};
+
+  rankings.forEach((ranking) => {
+    recommendation[ranking.player.position] = "neutral";
+  });
+
+  return {
+    source: { kind: "none" },
+    recommendation,
+  };
 }

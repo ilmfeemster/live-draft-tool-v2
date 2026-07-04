@@ -128,6 +128,15 @@ describe("mapDraftRecordToWorkspace", () => {
         tier: NEUTRAL_TIER,
       },
     ]);
+    expect(workspace.rankingTierSemantics).toEqual({
+      source: {
+        kind: "legacy-ambiguous",
+        values: [
+          { playerId: "player-1", overallRank: 1, tier: 4 },
+        ],
+      },
+      recommendation: { DST: "neutral" },
+    });
   });
 
   it("preserves explicitly eligible tiers from a V2 snapshot envelope", () => {
@@ -165,6 +174,10 @@ describe("mapDraftRecordToWorkspace", () => {
     const workspace = mapDraftRecordToWorkspace(record);
 
     expect(workspace.rankings.map((entry) => entry.tier)).toEqual([1, 3]);
+    expect(workspace.rankingTierSemantics).toEqual({
+      source: { kind: "none" },
+      recommendation: { QB: "recommendation-position" },
+    });
   });
 
   it("preserves complete source-overall context from a V2 snapshot envelope", () => {
@@ -196,6 +209,12 @@ describe("mapDraftRecordToWorkspace", () => {
       { playerId: "player-2", adpRank: null, overallTier: 1, origin: "source" },
       { playerId: "player-3", adpRank: 4.5, overallTier: 3, origin: "source" },
     ]);
+    expect(workspace.rankingTierSemantics).toEqual(
+      serializedSnapshot.tierSemantics,
+    );
+    expect(workspace.rankingTierSemantics).not.toBe(
+      serializedSnapshot.tierSemantics,
+    );
     expect(record.rankingSnapshot.rankings).toEqual(before);
   });
 
@@ -297,6 +316,9 @@ describe("mapDraftRecordToWorkspace", () => {
     });
     expect(workspace.recommendationRankingContextResult).not.toHaveProperty(
       "context",
+    );
+    expect(workspace.rankingTierSemantics).toEqual(
+      serializedSnapshot.tierSemantics,
     );
   });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { curatedScenarioCatalog } from "@/lib/curatedScenarios";
 import { draftPlayerInDraft, undoLastDraftPick } from "@/lib/draftState";
+import { createRecommendationRankingContext } from "@/lib/recommendationRankingContext";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import {
   createTransientScenarioSession,
@@ -26,6 +27,17 @@ describe("transient scenario sessions", () => {
     expect(session.draft.currentPickNumber).toBe(9);
     expect(session.baselineDraft).toBe(session.draft);
     expect(session.isDirty).toBe(false);
+    expect(session.rankingTierSemantics).toEqual({
+      source: { kind: "none" },
+      recommendation: {
+        QB: "neutral",
+        RB: "neutral",
+        WR: "neutral",
+        TE: "neutral",
+        DST: "neutral",
+        K: "neutral",
+      },
+    });
     expect(session.recommendationRankingContextResult.ok).toBe(true);
     if (!session.recommendationRankingContextResult.ok) {
       throw new Error("Expected transient recommendation context to succeed.");
@@ -49,6 +61,12 @@ describe("transient scenario sessions", () => {
     );
     expect(session.recommendations).toEqual(
       generateRecommendationsForSession(session),
+    );
+    expect(session.recommendationRankingContextResult).toEqual(
+      createRecommendationRankingContext({
+        rankings: session.rankings,
+        tierSemantics: session.rankingTierSemantics,
+      }),
     );
   });
 
@@ -82,6 +100,9 @@ describe("transient scenario sessions", () => {
     );
     expect(nextSession.recommendationRankingContextResult).toBe(
       session.recommendationRankingContextResult,
+    );
+    expect(nextSession.rankingTierSemantics).toBe(
+      session.rankingTierSemantics,
     );
     expect(nextSession.isDirty).toBe(true);
   });
@@ -189,6 +210,9 @@ describe("transient scenario sessions", () => {
     expect(afterUndo.recommendationRankingContextResult).toBe(
       session.recommendationRankingContextResult,
     );
+    expect(afterUndo.rankingTierSemantics).toBe(
+      session.rankingTierSemantics,
+    );
     expect(afterUndo.isDirty).toBe(false);
   });
 
@@ -235,6 +259,15 @@ describe("transient scenario sessions", () => {
           },
         ],
       },
+      rankingTierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: [
+            { playerId: "corrupted", overallRank: 1, tier: 1 },
+          ],
+        },
+        recommendation: {},
+      },
     };
 
     const result = resetTransientScenarioSession(corrupted);
@@ -251,6 +284,15 @@ describe("transient scenario sessions", () => {
     );
     expect(result.session.recommendationRankingContextResult).not.toBe(
       corrupted.recommendationRankingContextResult,
+    );
+    expect(result.session.rankingTierSemantics).toEqual(
+      original.rankingTierSemantics,
+    );
+    expect(result.session.rankingTierSemantics).not.toBe(
+      corrupted.rankingTierSemantics,
+    );
+    expect(result.session.rankingTierSemantics).not.toBe(
+      original.rankingTierSemantics,
     );
     expect(result.session.isDirty).toBe(false);
   });
@@ -285,6 +327,9 @@ describe("transient scenario sessions", () => {
     expect(restarted.rankings).toBe(scenarioSession.rankings);
     expect(restarted.recommendationRankingContextResult).toBe(
       scenarioSession.recommendationRankingContextResult,
+    );
+    expect(restarted.rankingTierSemantics).toBe(
+      scenarioSession.rankingTierSemantics,
     );
     expect(restarted.baselineDraft).toBe(restarted.draft);
     expect(restarted.recommendations).toEqual(
@@ -384,6 +429,9 @@ describe("transient scenario sessions", () => {
       throw new Error("Expected scenario reset to succeed.");
     }
     for (const session of [initial, picked, undone, reset.session, restarted]) {
+      expect(session.rankingTierSemantics).toEqual(
+        initial.rankingTierSemantics,
+      );
       expect(session.recommendationRankingContextResult.ok).toBe(true);
       if (!session.recommendationRankingContextResult.ok) {
         throw new Error("Expected transient recommendation context to succeed.");

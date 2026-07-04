@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Not yet implemented.
+Complete. Implemented and validated on 2026-07-03.
 
 ## Goal
 
@@ -10,7 +10,7 @@ Carry authoritative `RankingTierSemantics` alongside canonical rankings through 
 
 This is the second of three Task 12 slices. Task 12A completed version-aware replay/import. This slice changes state propagation only. Task 12C will connect the preserved semantics to Draft Room props and version-aware workbench import/export.
 
-## Current Constraint
+## Pre-Implementation Constraint
 
 - Persisted snapshot parsing already materializes validated V2-equivalent `tierSemantics`, but `mapDraftRecordToWorkspace` drops them after creating normalized recommendation context.
 - `DraftWorkspace` therefore exposes canonical rankings and normalized recommendation facts but not the authoritative distinction between recommendation tiers and overall/source tiers.
@@ -105,6 +105,19 @@ git diff --check
 ```
 
 The existing unrelated lint warning in `src/lib/rankingNormalizer.test.ts` may remain, but this slice must introduce no new warnings.
+
+## Implementation Completion Notes
+
+- Added optional `rankingTierSemantics` ownership to `DraftWorkspace`; persisted mapping now always exposes the parsed snapshot’s authoritative semantics without exposing mutable ranking-set metadata.
+- Added required tier-semantics ownership to transient sessions. Current Scenario V1 sessions materialize `source: none` plus neutral recommendation semantics for every represented position and use that same value for normalized context.
+- Preserved semantics by reference through accepted/rejected picks, undo, restart, and local session updates; scenario reset reparses fresh equivalent semantics instead of trusting cached state.
+- Added focused coverage for source-overall values, recommendation-position semantics, historical legacy-ambiguous snapshots, structured context failures, non-mutation, context consistency, transition identity, and reset recreation after corruption.
+- Validation passed:
+  - `npm test -- src/lib/draftRepositoryMapping.test.ts src/lib/draftRepository.test.ts src/lib/scenarioSession.test.ts src/lib/recommendationRankingContext.test.ts src/lib/scenarioPortability.test.ts` (92 tests)
+  - `npx tsc --noEmit`
+  - `npm run lint` (only the documented pre-existing warning)
+  - `git diff --check`
+- Task 12 remains incomplete; no Draft Room props, workbench import/export, Scenario V2 transient import, persistence schema, replay, forecast, scoring, or reason behavior changed.
 
 ## Follow-up
 
