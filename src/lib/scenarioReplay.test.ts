@@ -4,18 +4,31 @@ import { hydrateDraftFromSettings } from "@/lib/draftHydration";
 import { isValidDraftState } from "@/lib/draftInvariants";
 import { draftPlayerInDraft } from "@/lib/draftState";
 import { buildLeagueSetup, type LeagueSetupInput } from "@/lib/leagueSetup";
+import { createRecommendationRankingContext } from "@/lib/recommendationRankingContext";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import {
+  replayScenario,
   replayScenarioV1,
+  replayScenarioV2,
   SCENARIO_REPLAY_DRAFT_ID,
 } from "@/lib/scenarioReplay";
-import { serializeScenarioV1 } from "@/lib/scenarioSerialization";
-import { parseScenarioV1Json } from "@/lib/scenarioValidation";
+import {
+  serializeScenarioV1,
+  serializeScenarioV2,
+} from "@/lib/scenarioSerialization";
+import {
+  materializeScenarioV1Rankings,
+  parseScenarioV1Json,
+  parseScenarioV2Json,
+} from "@/lib/scenarioValidation";
 import type { Draft, Position, RankingEntry } from "@/types/draft";
-import { NEUTRAL_TIER } from "@/types/rankings";
+import { NEUTRAL_TIER, type RankingSnapshot } from "@/types/rankings";
 import {
   SCENARIO_SCHEMA_VERSION,
+  SCENARIO_V2_SCHEMA_VERSION,
+  type ScenarioDocument,
   type ScenarioV1,
+  type ScenarioV2,
 } from "@/types/scenario";
 
 describe("scenario replay", () => {
@@ -99,13 +112,114 @@ describe("scenario replay", () => {
     expect(scenario).toEqual(before);
   });
 
+  it.each([
+    ["complete", [1, 2, 3, 4, 5, 6], "active"],
+    ["partial", [1, null, 3, null, 5, null], "active"],
+    ["absent", [null, null, null, null, null, null], "no-adp"],
+  ] as const)("replays Scenario V2 with %s ADP", (_label, adpRanks, forecastStatus) => {
+    const scenario = createParsedScenarioV2(0, adpRanks);
+    const replay = replayScenarioV2(scenario);
+
+    expect(replay.ok).toBe(true);
+    if (!replay.ok) {
+      throw new Error("Expected Scenario V2 replay success.");
+    }
+    expect(replay).toEqual(replayScenario(scenario));
+    expect(replay.recommendations).toEqual(
+      generateRecommendations(scenario, replay.draft),
+    );
+    const first = replay.recommendations[0];
+    const timing = first.components.find(({ id }) => id === "draft_pocket_timing");
+
+    expect(first.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "overall_tier", delta: 6 }),
+      ]),
+    );
+    expect(timing).toMatchObject({
+      evidence: {
+        forecastStatus,
+        targetPickNumber: 3,
+      },
+    });
+    if (forecastStatus === "active") {
+      expect(
+        first.reasons.some(({ sourceComponentId }) => {
+          return sourceComponentId === "overall_tier" ||
+            sourceComponentId === "draft_pocket_timing";
+        }),
+      ).toBe(true);
+    }
+  });
+
+  it("recomputes V2 forecast evidence at each replay target", () => {
+    const atOpening = replayScenarioV2(
+      createParsedScenarioV2(0, [1, 2, 3, 4, 5, 6]),
+    );
+    const atUserTurn = replayScenarioV2(
+      createParsedScenarioV2(2, [1, 2, 3, 4, 5, 6]),
+    );
+    const afterFinalUserPick = replayScenarioV2(
+      createParsedScenarioV2(4, [1, 2, 3, 4, 5, 6]),
+    );
+
+    expect(getFirstTimingEvidence(atOpening)).toMatchObject({
+      forecastStatus: "active",
+      targetPickNumber: 3,
+    });
+    expect(getFirstTimingEvidence(atUserTurn)).toMatchObject({
+      forecastStatus: "active",
+      targetPickNumber: 4,
+    });
+    expect(getFirstTimingEvidence(afterFinalUserPick)).toMatchObject({
+      forecastStatus: "no-next-pick",
+      targetPickNumber: null,
+    });
+  });
+
+  it("uses stored V1 ADP while keeping overall tiers default-neutral", () => {
+    const scenario = createScenario(0);
+    scenario.rankingContext.rankings.forEach((ranking) => {
+      ranking.adpRank = ranking.overallRank;
+      ranking.tier = ranking.overallRank;
+    });
+    const parsed = parseScenarioV1Json(serializeScenarioV1(scenario));
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      throw new Error("Expected Scenario V1 parsing success.");
+    }
+    const replay = replayScenarioV1(parsed.scenario);
+
+    expect(getFirstTimingEvidence(replay)).toMatchObject({
+      forecastStatus: "active",
+      targetPickNumber: 3,
+    });
+    expect(getFirstRecommendation(replay).components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "overall_tier",
+          delta: 0,
+          evidence: expect.objectContaining({
+            overallTierOrigin: "defaulted-neutral",
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("neutralizes ambiguous tiers for direct typed replay callers", () => {
     const scenario = createScenario(0);
     scenario.rankingContext.rankings.find(
       ({ player }) => player.id === "player-rb-2",
     )!.tier = 4;
     const before = structuredClone(scenario);
-    const unguarded = generateRecommendations(scenario, createBaseDraft(scenario));
+    const unguarded = generatePlayerRecommendations({
+      draft: createBaseDraft(scenario),
+      rankings: scenario.rankingContext.rankings,
+      leagueSettings: scenario.leagueSettings,
+      userTeamId: scenario.userTeamContext.userTeamId,
+    });
     const neutralScenario = structuredClone(scenario);
     neutralScenario.rankingContext.rankings.forEach((ranking) => {
       ranking.tier = NEUTRAL_TIER;
@@ -224,6 +338,49 @@ function createParsedScenario(appliedPickCount: number): ScenarioV1 {
   return parsed.scenario;
 }
 
+function createParsedScenarioV2(
+  appliedPickCount: number,
+  adpRanks: readonly (number | null)[],
+): ScenarioV2 {
+  const v1 = createScenario(appliedPickCount);
+  const rankings = v1.rankingContext.rankings.map((ranking, index) => ({
+    ...ranking,
+    player: { ...ranking.player },
+    adpRank: adpRanks[index] ?? null,
+    tier: NEUTRAL_TIER,
+  }));
+  const scenario: ScenarioV2 = {
+    ...v1,
+    schemaVersion: SCENARIO_V2_SCHEMA_VERSION,
+    rankingContext: {
+      rankings,
+      tierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: rankings.map((ranking, index) => ({
+            playerId: ranking.player.id,
+            overallRank: ranking.overallRank,
+            tier: index === 0 ? 1 : 2,
+          })),
+        },
+        recommendation: {
+          QB: "neutral",
+          RB: "neutral",
+          WR: "neutral",
+          TE: "neutral",
+        },
+      },
+    },
+  };
+  const parsed = parseScenarioV2Json(serializeScenarioV2(scenario));
+
+  if (!parsed.ok) {
+    throw new Error(`Expected valid Scenario V2: ${JSON.stringify(parsed.errors)}`);
+  }
+
+  return parsed.scenario;
+}
+
 function createScenario(appliedPickCount: number): ScenarioV1 {
   const rankings = [
     createRanking("player-qb", 1, "QB"),
@@ -301,13 +458,51 @@ function manuallyReplayToTarget(scenario: ScenarioV1): Draft {
     }, createBaseDraft(scenario));
 }
 
-function generateRecommendations(scenario: ScenarioV1, draft: Draft) {
+function generateRecommendations(scenario: ScenarioDocument, draft: Draft) {
+  const snapshot: RankingSnapshot =
+    scenario.schemaVersion === SCENARIO_SCHEMA_VERSION
+      ? {
+          rankings: materializeScenarioV1Rankings(
+            scenario.rankingContext.rankings,
+          ),
+        }
+      : {
+          rankings: scenario.rankingContext.rankings,
+          tierSemantics: scenario.rankingContext.tierSemantics,
+        };
+  const contextResult = createRecommendationRankingContext(snapshot);
+
+  if (!contextResult.ok) {
+    throw new Error("Expected recommendation context normalization to succeed.");
+  }
+
   return generatePlayerRecommendations({
     draft,
-    rankings: scenario.rankingContext.rankings,
+    rankings: [...snapshot.rankings],
     leagueSettings: scenario.leagueSettings,
     userTeamId: scenario.userTeamContext.userTeamId,
+    recommendationRankingContext: contextResult.context,
   });
+}
+
+function getFirstRecommendation(result: ReturnType<typeof replayScenario>) {
+  if (!result.ok || !result.recommendations[0]) {
+    throw new Error("Expected a replay recommendation.");
+  }
+
+  return result.recommendations[0];
+}
+
+function getFirstTimingEvidence(result: ReturnType<typeof replayScenario>) {
+  const timing = getFirstRecommendation(result).components.find(
+    ({ id }) => id === "draft_pocket_timing",
+  );
+
+  if (!timing?.evidence) {
+    throw new Error("Expected draft-pocket timing evidence.");
+  }
+
+  return timing.evidence;
 }
 
 function getAvailablePlayerIds(draft: Draft, scenario: ScenarioV1): string[] {

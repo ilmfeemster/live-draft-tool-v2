@@ -3,21 +3,34 @@ import { hydrateDraftFromSettings } from "@/lib/draftHydration";
 import { isValidDraftState } from "@/lib/draftInvariants";
 import { draftPlayerInDraft } from "@/lib/draftState";
 import { buildLeagueSetup, type LeagueSetupInput } from "@/lib/leagueSetup";
+import { createRecommendationRankingContext } from "@/lib/recommendationRankingContext";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import {
   DEFAULT_EXPORTED_SCENARIO_ID,
   DEFAULT_EXPORTED_SCENARIO_NAME,
   exportWorkspaceToScenarioV1,
+  importScenarioJson,
   importScenarioV1Json,
+  importScenarioV2Json,
 } from "@/lib/scenarioPortability";
-import { serializeScenarioV1 } from "@/lib/scenarioSerialization";
+import {
+  serializeScenarioV1,
+  serializeScenarioV2,
+} from "@/lib/scenarioSerialization";
+import { materializeScenarioV1Rankings } from "@/lib/scenarioValidation";
 import type {
   Draft,
   DraftWorkspace,
   Position,
   RankingEntry,
 } from "@/types/draft";
-import { NEUTRAL_TIER } from "@/types/rankings";
+import { NEUTRAL_TIER, type RankingSnapshot } from "@/types/rankings";
+import {
+  SCENARIO_SCHEMA_VERSION,
+  SCENARIO_V2_SCHEMA_VERSION,
+  type ScenarioDocument,
+  type ScenarioV2,
+} from "@/types/scenario";
 
 describe("scenario portability", () => {
   it("exports safe defaults and the active assigned-pick count", () => {
@@ -152,6 +165,81 @@ describe("scenario portability", () => {
         },
       ],
     });
+  });
+
+  it("imports Scenario V2 through both version-aware entry points", () => {
+    const scenario = createPortableScenarioV2(0);
+    const json = serializeScenarioV2(scenario);
+    const versionAware = importScenarioJson(json);
+    const v2Only = importScenarioV2Json(json);
+
+    expect(versionAware).toEqual(v2Only);
+    expect(v2Only.ok).toBe(true);
+    if (!v2Only.ok) {
+      throw new Error("Expected Scenario V2 import success.");
+    }
+    expect(v2Only.scenario).toEqual(scenario);
+    expect(v2Only.recommendations).toEqual(
+      generateRecommendationsForScenario(scenario, v2Only.draft),
+    );
+    expect(v2Only.recommendations[0].components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "overall_tier", delta: 6 }),
+        expect.objectContaining({
+          id: "draft_pocket_timing",
+          evidence: expect.objectContaining({ forecastStatus: "active" }),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps version-specific import APIs strict", () => {
+    const v1Json = serializeScenarioV1(
+      exportWorkspaceToScenarioV1(createManualWorkspace(0)),
+    );
+    const v2Json = serializeScenarioV2(createPortableScenarioV2(0));
+
+    expect(importScenarioJson(v1Json).ok).toBe(true);
+    expect(importScenarioV1Json(v2Json)).toMatchObject({
+      ok: false,
+      stage: "validation",
+      errors: [
+        { code: "unsupported-version", path: "schemaVersion" },
+      ],
+    });
+    expect(importScenarioV2Json(v1Json)).toMatchObject({
+      ok: false,
+      stage: "validation",
+      errors: [
+        { code: "unsupported-version", path: "schemaVersion" },
+      ],
+    });
+  });
+
+  it("keeps V2 provenance out of imported draft and recommendations", () => {
+    const firstScenario = createPortableScenarioV2(2);
+    const secondScenario: ScenarioV2 = {
+      ...structuredClone(firstScenario),
+      metadata: {
+        id: "renamed",
+        name: "Renamed scenario",
+        provenance: {
+          sourceKind: "scenario",
+          sourceId: "different-source",
+          exportedAt: "2027-01-01T00:00:00.000Z",
+        },
+      },
+    };
+    const first = importScenarioJson(serializeScenarioV2(firstScenario));
+    const second = importScenarioJson(serializeScenarioV2(secondScenario));
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      throw new Error("Expected Scenario V2 imports to succeed.");
+    }
+    expect(first.draft).toEqual(second.draft);
+    expect(first.recommendations).toEqual(second.recommendations);
   });
 
   it("imports Scenario V1 tiers as neutral without tier recommendation evidence", () => {
@@ -304,12 +392,7 @@ function assertSemanticRoundTrip(
   expect(imported.scenario.leagueSettings).toEqual(workspace.leagueSettings);
   expect(imported.scenario.rankingContext.rankings).toEqual(workspace.rankings);
   expect(imported.recommendations).toEqual(
-    generatePlayerRecommendations({
-      draft: expectedDraft,
-      rankings: workspace.rankings,
-      leagueSettings: workspace.leagueSettings,
-      userTeamId: workspace.draft.userTeamId,
-    }),
+    generateRecommendationsForScenario(imported.scenario, expectedDraft),
   );
   expect(
     isValidDraftState({
@@ -317,6 +400,72 @@ function assertSemanticRoundTrip(
       availableRankings: getAvailableRankings(imported.draft, workspace.rankings),
     }),
   ).toBe(true);
+}
+
+function createPortableScenarioV2(appliedPickCount: number): ScenarioV2 {
+  const v1 = exportWorkspaceToScenarioV1(
+    createManualWorkspace(appliedPickCount),
+  );
+  const rankings = v1.rankingContext.rankings.map((ranking, index) => ({
+    ...ranking,
+    player: { ...ranking.player },
+    adpRank: index % 2 === 0 ? ranking.overallRank : null,
+    tier: NEUTRAL_TIER,
+  }));
+
+  return {
+    ...v1,
+    schemaVersion: SCENARIO_V2_SCHEMA_VERSION,
+    rankingContext: {
+      rankings,
+      tierSemantics: {
+        source: {
+          kind: "source-overall",
+          values: rankings.map((ranking, index) => ({
+            playerId: ranking.player.id,
+            overallRank: ranking.overallRank,
+            tier: index === 0 ? 1 : 2,
+          })),
+        },
+        recommendation: {
+          QB: "neutral",
+          RB: "neutral",
+          WR: "neutral",
+          TE: "neutral",
+        },
+      },
+    },
+  };
+}
+
+function generateRecommendationsForScenario(
+  scenario: ScenarioDocument,
+  draft: Draft,
+) {
+  const snapshot: RankingSnapshot =
+    scenario.schemaVersion === SCENARIO_SCHEMA_VERSION
+      ? {
+          rankings: materializeScenarioV1Rankings(
+            scenario.rankingContext.rankings,
+          ),
+        }
+      : {
+          rankings: scenario.rankingContext.rankings,
+          tierSemantics: scenario.rankingContext.tierSemantics,
+        };
+  const contextResult = createRecommendationRankingContext(snapshot);
+
+  if (!contextResult.ok) {
+    throw new Error("Expected recommendation context normalization to succeed.");
+  }
+
+  return generatePlayerRecommendations({
+    draft,
+    rankings: [...snapshot.rankings],
+    leagueSettings: scenario.leagueSettings,
+    userTeamId: scenario.userTeamContext.userTeamId,
+    recommendationRankingContext: contextResult.context,
+  });
 }
 
 function createManualWorkspace(appliedPickCount: number): DraftWorkspace {

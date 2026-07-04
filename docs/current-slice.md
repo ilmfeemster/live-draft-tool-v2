@@ -2,19 +2,19 @@
 
 ## Status
 
-Planned. Not yet implemented.
+Complete. Implemented and validated on 2026-07-03.
 
 ## Goal
 
 Make the pure scenario replay and portability import boundaries consume both Scenario V1 and Scenario V2, rebuilding normalized recommendation context and deterministic Phase 5.5 recommendations from each document’s captured ranking inputs.
 
-This is the first slice of Task 12. It completes version-aware replay/import without changing workspace types, transient sessions, Draft Room controls, or workbench export. The follow-up Task 12B slice will propagate authoritative tier semantics through persisted/transient workspaces and switch workbench import/export to the version-aware APIs.
+This is the first of three Task 12 slices. It completes version-aware replay/import without changing workspace types, transient sessions, Draft Room controls, or workbench export. Task 12B will propagate authoritative tier semantics through persisted/transient workspace state, and Task 12C will switch workbench import/export and replay-target flows to the version-aware APIs.
 
 ## Why Task 12 Is Split
 
 The current domain replay/import boundary can support V2 in four focused files. Workbench export additionally requires preserving authoritative `RankingTierSemantics` through `DraftWorkspace`, repository mapping, page props, transient sessions, and Draft Room export/replay-target handlers.
 
-Combining both concerns would exceed the project’s normal five-file implementation blast radius and mix pure-domain replay changes with persistence-facing and UI wiring. Task 12 remains incomplete until the follow-up workbench slice is implemented.
+Combining these concerns would exceed the project’s normal five-file implementation blast radius and mix pure-domain replay changes with persistence-facing and UI wiring. Task 12 remains incomplete until the follow-up state-propagation and workbench slices are implemented.
 
 ## Scope
 
@@ -104,9 +104,22 @@ git diff --check
 
 The existing unrelated lint warning in `src/lib/rankingNormalizer.test.ts` may remain, but this slice must introduce no new warnings.
 
+## Implementation Completion Notes
+
+- Added shared `replayScenario` support for the V1/V2 document union while retaining typed V1 and V2 replay wrappers.
+- V1 replay now supplies default-neutral normalized context and uses stored nullable ADP; V2 replay supplies its captured tier semantics and nullable ADP directly to the existing recommendation engine.
+- Added version-aware and V2-only import APIs while preserving the V1-only import contract and structured validation/replay failures.
+- Added focused coverage for complete, partial, and absent ADP; source-overall scoring/reasons; V1 neutral tiers; changing replay targets; strict version APIs; provenance independence; determinism; and direct-engine equivalence.
+- Validation passed:
+  - `npm test -- src/lib/scenarioReplay.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioSerialization.test.ts src/lib/draftPocketForecast.test.ts src/lib/recommendations.test.ts` (222 tests)
+  - `npx tsc --noEmit`
+  - `npm run lint` (only the documented pre-existing warning)
+  - `git diff --check`
+- Task 12 remains incomplete; no workspace, transient-session, Draft Room, or workbench behavior changed.
+
 ## Follow-up
 
-Plan Task 12B to preserve authoritative tier semantics through persisted and transient workspace state, use version-aware import in the workbench, export Scenario V2 from the active session, preserve replay-target/reset behavior, and prove export/import independence from the original ranking set.
+Plan Task 12B to preserve authoritative tier semantics through persisted and transient workspace state. Task 12C should then use version-aware workbench import, export Scenario V2 from the active session, preserve replay-target/reset behavior, and prove export/import independence from the original ranking set.
 
 ## Slice Review
 

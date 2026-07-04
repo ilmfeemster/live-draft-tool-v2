@@ -1,6 +1,17 @@
-import { replayScenarioV1, type ScenarioReplayError } from "@/lib/scenarioReplay";
 import {
+  replayScenario,
+  replayScenarioV1,
+  replayScenarioV2,
+  type ScenarioReplayError,
+  type ScenarioReplayResult,
+} from "@/lib/scenarioReplay";
+import {
+  parseScenarioJson,
   parseScenarioV1Json,
+  parseScenarioV2Json,
+  type ParseScenarioResult,
+  type ParseScenarioV1Result,
+  type ParseScenarioV2Result,
   type ScenarioValidationError,
 } from "@/lib/scenarioValidation";
 import type {
@@ -10,8 +21,10 @@ import type {
 } from "@/types/draft";
 import {
   SCENARIO_SCHEMA_VERSION,
+  type ScenarioDocument,
   type ScenarioProvenance,
   type ScenarioV1,
+  type ScenarioV2,
 } from "@/types/scenario";
 
 export const DEFAULT_EXPORTED_SCENARIO_ID = "exported-scenario" as const;
@@ -25,13 +38,7 @@ export type ExportWorkspaceScenarioOptions = {
   provenance?: ScenarioProvenance;
 };
 
-export type ImportScenarioV1Result =
-  | {
-      ok: true;
-      scenario: ScenarioV1;
-      draft: Draft;
-      recommendations: PlayerRecommendation[];
-    }
+type ImportScenarioFailure =
   | {
       ok: false;
       stage: "validation";
@@ -42,6 +49,19 @@ export type ImportScenarioV1Result =
       stage: "replay";
       error: ScenarioReplayError;
     };
+
+type ImportScenarioResultFor<TScenario extends ScenarioDocument> =
+  | {
+      ok: true;
+      scenario: TScenario;
+      draft: Draft;
+      recommendations: PlayerRecommendation[];
+    }
+  | ImportScenarioFailure;
+
+export type ImportScenarioV1Result = ImportScenarioResultFor<ScenarioV1>;
+export type ImportScenarioV2Result = ImportScenarioResultFor<ScenarioV2>;
+export type ImportScenarioResult = ImportScenarioResultFor<ScenarioDocument>;
 
 export function exportWorkspaceToScenarioV1(
   workspace: DraftWorkspace,
@@ -147,8 +167,24 @@ export function exportWorkspaceToScenarioV1(
 }
 
 export function importScenarioV1Json(json: string): ImportScenarioV1Result {
-  const parsed = parseScenarioV1Json(json);
+  return importParsedScenario(parseScenarioV1Json(json), replayScenarioV1);
+}
 
+export function importScenarioV2Json(json: string): ImportScenarioV2Result {
+  return importParsedScenario(parseScenarioV2Json(json), replayScenarioV2);
+}
+
+export function importScenarioJson(json: string): ImportScenarioResult {
+  return importParsedScenario(parseScenarioJson(json), replayScenario);
+}
+
+function importParsedScenario<TScenario extends ScenarioDocument>(
+  parsed:
+    | ParseScenarioV1Result
+    | ParseScenarioV2Result
+    | ParseScenarioResult,
+  replay: (scenario: TScenario) => ScenarioReplayResult,
+): ImportScenarioResultFor<TScenario> {
   if (!parsed.ok) {
     return {
       ok: false,
@@ -157,7 +193,8 @@ export function importScenarioV1Json(json: string): ImportScenarioV1Result {
     };
   }
 
-  const replayed = replayScenarioV1(parsed.scenario);
+  const scenario = parsed.scenario as TScenario;
+  const replayed = replay(scenario);
 
   if (!replayed.ok) {
     return {
@@ -169,7 +206,7 @@ export function importScenarioV1Json(json: string): ImportScenarioV1Result {
 
   return {
     ok: true,
-    scenario: parsed.scenario,
+    scenario,
     draft: replayed.draft,
     recommendations: replayed.recommendations,
   };

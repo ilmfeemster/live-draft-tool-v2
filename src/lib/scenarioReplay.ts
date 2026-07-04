@@ -1,9 +1,15 @@
 import { hydrateDraftFromSettings } from "@/lib/draftHydration";
 import { draftPlayerInDraft } from "@/lib/draftState";
+import { createRecommendationRankingContext } from "@/lib/recommendationRankingContext";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import { materializeScenarioV1Rankings } from "@/lib/scenarioValidation";
 import type { Draft, PlayerRecommendation } from "@/types/draft";
-import type { ScenarioV1 } from "@/types/scenario";
+import type { RankingSnapshot } from "@/types/rankings";
+import type {
+  ScenarioDocument,
+  ScenarioV1,
+  ScenarioV2,
+} from "@/types/scenario";
 
 export const SCENARIO_REPLAY_DRAFT_ID = "scenario-replay" as const;
 
@@ -27,9 +33,27 @@ export type ScenarioReplayResult =
     };
 
 export function replayScenarioV1(scenario: ScenarioV1): ScenarioReplayResult {
-  const rankings = materializeScenarioV1Rankings(
-    scenario.rankingContext.rankings,
-  );
+  return replayScenario(scenario);
+}
+
+export function replayScenarioV2(scenario: ScenarioV2): ScenarioReplayResult {
+  return replayScenario(scenario);
+}
+
+export function replayScenario(
+  scenario: ScenarioDocument,
+): ScenarioReplayResult {
+  const rankingSnapshot = createScenarioRankingSnapshot(scenario);
+  const rankings = [...rankingSnapshot.rankings];
+  const recommendationRankingContextResult =
+    createRecommendationRankingContext(rankingSnapshot);
+
+  if (!recommendationRankingContextResult.ok) {
+    throw new Error(
+      "Validated scenario ranking context could not be normalized.",
+    );
+  }
+
   const baseDraft = hydrateDraftFromSettings({
     id: SCENARIO_REPLAY_DRAFT_ID,
     leagueSettings: scenario.leagueSettings,
@@ -72,11 +96,33 @@ export function replayScenarioV1(scenario: ScenarioV1): ScenarioReplayResult {
     rankings,
     leagueSettings: scenario.leagueSettings,
     userTeamId: scenario.userTeamContext.userTeamId,
+    recommendationRankingContext:
+      recommendationRankingContextResult.context,
   });
 
   return {
     ok: true,
     draft: targetDraft,
     recommendations,
+  };
+}
+
+function createScenarioRankingSnapshot(
+  scenario: ScenarioDocument,
+): RankingSnapshot {
+  if (scenario.schemaVersion === 1) {
+    return {
+      rankings: materializeScenarioV1Rankings(
+        scenario.rankingContext.rankings,
+      ),
+    };
+  }
+
+  return {
+    rankings: scenario.rankingContext.rankings.map((ranking) => ({
+      ...ranking,
+      player: { ...ranking.player },
+    })),
+    tierSemantics: scenario.rankingContext.tierSemantics,
   };
 }
