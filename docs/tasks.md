@@ -10,6 +10,7 @@ The source documents for this task plan are:
 
 - `docs/project.md`
 - `docs/patches/phase5.5-patch.md`
+- `docs/design/phase5.5-profile-transitions.md`
 - `docs/domain/draft-pocket.md`
 - `docs/architecture.md`
 - `docs/testing.md`
@@ -20,7 +21,7 @@ Phase 5 is complete. Managed ranking sets, immutable ranking snapshots, persiste
 
 ## Phase 5.5 Task Ordering
 
-Tasks are ordered so validated ranking context feeds one shared board forecast before candidate timing affects scoring:
+Tasks are ordered so validated ranking context feeds one shared board forecast before timing affects scoring. Tasks 13-15 correct the completed candidate-relative interpretation by deriving timing from shared position/tier profile transitions before final exit validation:
 
 1. Add the normalized recommendation ranking context.
 2. Preserve ranking snapshot context through draft workflows.
@@ -34,9 +35,12 @@ Tasks are ordered so validated ranking context feeds one shared board forecast b
 10. Integrate between-turn draft-pocket recommendation previews.
 11. Add a portable scenario contract for Phase 5.5 ranking context.
 12. Integrate forecast context with scenario replay and workbench flows.
-13. Complete Phase 5.5 regression and exit validation.
+13. Add shared position/tier profile transition analysis.
+14. Project profile transitions into monotonic candidate timing allocation.
+15. Integrate profile-backed reasons and corrective workflow regressions.
+16. Complete Phase 5.5 regression and exit validation.
 
-Promote only one task at a time into `docs/current-slice.md`. Keep forecast construction, pocket analysis, candidate interpretation, scoring integration, explanation behavior, UI integration, and scenario portability as separate reviewable increments.
+Promote only one task at a time into `docs/current-slice.md`. Keep forecast construction, pocket analysis, profile transition analysis, candidate allocation, scoring integration, explanation behavior, UI integration, and scenario portability as separate reviewable increments.
 
 ---
 
@@ -308,6 +312,10 @@ Convert current and forecasted boards into the bounded, tier-aware decision spac
 
 - [x] Complete
 
+### Supersession Note
+
+This completed task records the original candidate-relative interpretation of one shared forecast. Exit validation found that candidate-relative comparison centers can produce same-profile quality inversions. Tasks 13-15 replace that interpretation with shared position/tier profile transitions while preserving the single board forecast and pocket construction.
+
 ### Goal
 
 Interpret one shared forecasted pocket for each current-pocket candidate without creating per-candidate board simulations.
@@ -354,6 +362,10 @@ Interpret one shared forecasted pocket for each current-pocket candidate without
 
 - [x] Complete
 
+### Supersession Note
+
+This completed task records the original direct mapping from candidate-relative skip safety to timing deltas. Tasks 13-15 preserve the `draft_pocket_timing` component and existing caps but replace its evidence and allocation with the approved profile-level contract.
+
 ### Goal
 
 Integrate overall-tier quality and candidate-specific draft-pocket timing into the bounded additive Recommendation Engine while removing direct player-level ADP urgency.
@@ -399,6 +411,10 @@ Integrate overall-tier quality and candidate-specific draft-pocket timing into t
 ## Task 9 - Add Score-Backed Overall-Tier and Draft-Pocket Reasons
 
 - [x] Complete
+
+### Supersession Note
+
+The overall-tier reason behavior remains complete. Tasks 13-15 replace only draft-pocket reasons that depend on superseded candidate-relative evidence with reasons backed by shared profile transitions and material candidate allocation.
 
 ### Goal
 
@@ -562,21 +578,168 @@ Recompute deterministic Phase 5.5 forecasts and recommendations throughout scena
 
 ---
 
-## Task 13 - Complete Phase 5.5 Regression and Exit Validation
+## Task 13 - Add Shared Position/Tier Profile Transition Analysis
 
 - [ ] Not started
 
 ### Goal
 
-Prove overall-tier quality and draft-pocket timing improve decisions without weakening deterministic scoring, snapshot reproducibility, or existing draft workflows.
+Replace candidate-relative replacement analysis with one deterministic transition per current position/overall-tier profile without changing forecast construction or recommendation scoring yet.
 
 ### Scope
 
-- Run focused and full validation across context normalization, forecast construction, pocket analysis, scoring, explanations, persistence, Draft Room, scenarios, and replay.
-- Validate pocket sizes and tier boundaries, ADP fallback and neutral states, target-pick boundaries, replacement classification, skip safety, and deterministic ordering.
+- Represent a profile by position, overall-tier origin, and overall/source-tier value.
+- Group current-pocket candidates by profile and order each group by overall rank then stable player ID.
+- Use the highest-ranked current profile member as the shared rank-window anchor.
+- Compare each current profile with the forecasted pocket through exact, comparable, near, and unrelated option classifications.
+- Preserve the existing 12-rank proximity boundary using the shared profile anchor rather than each candidate.
+- Derive one set of profile counts, replacement quality, skip safety, disappearance observations, and highest-meaningful-tier transition evidence.
+- Treat defaulted-neutral profiles as position depth without inventing meaningful tier boundaries.
+- Keep profile transitions pure, roster-agnostic, derived, unpersisted, and deterministic.
+
+### Non-Goals
+
+- Do not integrate profile transitions into recommendation scores or ordering.
+- Do not allocate modifiers to candidates or change reasons.
+- Do not change ADP normalization, removal ordering, target-pick selection, pocket construction, or diversity labels.
+- Do not create position tiers, per-candidate forecasts, simulations, or new persistence contracts.
+- Do not remove existing candidate signals until the replacement boundary is validated.
+
+### Acceptance Criteria
+
+- Every distinct current position/tier profile produces exactly one deterministic transition.
+- All candidates in one profile share the same anchor, forecast counts, replacement quality, and skip safety.
+- Meaningful source-tier options classify as exact, comparable, or near according to position, tier order, and the shared rank window.
+- Defaulted-neutral profiles compare same-position depth without emitting meaningful-tier transition evidence.
+- Rank distances of 12 and 13 from the profile anchor are included and excluded respectively.
+- Exact-player membership and ADP removal-window membership do not change profile replacement quality independently.
+- No-ADP, no-next-pick, malformed-context, and empty/small-pocket states preserve their approved neutral or failure behavior.
+- Equivalent inputs with different array order produce equivalent profile identities and transitions.
+
+### Suggested Tests
+
+- Pure profile identity, grouping, and stable-anchor tests.
+- Exact, comparable, near, absent, and multiple-near transition fixtures.
+- Source-tier and defaulted-neutral behavior tests.
+- Shared rank-window boundary and stable-ID determinism tests.
+- Jefferson/London fixture proving both read one WR/source-tier-2 transition.
+
+---
+
+## Task 14 - Project Profile Transitions Into Monotonic Candidate Timing Allocation
+
+- [ ] Not started
+
+### Goal
+
+Replace candidate-relative draft-pocket scoring with candidate projections from shared profile transitions and allocate bounded timing modifiers without allowing a lower-ranked profile member to receive a larger bonus.
+
+### Scope
+
+- Project each shared profile transition onto its ordered current-pocket candidates.
+- Expose profile identity, anchor, candidate ordinal, allocation role, shared counts, replacement quality, skip safety, and disappearance evidence in candidate signals.
+- Keep candidate forecast membership diagnostic and non-scoring.
+- Allocate the existing timing values by profile safety and candidate order:
+  - low safety: profile leader `+6`, other profile members `+3`;
+  - medium safety: profile leader `+3`, other profile members `0`;
+  - high or neutral safety: every profile member `0`.
+- Preserve timing eligibility for active forecasts, current-pocket candidates, and QB/RB/WR/TE only.
+- Keep the timing component within the existing urgency and total-context caps.
+- Remove the superseded candidate-relative comparison path once profile-backed scoring is validated.
+
+### Non-Goals
+
+- Do not change reason wording or broader workflow integration yet.
+- Do not add modifier magnitudes, position weights, tuning settings, or final-sort overrides.
+- Do not retune base value, overall tier, roster fit, tier pressure, scarcity, run pressure, or value opportunity.
+- Do not make exact-player availability, diversity labels, or raw ADP score directly.
+- Do not change forecast, pocket, persistence, or scenario contracts.
+
+### Acceptance Criteria
+
+- Candidate replacement quality and skip safety come directly from one shared profile transition and are identical within a profile.
+- For candidates ordered within one profile, every higher-ranked candidate receives a timing delta greater than or equal to each lower-ranked candidate's delta.
+- Low, medium, high, and neutral profile states produce exactly the approved full/reduced allocations.
+- When a profile leader becomes unavailable, the next-ranked member deterministically becomes leader and receives the full applicable modifier.
+- The Jefferson/London case cannot award London a larger draft-pocket timing delta than Jefferson while both remain available in the same profile.
+- Every recommendation score reconciles exactly from components and adjustments without hidden corrections.
+- Existing urgency and total-context caps, roster-fit effects, tie-breaking, and deterministic output remain intact.
+- Raw ADP, exact removal, forecast membership, missing-ADP fallback, and diversity labels remain non-scoring.
+
+### Suggested Tests
+
+- Exact allocation tests for every profile safety and candidate role.
+- Two- and three-member profile monotonicity tests.
+- Profile-leader removal and stable-ID tie tests.
+- Jefferson/London integrated score and ordering regression.
+- Urgency-cap, context-cap, QB/TE roster-fit, DST/K neutrality, and score-reconciliation regressions.
+
+---
+
+## Task 15 - Integrate Profile-Backed Reasons and Corrective Workflow Regressions
+
+- [ ] Not started
+
+### Goal
+
+Complete the corrective design by grounding draft-pocket reasons in shared profile transitions and proving the new behavior across persisted, preview, scenario, replay, and workbench workflows.
+
+### Scope
+
+- Generate draft-pocket reasons only from a material non-zero candidate allocation backed by its shared profile transition.
+- Explain absent, limited, or lower-quality future profile options without asserting exact-player availability or market value.
+- Suppress positive timing reasons for zero-allocation candidates even when their shared profile is low or medium safety.
+- Keep defaulted-neutral reasons position-based and free of meaningful-tier disappearance claims.
+- Preserve existing reason materiality, priority, caveat, and maximum-count rules.
+- Recompute profile transitions, candidate projections, allocations, scores, and reasons after pick, undo, reset, load, restart, and replay-target changes.
+- Prove persistence and Scenario V1/V2 workflows reproduce profile-backed output from captured inputs without serializing derived transitions.
+- Add focused regressions for the reported inversion and representative RB/WR and QB/TE profile states.
+
+### Non-Goals
+
+- Do not redesign recommendation presentation or add new workbench controls.
+- Do not serialize profiles, transitions, candidate signals, modifiers, scores, or reasons.
+- Do not change scenario versions, database schema, snapshot ownership, or replay rules.
+- Do not add AI-generated explanations, direct ADP reasons, or position-tier language.
+- Do not begin general Phase 5.5 exit validation until the corrective workflow regressions pass.
+
+### Acceptance Criteria
+
+- Every positive draft-pocket reason traces to one material profile-backed timing component.
+- Zero allocations do not produce unsupported positive timing reasons.
+- Defaulted-neutral profiles never produce meaningful overall-tier disappearance language.
+- Jefferson remains above London in the reported state, their evidence references the same profile transition, and London receives no larger timing reason or modifier.
+- Deep, disappearing, both-deep, and both-thin RB/WR profiles and QB/TE roster-fit interactions preserve the approved bounded behavior.
+- Pick, undo, reset, persisted reload, restart, replay-target, and between-turn preview changes recompute exact deterministic profile-backed output.
+- Scenario V1/V2 export and replay remain independent of mutable ranking sets and serialized derived output.
+- Existing draft invariants, overall-tier reasons, score reconciliation, reason selection, and workbench behavior remain intact.
+
+### Suggested Tests
+
+- Exact reason generation and suppression tests for full, reduced, and zero allocations.
+- Defaulted-neutral reason-language regressions.
+- Persisted and transient workflow recomputation tests.
+- Scenario V1/V2 replay and export/re-import equivalence tests.
+- Manual Draft Room reproduction of the Jefferson/London case before and after Jefferson is drafted.
+
+---
+
+## Task 16 - Complete Phase 5.5 Regression and Exit Validation
+
+- [ ] Not started
+
+### Goal
+
+Prove overall-tier quality and profile-level draft-pocket timing improve decisions without weakening deterministic scoring, snapshot reproducibility, or existing draft workflows.
+
+### Scope
+
+- Run focused and full validation across context normalization, forecast construction, pocket analysis, profile transitions, candidate allocation, scoring, explanations, persistence, Draft Room, scenarios, and replay.
+- Validate pocket sizes and tier boundaries, ADP fallback and neutral states, target-pick boundaries, profile classification, shared replacement quality, skip safety, monotonic allocation, and deterministic ordering.
 - Cover RB/WR deep, disappearing, both-deep, and both-thin cases plus QB/TE onesie and roster-fit interactions.
 - Confirm raw ADP, exact-player removal, diversity labels, defaulted tiers, and missing-ADP fallback never create unsupported score or reason output.
 - Confirm the superseded direct ADP component does not remain active or double-count market timing.
+- Confirm the superseded candidate-relative comparison path cannot produce same-profile quality inversions.
 - Validate urgency and total-context caps across aligned and conflicting player-quality, forecast, roster, scarcity, and run signals.
 - Complete focused manual QA across managed rankings, new and historical drafts, snake-turn previews, final picks, persistence reload, scenarios, and replay.
 - Validate linting, type checking, production build, persistence integration, and the full automated suite.
@@ -596,6 +759,7 @@ Prove overall-tier quality and draft-pocket timing improve decisions without wea
 - ADP affects only deterministic forecast order and contributes no direct player-quality or individual-availability score.
 - Missing individual ADP and wholly absent ADP follow their distinct approved behaviors without blocking workflows.
 - Forecast timing influences close decisions while urgency and total-context caps protect clearly stronger player-quality cases.
+- Candidates in one profile share transition evidence, and timing allocation never gives a lower-ranked member a larger positive forecast modifier than a higher-ranked available member.
 - Persisted drafts and portable scenarios reproduce their captured recommendation context and derived forecast behavior.
 - Manual, persisted, preview, final-pick, reset, undo, and replay workflows remain usable.
 - Full automated and manual validation passes with no Phase 5.5 non-goals introduced.
@@ -604,6 +768,7 @@ Prove overall-tier quality and draft-pocket timing improve decisions without wea
 
 - Run the full automated suite and project validation commands.
 - Run exact forecast and recommendation fixtures for all approved domain transitions.
+- Run exact profile-transition, allocation, and same-profile monotonicity fixtures.
 - Complete persistence and scenario round trips with complete, partial, and absent optional data.
 - Complete manual QA through multiple snake turns, between-turn previews, and the user's final pick.
 - Compare repeated forecast and recommendation output for identical captured inputs.
@@ -612,9 +777,9 @@ Prove overall-tier quality and draft-pocket timing improve decisions without wea
 
 ## Testing Status
 
-Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, candidate replacement quality, skip safety, bounded scoring integration, score-backed explanations, persisted/transient preview wiring, the portable Scenario V2 ranking-context contract, and version-aware replay/workbench integration are complete through Task 12. The original direct-ADP component has been removed from executable code under its approved supersession. Task 12 validation passed on 2026-07-03: 208 focused scenario, portability, replay, Draft Room, repository-mapping, forecast, and recommendation tests; TypeScript validation; lint with only the documented pre-existing `rankingNormalizer.test.ts` warning; and `git diff --check`.
+Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, the original candidate-relative replacement and skip-safety model, bounded scoring integration, score-backed explanations, persisted/transient preview wiring, the portable Scenario V2 ranking-context contract, and version-aware replay/workbench integration are complete through Task 12. The original direct-ADP component has been removed from executable code under its approved supersession. Task 12 validation passed on 2026-07-03: 208 focused scenario, portability, replay, Draft Room, repository-mapping, forecast, and recommendation tests; TypeScript validation; lint with only the documented pre-existing `rankingNormalizer.test.ts` warning; and `git diff --check`.
 
-Remaining Phase 5.5 work is Task 13: realistic positional scenarios, workflow regressions, full automated validation, and focused manual exit QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, and replay coverage remain mandatory regression gates.
+Exit validation exposed a same-profile quality inversion in which candidate-relative replacement analysis could award a larger timing modifier to a lower-ranked player in the same position/source-tier profile. Tasks 13-15 apply the corrective profile-transition design before Task 16 resumes realistic positional scenarios, workflow regressions, full automated validation, and focused manual exit QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, scenario, and replay coverage remain mandatory regression gates.
 
 ---
 

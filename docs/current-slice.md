@@ -1,4 +1,4 @@
-# Current Slice - Phase 5.5 Bug Fix: Prevent Same-Position Draft-Pocket Quality Inversions
+# Current Slice - Task 13: Add Shared Position/Tier Profile Transition Analysis
 
 ## Status
 
@@ -6,132 +6,193 @@ Planned. Awaiting implementation and validation.
 
 ## Context
 
-Phase 5.5 exit validation exposed a draft-pocket scoring inversion in the default rankings:
+The Phase 5.5 corrective design replaces candidate-relative replacement analysis with one shared transition per current position/overall-tier profile. The board forecast and both draft pockets already exist and remain unchanged.
 
-- Justin Jefferson is overall rank 9, ADP 10, WR6, overall/source tier 2.
-- Drake London is overall rank 11, ADP 18, WR7, overall/source tier 2.
-- The shared forecast can remove Jefferson while retaining London and one lower-tier WR.
-- London then counts as a comparable replacement for Jefferson, giving Jefferson high skip safety and no timing bonus.
-- Jefferson cannot count as a replacement for London after leaving the forecasted pocket, so London can receive medium skip safety and a `+3` timing bonus.
-- Their base-score gap is about two points, allowing the lower-ranked London to outrank the available higher-ranked Jefferson solely through draft-pocket timing.
+This slice adds only the pure profile-transition boundary. Existing candidate signals, timing scores, recommendation ordering, and reasons continue using the completed candidate-relative path until Task 14 replaces them. Keeping both paths temporarily allows the new domain output to be validated without mixing analysis, scoring, and explanation changes.
 
-The candidate-level forecast observations are internally consistent, but using them directly for both same-position candidates creates a circular recommendation: London makes Jefferson safe to skip, then London is rewarded because Jefferson is forecasted to disappear.
-
-This bug fix temporarily replaces the Task 13 exit-validation slice. Task 13 remains incomplete and resumes after this regression is fixed.
+The source contract is `docs/design/phase5.5-profile-transitions.md`.
 
 ## Goal
 
-Prevent draft-pocket timing from boosting a lower-ranked candidate while a higher-ranked candidate at the same position is currently available, while preserving candidate forecast analysis, player-quality scoring, deterministic forecast construction, and timing behavior for the best currently available option at each position.
+Given one existing shared draft-pocket forecast and its normalized ranking facts, deterministically derive one immutable transition for every position/overall-tier profile represented in the current pocket.
 
-## Approved Rule
-
-Draft-pocket timing is eligible only for the highest-ranked candidate at a position within the current draft pocket.
-
-Candidate replacement quality and skip safety remain objective, candidate-specific forecast observations for every current-pocket candidate. A lower-ranked same-position candidate retains those observations for inspection but receives a neutral `draft_pocket_timing` score while the higher-ranked option is available.
-
-Use overall rank followed by stable player ID to identify the highest-ranked current-pocket option at a position, matching existing deterministic board ordering. Do not compare ADP, projected removal order, score, or roster context when selecting that option.
+Every current candidate in a profile must share the same anchor, comparison window, forecast classifications, replacement quality, skip safety, and transition observations.
 
 ## Scope
 
 ### Goals
 
-- Expose whether each candidate is the highest-ranked current-pocket option at their position as deterministic candidate-signal evidence.
-- Keep replacement counts, replacement quality, skip safety, profile transitions, and forecasted-pocket presence unchanged.
-- Make `draft_pocket_timing` neutral for a current-pocket candidate when a higher-ranked same-position candidate is also in the current pocket.
-- Preserve low and medium skip-safety deltas for the highest-ranked current-pocket candidate at each eligible position.
-- Suppress draft-pocket reasons when timing is neutralized by the same-position quality guard.
-- Reproduce the Jefferson/London inversion and prove Jefferson remains ordered above London.
-- Prove London becomes timing-eligible after Jefferson is drafted or otherwise unavailable.
+- Add explicit domain types for draft-pocket profile identity and shared profile transitions.
+- Represent a profile by position, overall-tier origin, and overall/source-tier value.
+- Group and order current-pocket candidates by overall rank then stable player ID.
+- Use the highest-ranked current member as the profile anchor for one shared 12-rank comparison window.
+- Classify forecasted-pocket options as exact, comparable, near, or unrelated for each current profile.
+- Derive shared counts, replacement quality, skip safety, exact-profile disappearance, and highest-meaningful-tier disappearance.
+- Treat defaulted-neutral profiles as position depth without inventing meaningful tier boundaries.
+- Return deterministic transition ordering and evidence suitable for Task 14 candidate projection.
+- Preserve existing explicit failures for unresolved pocket identities and incompatible tier origins.
 
 ### Non-goals
 
-- Do not change Drake London’s or Justin Jefferson’s rank, ADP, tier, or source data.
-- Do not change forecast removal order, current/forecast pocket construction, replacement windows, replacement thresholds, or skip-safety categories.
-- Do not make per-candidate forecasts or simulate drafting a candidate.
-- Do not add a final-sort override, hidden score adjustment, or hard-coded player/position exception.
-- Do not retune base value, timing deltas, urgency caps, context caps, roster fit, scarcity, run pressure, tier pressure, or overall-tier scoring.
-- Do not change reason wording, scenario contracts, persistence, ranking normalization, or UI behavior.
-- Do not resume the broader Task 13 exit-validation matrix in this slice.
+- Do not change `DraftPocketForecast`, forecast removal order, target-pick selection, or pocket construction.
+- Do not call profile-transition analysis from recommendation scoring yet.
+- Do not change or remove `createCandidatePocketSignal` or its current behavior.
+- Do not allocate timing modifiers, alter recommendation ordering, or change reasons.
+- Do not change scoring components, tuning values, urgency caps, context caps, or roster behavior.
+- Do not add persistence, scenario, replay, repository, React, or UI behavior.
+- Do not create position tiers, counterfactual forecasts, simulations, or player-specific availability claims.
+
+## Domain Contract
+
+### Profile Identity
+
+Add a structural profile value equivalent to:
+
+```ts
+type DraftPocketProfile = Readonly<{
+  position: Position;
+  overallTierOrigin: RecommendationOverallTierOrigin;
+  overallTier: number;
+}>;
+```
+
+Profile equality requires all three fields to match. A source tier remains an overall quality grouping; combining it with position for pocket comparison must not make it recommendation-tier eligible.
+
+### Transition Output
+
+Add one transition value per current profile with these required concepts:
+
+```text
+profile identity
+anchor player ID
+anchor overall rank
+ordered current player IDs
+current profile count
+ordered forecasted comparable player IDs
+ordered forecasted near player IDs
+forecasted exact-profile count
+forecasted comparable count
+forecasted near count
+replacement quality
+skip safety
+exact profile disappeared
+highest meaningful overall tier disappeared
+```
+
+Comparable player IDs include exact-profile and better-tier options. Near player IDs contain worse-tier options only. All output identity arrays follow overall rank then stable player ID.
+
+### Option Classification
+
+Only forecasted-pocket players at the same position and within an absolute overall-rank distance of 12 from the profile anchor participate.
+
+For a meaningful source-tier profile:
+
+- exact: same tier origin and tier value;
+- comparable: same or better meaningful source tier, including exact options;
+- near: worse meaningful source tier;
+- unrelated: different position, incompatible origin, or outside the shared rank window.
+
+For a defaulted-neutral profile:
+
+- same-position defaulted-neutral options inside the rank window are exact and comparable;
+- no option becomes near from the neutral tier value;
+- no meaningful-tier disappearance evidence may be emitted.
+
+Numeric tier gaps do not change classification strength. Only tier ordering matters.
+
+### Replacement Quality and Skip Safety
+
+Derive one result per profile:
+
+```text
+High:
+  at least two comparable options remain
+
+Medium:
+  exactly one comparable option remains
+  OR no comparable option remains and at least one near option remains
+
+Low:
+  no comparable or near option remains
+```
+
+Map replacement quality directly to skip safety: high to high, medium to medium, and low to low.
+
+Exact-player presence, removal-window membership, and candidate-specific rank must not alter these shared categories.
 
 ## Implementation Steps
 
-1. Extend `CandidatePocketSignal` in `src/types/draft.ts` with an explicit boolean indicating whether the candidate is the highest-ranked current-pocket option at their position. Keep the field required so every signal state is inspectable and no caller silently bypasses the rule.
-2. In `src/lib/draftPocketForecast.ts`, derive the boolean from the already-resolved current-pocket rankings using overall rank and stable player ID. Populate it for active, neutral-forecast, and outside-current-pocket signal results without changing any existing replacement or skip-safety calculation.
-3. In `calculateDraftPocketTimingComponent` in `src/lib/recommendations.ts`, check the new eligibility evidence after active-forecast, current-pocket, and supported-position checks but before mapping skip safety to a delta. When the candidate is not the highest-ranked current-pocket option at the position:
-   - emit delta `0`;
-   - use a deterministic threshold such as `higher_ranked_same_position_available`;
-   - retain the candidate’s raw replacement and skip-safety evidence;
-   - include the new eligibility boolean in component evidence.
-4. Keep reason generation unchanged except for relying on the new neutral threshold. Existing low/medium draft-pocket reasons must not be emitted for a component neutralized by the guard.
-5. Update `src/lib/draftPocketForecast.test.ts` to prove:
-   - the highest-ranked current-pocket candidate at a position is marked eligible;
-   - a lower-ranked same-position candidate is marked ineligible even when its raw skip safety is medium or low;
-   - stable player ID resolves an otherwise tied overall rank deterministically;
-   - removing the higher-ranked candidate makes the next-ranked option eligible;
-   - replacement counts, skip safety, profile transitions, and neutral forecast behavior remain unchanged.
-6. Update `src/lib/recommendations.test.ts` with the reported regression using the default ranking facts for Jefferson (rank 9, ADP 10, tier 2) and London (rank 11, ADP 18, tier 2), plus the lower-tier WR needed to create the asymmetric forecast:
-   - Jefferson has high raw skip safety because London is a comparable replacement and another WR is near;
-   - London has medium raw skip safety but is not the highest-ranked current-pocket WR;
-   - London’s timing component is neutral with the same-position guard threshold and produces no draft-pocket reason;
-   - Jefferson remains ordered above London and every score reconciles exactly;
-   - after Jefferson is unavailable, London is the highest-ranked current-pocket WR and receives the approved timing delta when his skip safety is low or medium.
-7. Preserve direct timing-component tests for active/inactive forecasts, pocket membership, eligible positions, and low/medium/high skip safety. Add the new boolean to their fixtures and add an exact neutralization test for a lower-ranked same-position candidate.
-8. Run focused validation:
+1. Add `DraftPocketProfile` and `DraftPocketProfileTransition` domain types to `src/types/draft.ts`. Reuse the existing position, tier-origin, and signal-level types. Keep the output readonly and explicit; do not add a generic profile framework.
+2. In `src/lib/draftPocketForecast.ts`, add one exported pure function named `createDraftPocketProfileTransitions` accepting an existing `DraftPocketForecast` and the normalized `RecommendationRankingFact[]` used to build it.
+3. Return an empty transition list for `no-adp` and `no-next-pick` forecasts, a null forecasted pocket, or an empty current pocket. Do not manufacture neutral per-profile transitions when future timing is inactive.
+4. Resolve current and forecasted pocket identities through the existing ranking-resolution boundary. Preserve explicit failure behavior for missing identities instead of silently dropping players.
+5. Group current-pocket rankings by structural profile identity. Sort members by overall rank then stable player ID, choose the first member as the shared anchor, and order the resulting profiles by anchor rank then anchor player ID.
+6. For each current profile, classify forecasted-pocket rankings using position, compatible tier origin, tier order, and distance from the shared anchor. Build deterministic comparable and near player-ID lists and exact/comparable/near counts.
+7. Derive replacement quality and skip safety from the shared counts exactly as specified above. Candidate membership in the forecasted pocket remains irrelevant to this result.
+8. Mark exact-profile disappearance when no exact member of the current profile appears in the forecasted pocket. Mark highest-meaningful-tier disappearance only for source profiles in the current highest meaningful tier when that tier is absent across the complete forecasted pocket.
+9. For defaulted-neutral profiles, compare same-position depth inside the anchor window while keeping meaningful-tier disappearance false. Reject incompatible mixed-origin comparisons consistently with the existing candidate-analysis boundary rather than inferring compatibility.
+10. Extend `src/lib/draftPocketForecast.test.ts` with a dedicated `createDraftPocketProfileTransitions` suite covering grouping, anchors, classifications, thresholds, neutral states, failures, and deterministic output. Keep existing forecast, pocket, and candidate-signal tests unchanged except for any shared fixture reuse required by the new tests.
+11. Include the Jefferson/London regression shape as a pure transition fixture: both current candidates share WR/source-tier-2, Jefferson is the anchor, and both necessarily read the same transition even when Jefferson is removed while London remains in the forecasted pocket.
+12. Run focused validation, then TypeScript and lint checks:
 
    ```powershell
-   npm test -- src/lib/draftPocketForecast.test.ts src/lib/recommendations.test.ts src/lib/scenarioSession.test.ts src/components/DraftRoom.test.tsx
+   npm test -- src/lib/draftPocketForecast.test.ts src/lib/recommendations.test.ts
    npx tsc --noEmit
    npm run lint
    git diff --check
    ```
 
-9. Manually reproduce the original ranking state in the Draft Room. Confirm Jefferson remains above London, London shows no score-backed draft-pocket reason while Jefferson is available, and London becomes timing-eligible after Jefferson leaves the available pool.
-10. After validation passes, add completion notes to this file. Do not mark Task 13 complete and do not begin the remaining exit-validation work.
+13. After all validation passes, mark Task 13 complete in `docs/tasks.md` and add dated completion notes to this file. Do not begin Task 14.
 
 ## Expected Files
 
 - `src/types/draft.ts`
 - `src/lib/draftPocketForecast.ts`
 - `src/lib/draftPocketForecast.test.ts`
-- `src/lib/recommendations.ts`
-- `src/lib/recommendations.test.ts`
-- `docs/current-slice.md` for completion notes
+- `docs/tasks.md`, status and testing-status updates only after validation
+- `docs/current-slice.md`, completion notes only after validation
 
-Expected production/test blast radius: five code and test files. The slice document is the only documentation file expected to change.
+Expected implementation blast radius: three code/test files plus two status-only documentation files.
 
 ## Acceptance Criteria
 
-- With Jefferson and London available in the reported forecast state, London retains medium raw skip safety but receives exactly `0` draft-pocket timing points.
-- Jefferson remains ordered above London when the only previous reason for inversion was London’s larger draft-pocket timing delta.
-- London emits no draft-pocket timing reason while the same-position quality guard neutralizes the component.
-- The highest-ranked current-pocket option at each eligible position continues to receive exactly `+6`, `+3`, or `0` for low, medium, or high skip safety.
-- When the higher-ranked same-position player becomes unavailable, the next-ranked current-pocket candidate becomes timing-eligible without special-case logic.
-- Candidate replacement counts, replacement quality, skip safety, forecast membership, profile transitions, pocket construction, and forecast removal order are unchanged.
-- Overall rank then stable player ID selects the eligible same-position candidate deterministically.
-- Overall-tier, roster-fit, tier-pressure, scarcity, run-pressure, value-opportunity, urgency-cap, context-cap, ordering, and score-reconciliation behavior remain unchanged.
-- Neutralized timing evidence cannot generate a positive draft-pocket reason.
-- Identical draft and ranking inputs continue to produce exact equivalent signals, components, scores, reasons, and ordering.
-- Focused tests, TypeScript validation, lint, manual reproduction, and `git diff --check` pass with no new warnings.
+- Every distinct profile in the current pocket produces exactly one transition ordered by profile anchor rank then stable ID.
+- Profile identity consists only of position, overall-tier origin, and overall/source-tier value.
+- Every current candidate in one profile shares the same anchor, forecast classifications, counts, replacement quality, skip safety, and transition observations.
+- Current profile members and forecasted comparable/near identities are ordered by overall rank then stable player ID.
+- The highest-ranked current profile member is the shared rank-window anchor; stable ID resolves tied overall ranks.
+- Forecasted options at rank distance 12 are included and distance 13 are excluded for every member of the profile.
+- Source-tier options at the same or better tier are comparable; worse-tier options are near; numeric tier-gap size has no additional effect.
+- High replacement quality requires at least two comparable options; one comparable or one-or-more near-only options is medium; no comparable or near option is low.
+- Skip safety exactly matches the shared profile replacement-quality level.
+- Defaulted-neutral profiles compare same-position depth without near-tier or meaningful-tier disappearance evidence.
+- Exact-profile and highest-meaningful-tier disappearance follow the approved shared-pocket definitions.
+- Jefferson and London resolve to one WR/source-tier-2 transition anchored by Jefferson, regardless of which exact member remains forecasted.
+- Exact-player forecast membership and removal-window membership do not independently change shared replacement quality or skip safety.
+- Inactive forecasts and empty current pockets return no transitions; unresolved identities and incompatible tier origins fail explicitly.
+- Equivalent inputs with shuffled ranking arrays produce exact equivalent transitions without input mutation.
+- Existing forecast, pocket, candidate-signal, recommendation, scoring, and reason behavior remains unchanged.
+- Focused tests, TypeScript validation, lint, and `git diff --check` pass with no new warnings.
 
 ## Failure Conditions
 
 Stop and report instead of broadening the slice if:
 
-- enforcing the rule requires a final-sort override or a score that no longer reconciles from components and adjustments;
-- the guard requires changing candidate replacement, skip-safety, forecast, pocket, ADP, or overall-tier semantics;
-- correct reason behavior requires new user-facing wording rather than suppressing a neutral component;
-- the Jefferson/London case cannot be reproduced from deterministic fixture inputs;
-- validation exposes an unrelated failure or requires changes outside the expected files.
+- the shared transition boundary cannot be added without changing existing forecast, scoring, or reason output;
+- profile comparison requires inferred position tiers or reinterpretation of overall/source tiers;
+- deterministic classification requires candidate-specific anchors or separate candidate forecasts;
+- Task 13 requires persistence, scenario-format, repository, React, or UI changes;
+- a validation failure is unrelated to this slice or requires changes outside the expected files.
 
 ## Slice Review
 
-1. Smallest meaningful increment: yes - it fixes one observed scoring inversion without resuming general exit validation.
-2. Executable without redefining the approach: yes - eligibility, ordering keys, evidence, scoring behavior, regression inputs, and validation are explicit.
-3. Avoids unnecessary architecture changes: yes - it adds one fact to the existing candidate signal and one scoring eligibility check.
-4. Reasonable blast radius: yes - two production files, one shared type, and two focused test files.
-5. Comfortably reviewable and revertible: yes - the guard is isolated from forecast and replacement calculations.
-6. Observable and testable acceptance criteria: yes - exact component deltas, thresholds, reasons, ordering, and post-removal eligibility are deterministic.
+1. Smallest meaningful increment: yes - it introduces and validates only the shared profile-transition domain boundary required before scoring can change.
+2. Executable without redefining the approach: yes - types, function boundary, identity, anchors, classifications, thresholds, ordering, neutral states, and failures are explicit.
+3. Avoids unnecessary architecture changes: yes - the work remains a pure derived function beside the existing forecast logic and adds no state or infrastructure.
+4. Reasonable blast radius: yes - one shared type file, one domain implementation file, and one focused test file.
+5. Comfortably reviewable and revertible: yes - existing candidate analysis and recommendation behavior remain active and unchanged.
+6. Observable and testable acceptance criteria: yes - every transition field and boundary is deterministic and asserted directly.
 
 ## Follow-up
 
-After this bug-fix slice passes, restore and execute Task 13: Complete Phase 5.5 Regression and Exit Validation, including the same-position quality invariant in its regression matrix.
+After Task 13 is complete, promote Task 14 to project shared profile transitions into candidate evidence and replace candidate-relative timing with monotonic full/reduced modifier allocation.
