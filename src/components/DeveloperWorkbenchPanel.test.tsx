@@ -29,6 +29,8 @@ describe("DeveloperWorkbenchPanel", () => {
     expect(markup).toContain(">No<");
     expect(markup).toContain("Scenario Files");
     expect(markup).toContain("Open saved scenario");
+    expect(markup).toContain("Open a previously exported scenario JSON file");
+    expect(markup).not.toContain("Scenario V1 JSON file");
     expect(markup).toContain("Local files are not stored by the app");
     expect(markup).not.toContain("Curated scenario");
     expect(markup).not.toContain("<select");

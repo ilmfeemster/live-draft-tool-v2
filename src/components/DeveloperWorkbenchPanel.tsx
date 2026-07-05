@@ -88,7 +88,7 @@ export function DeveloperWorkbenchPanel({
       <div className="mt-4 rounded border border-zinc-200 bg-white p-3">
         <h3 className="font-semibold text-zinc-900">Scenario Files</h3>
         <p className="mt-1 text-sm text-zinc-600">
-          Open a previously exported Scenario V1 JSON file. Local files are not
+          Open a previously exported scenario JSON file. Local files are not
           stored by the app.
         </p>
         <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto] lg:items-end">

@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress. Implementation and automated validation completed on 2026-07-05. Required manual Draft Room QA is blocked by the unavailable in-app browser connection.
+Complete. Implementation and automated validation completed on 2026-07-05; user-completed manual Draft Room QA subsequently passed.
 
 ## Context
 
@@ -199,6 +199,8 @@ After Task 15 is complete, promote Task 16 to run full Phase 5.5 regression, per
 - Strengthened Scenario V1/V2, pick, preview, export/re-import, persisted Draft Room, and derived-output serialization regressions with profile evidence assertions.
 - Automated validation passed: 199 focused recommendation, scenario-session, portability, replay, Draft Room, and repository-mapping tests, `npx tsc --noEmit`, `npm run lint`, and `git diff --check`. Lint reports only the documented pre-existing `stripLocations` warning in `src/lib/rankingNormalizer.test.ts`.
 
-## Blocker
+## Manual QA Completion
 
-The browser skill could not connect to the in-app browser because the browser-control runtime rejected initialization before any page could be opened. Per the slice contract, manual Jefferson/London, pick/undo, persisted load, Scenario V1/V2, replay-target, and export/re-import QA remains required. Do not mark Task 15 complete or begin Task 16 until that browser QA succeeds.
+- The user reported the manual QA checklist passed.
+- Verified areas include Jefferson/London ordering and allocation, London promotion after Jefferson is drafted, undo restoration, persisted workspace behavior, Scenario V1/V2 semantics, replay-target recomputation, and Scenario V2 export/re-import equivalence.
+- Task 15 is complete. Task 16 may now be planned, but it has not started.
