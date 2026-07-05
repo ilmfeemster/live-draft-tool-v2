@@ -187,6 +187,14 @@ function createCandidateSignal(
   return {
     candidatePlayerId: "candidate",
     candidatePosition: "RB",
+    profile: {
+      position: "RB",
+      overallTierOrigin: "source",
+      overallTier: 1,
+    },
+    profileAnchorPlayerId: "candidate",
+    profileOrdinal: 1,
+    allocationRole: "full",
     candidateInCurrentPocket: true,
     candidateInForecastedPocket: false,
     comparableReplacementCount: 0,
@@ -489,16 +497,47 @@ describe("calculateOverallTierComponent", () => {
 
 describe("calculateDraftPocketTimingComponent", () => {
   it.each([
-    { skipSafety: "low" as const, delta: 6, threshold: "low_skip_safety" },
+    {
+      skipSafety: "low" as const,
+      allocationRole: "full" as const,
+      delta: 6,
+      threshold: "low_skip_safety",
+    },
+    {
+      skipSafety: "low" as const,
+      allocationRole: "reduced" as const,
+      delta: 3,
+      threshold: "low_skip_safety",
+    },
+    {
+      skipSafety: "low" as const,
+      allocationRole: "neutral" as const,
+      delta: 0,
+      threshold: "profile_member_no_allocation",
+    },
     {
       skipSafety: "medium" as const,
+      allocationRole: "full" as const,
       delta: 3,
       threshold: "medium_skip_safety",
     },
-    { skipSafety: "high" as const, delta: 0, threshold: "high_skip_safety" },
-  ])("maps $skipSafety skip safety to $delta", ({ skipSafety, delta, threshold }) => {
+    {
+      skipSafety: "medium" as const,
+      allocationRole: "neutral" as const,
+      delta: 0,
+      threshold: "profile_member_no_allocation",
+    },
+    {
+      skipSafety: "high" as const,
+      allocationRole: "neutral" as const,
+      delta: 0,
+      threshold: "high_skip_safety",
+    },
+  ])(
+    "maps $skipSafety skip safety and $allocationRole allocation to $delta",
+    ({ skipSafety, allocationRole, delta, threshold }) => {
     const component = calculateDraftPocketTimingComponent({
-      signal: createCandidateSignal({ skipSafety }),
+      signal: createCandidateSignal({ skipSafety, allocationRole }),
       forecast: createTimingForecast(),
     });
 
@@ -509,7 +548,8 @@ describe("calculateDraftPocketTimingComponent", () => {
       priority: 20,
       evidence: { thresholdMatched: threshold },
     });
-  });
+    },
+  );
 
   it.each([
     {
@@ -554,6 +594,12 @@ describe("calculateDraftPocketTimingComponent", () => {
       forecastStatus: "active",
       targetPickNumber: 4,
       candidatePosition: "RB",
+      profilePosition: "RB",
+      profileOverallTierOrigin: "source",
+      profileOverallTier: 1,
+      profileAnchorPlayerId: "candidate",
+      profileOrdinal: 1,
+      allocationRole: "full",
       candidateInCurrentPocket: true,
       candidateInForecastedPocket: false,
       comparableReplacementCount: 0,
@@ -859,6 +905,144 @@ describe("generatePlayerRecommendations", () => {
         }),
       );
     }).toThrow("must match the raw ranking player identities");
+  });
+
+  it("keeps Jefferson above London through shared profile allocation and promotes London", () => {
+    const facts = [
+      createOverallTierRanking("justin-jefferson", 9, 2, {
+        adpRank: 1,
+        position: "WR",
+      }),
+      createOverallTierRanking("jonathan-taylor", 10, 2, {
+        adpRank: 2,
+        position: "RB",
+      }),
+      createOverallTierRanking("drake-london", 11, 2, {
+        adpRank: 18,
+        position: "WR",
+      }),
+      createOverallTierRanking("nico-collins", 12, 3, {
+        adpRank: 23,
+        position: "WR",
+      }),
+      createOverallTierRanking("removed-qb", 13, 3, {
+        adpRank: 3,
+        position: "QB",
+      }),
+      createOverallTierRanking("forecast-te", 14, 3, {
+        adpRank: 30,
+        position: "TE",
+      }),
+      createOverallTierRanking("forecast-k", 15, 3, {
+        adpRank: 40,
+        position: "K",
+      }),
+    ];
+    const draft = createTestDraft({
+      rounds: 4,
+      picks: generateSnakeDraftOrder(2, 4),
+    });
+    const before = generatePlayerRecommendations(
+      createRecommendationInput({
+        draft,
+        rankings: toRawRankings(facts),
+        recommendationRankingContext: createRecommendationContext(facts),
+      }),
+    );
+    const jefferson = before.find((recommendation) => {
+      return recommendation.playerId === "justin-jefferson";
+    });
+    const london = before.find((recommendation) => {
+      return recommendation.playerId === "drake-london";
+    });
+
+    expect(jefferson).toBeDefined();
+    expect(london).toBeDefined();
+    if (!jefferson || !london) {
+      throw new Error("Expected Jefferson and London recommendations.");
+    }
+
+    const jeffersonTiming = jefferson.components.find((component) => {
+      return component.id === "draft_pocket_timing";
+    });
+    const londonTiming = london.components.find((component) => {
+      return component.id === "draft_pocket_timing";
+    });
+
+    expect(jeffersonTiming).toMatchObject({
+      delta: 3,
+      evidence: {
+        profilePosition: "WR",
+        profileOverallTierOrigin: "source",
+        profileOverallTier: 2,
+        profileAnchorPlayerId: "justin-jefferson",
+        profileOrdinal: 1,
+        allocationRole: "full",
+        comparableReplacementCount: 1,
+        nearReplacementCount: 1,
+        replacementQuality: "medium",
+        skipSafety: "medium",
+        thresholdMatched: "medium_skip_safety",
+      },
+    });
+    expect(londonTiming).toMatchObject({
+      delta: 0,
+      evidence: {
+        profilePosition: "WR",
+        profileOverallTierOrigin: "source",
+        profileOverallTier: 2,
+        profileAnchorPlayerId: "justin-jefferson",
+        profileOrdinal: 2,
+        allocationRole: "neutral",
+        comparableReplacementCount: 1,
+        nearReplacementCount: 1,
+        replacementQuality: "medium",
+        skipSafety: "medium",
+        thresholdMatched: "profile_member_no_allocation",
+      },
+    });
+    expect(before.indexOf(jefferson)).toBeLessThan(before.indexOf(london));
+    expectScoreToReconcile(jefferson);
+    expectScoreToReconcile(london);
+
+    const afterDraft = createTestDraft({
+      rounds: 4,
+      currentPickNumber: 2,
+      picks: generateSnakeDraftOrder(2, 4).map((pick) => {
+        return pick.pickNumber === 1
+          ? { ...pick, playerId: "justin-jefferson" }
+          : pick;
+      }),
+    });
+    const after = generatePlayerRecommendations(
+      createRecommendationInput({
+        draft: afterDraft,
+        rankings: toRawRankings(facts),
+        recommendationRankingContext: createRecommendationContext(facts),
+      }),
+    );
+    const promotedLondon = after.find((recommendation) => {
+      return recommendation.playerId === "drake-london";
+    });
+    const promotedTiming = promotedLondon?.components.find((component) => {
+      return component.id === "draft_pocket_timing";
+    });
+
+    expect(promotedLondon).toBeDefined();
+    expect(promotedTiming).toMatchObject({
+      delta: 3,
+      evidence: {
+        profileAnchorPlayerId: "drake-london",
+        profileOrdinal: 1,
+        allocationRole: "full",
+        replacementQuality: "medium",
+        skipSafety: "medium",
+        thresholdMatched: "medium_skip_safety",
+      },
+    });
+    if (promotedLondon) {
+      expectScoreToReconcile(promotedLondon);
+    }
   });
 
   it("keeps pocket timing neutral when the complete context has no ADP", () => {

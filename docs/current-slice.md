@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Awaiting implementation and validation.
+Complete. Implemented and validated on 2026-07-05.
 
 ## Context
 
@@ -201,3 +201,14 @@ Stop and report instead of broadening the slice if:
 ## Follow-up
 
 After Task 14 is complete, promote Task 15 to validate profile-backed reasons and recomputation across persisted, preview, scenario, replay, and workbench workflows before final Phase 5.5 exit validation.
+
+## Completion Notes
+
+- Extended candidate signals with structural profile identity, shared anchor, one-based ordinal, and full/reduced/neutral allocation role.
+- Replaced candidate-relative forecasted-pocket scanning with projections from one shared transition collection computed once per recommendation calculation.
+- Mapped low-safety leaders to `+6`, later low-safety members to `+3`, medium-safety leaders to `+3`, and every other profile allocation to `0` under the existing urgency and context caps.
+- Kept exact-player forecast membership diagnostic and preserved raw ADP, removal membership, fallback status, and diversity labels as non-scoring evidence.
+- Added explicit errors for missing, duplicate, or profile-mismatched active candidate transitions and retained neutral projections for inactive or outside-pocket candidates.
+- Added the integrated Jefferson/London regression: both share medium-safety WR/source-tier-2 evidence, Jefferson receives `+3`, London receives `0`, and London becomes the full-allocation leader after Jefferson is drafted.
+- Preserved existing reason wording and selection behavior for Task 15 review.
+- Validation passed: 167 focused forecast, recommendation, scenario-session, and Draft Room tests, `npx tsc --noEmit`, `npm run lint`, and `git diff --check`. Lint reports only the documented pre-existing `stripLocations` warning in `src/lib/rankingNormalizer.test.ts`.

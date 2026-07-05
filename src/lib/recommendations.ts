@@ -2,6 +2,7 @@ import type {
   CandidatePocketSignal,
   Draft,
   DraftPocketForecast,
+  DraftPocketProfileTransition,
   LeagueSettings,
   PlayerRecommendation,
   Position,
@@ -18,6 +19,7 @@ import type {
 import {
   createCandidatePocketSignal,
   createDraftPocketForecast,
+  createDraftPocketProfileTransitions,
 } from "@/lib/draftPocketForecast";
 import { NEUTRAL_TIER } from "@/types/rankings";
 
@@ -243,12 +245,29 @@ export function calculateDraftPocketTimingComponent({
     thresholdMatched = "outside_current_pocket";
   } else if (!urgencyPositions.has(signal.candidatePosition)) {
     thresholdMatched = "ineligible_position";
-  } else if (signal.skipSafety === "low") {
+  } else if (
+    signal.skipSafety === "low" &&
+    signal.allocationRole === "full"
+  ) {
     delta = LOW_SKIP_SAFETY_DELTA;
     thresholdMatched = "low_skip_safety";
-  } else if (signal.skipSafety === "medium") {
+  } else if (
+    signal.skipSafety === "low" &&
+    signal.allocationRole === "reduced"
+  ) {
+    delta = MEDIUM_SKIP_SAFETY_DELTA;
+    thresholdMatched = "low_skip_safety";
+  } else if (
+    signal.skipSafety === "medium" &&
+    signal.allocationRole === "full"
+  ) {
     delta = MEDIUM_SKIP_SAFETY_DELTA;
     thresholdMatched = "medium_skip_safety";
+  } else if (
+    (signal.skipSafety === "low" || signal.skipSafety === "medium") &&
+    signal.allocationRole === "neutral"
+  ) {
+    thresholdMatched = "profile_member_no_allocation";
   } else if (signal.skipSafety === "high") {
     thresholdMatched = "high_skip_safety";
   }
@@ -268,6 +287,12 @@ export function calculateDraftPocketTimingComponent({
       forecastStatus: forecast.status,
       targetPickNumber: forecast.targetPickNumber,
       candidatePosition: signal.candidatePosition,
+      profilePosition: signal.profile.position,
+      profileOverallTierOrigin: signal.profile.overallTierOrigin,
+      profileOverallTier: signal.profile.overallTier,
+      profileAnchorPlayerId: signal.profileAnchorPlayerId,
+      profileOrdinal: signal.profileOrdinal,
+      allocationRole: signal.allocationRole,
       candidateInCurrentPocket: signal.candidateInCurrentPocket,
       candidateInForecastedPocket: signal.candidateInForecastedPocket,
       comparableReplacementCount: signal.comparableReplacementCount,
@@ -296,10 +321,10 @@ function createPhase55ScoringContext(
   input: RecommendationInput,
   draftedPlayerIds: ReadonlySet<string>,
 ): {
-  rankings: readonly RecommendationRankingFact[];
   rankingsByPlayerId: ReadonlyMap<string, RecommendationRankingFact>;
   availableRankings: readonly RecommendationRankingFact[];
   forecast: DraftPocketForecast;
+  profileTransitions: readonly DraftPocketProfileTransition[];
 } | null {
   const context = input.recommendationRankingContext;
 
@@ -323,16 +348,21 @@ function createPhase55ScoringContext(
     );
   }
 
-  return {
+  const forecast = createDraftPocketForecast({
+    draft: input.draft,
     rankings: context.rankings,
+    userTeamId: input.userTeamId,
+  });
+
+  return {
     rankingsByPlayerId,
     availableRankings: context.rankings.filter((ranking) => {
       return !draftedPlayerIds.has(ranking.player.id);
     }),
-    forecast: createDraftPocketForecast({
-      draft: input.draft,
+    forecast,
+    profileTransitions: createDraftPocketProfileTransitions({
+      forecast,
       rankings: context.rankings,
-      userTeamId: input.userTeamId,
     }),
   };
 }
@@ -1372,7 +1402,7 @@ export function generatePlayerRecommendations(
               signal: createCandidatePocketSignal({
                 candidate: recommendationRanking,
                 forecast: phase55Context.forecast,
-                rankings: phase55Context.rankings,
+                profileTransitions: phase55Context.profileTransitions,
               }),
               forecast: phase55Context.forecast,
             })

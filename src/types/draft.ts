@@ -87,9 +87,15 @@ export type DraftPocketProfileTransition = Readonly<{
   highestMeaningfulTierDisappeared: boolean;
 }>;
 
+export type DraftPocketTimingAllocationRole = "full" | "reduced" | "neutral";
+
 export type CandidatePocketSignal = Readonly<{
   candidatePlayerId: string;
   candidatePosition: Position;
+  profile: DraftPocketProfile;
+  profileAnchorPlayerId: string | null;
+  profileOrdinal: number | null;
+  allocationRole: DraftPocketTimingAllocationRole;
   candidateInCurrentPocket: boolean;
   candidateInForecastedPocket: boolean;
   comparableReplacementCount: number;

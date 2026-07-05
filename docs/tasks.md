@@ -628,7 +628,7 @@ Replace candidate-relative replacement analysis with one deterministic transitio
 
 ## Task 14 - Project Profile Transitions Into Monotonic Candidate Timing Allocation
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 
@@ -779,7 +779,7 @@ Prove overall-tier quality and profile-level draft-pocket timing improve decisio
 
 Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, the original candidate-relative replacement and skip-safety model, bounded scoring integration, score-backed explanations, persisted/transient preview wiring, the portable Scenario V2 ranking-context contract, and version-aware replay/workbench integration are complete through Task 12. The original direct-ADP component has been removed from executable code under its approved supersession. Task 12 validation passed on 2026-07-03: 208 focused scenario, portability, replay, Draft Room, repository-mapping, forecast, and recommendation tests; TypeScript validation; lint with only the documented pre-existing `rankingNormalizer.test.ts` warning; and `git diff --check`.
 
-Exit validation exposed a same-profile quality inversion in which candidate-relative replacement analysis could award a larger timing modifier to a lower-ranked player in the same position/source-tier profile. Task 13 is complete: shared position/tier profile identity, stable anchors, forecast option classifications, replacement quality, skip safety, disappearance evidence, neutral states, and the Jefferson/London transition regression are implemented as a pure parallel boundary without changing scoring. Task 13 validation passed on 2026-07-05: 142 focused forecast and recommendation tests, TypeScript validation, lint with only the documented pre-existing `rankingNormalizer.test.ts` warning, and `git diff --check`. Tasks 14-15 must integrate monotonic allocation and profile-backed reasons before Task 16 resumes realistic positional scenarios, workflow regressions, full automated validation, and focused manual exit QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, scenario, and replay coverage remain mandatory regression gates.
+Exit validation exposed a same-profile quality inversion in which candidate-relative replacement analysis could award a larger timing modifier to a lower-ranked player in the same position/source-tier profile. Tasks 13-14 are complete: the engine now derives shared position/tier profile transitions once, projects common replacement and skip-safety evidence into candidates, and applies monotonic full/reduced/neutral timing modifiers under the existing caps. The superseded candidate-relative comparison path has been removed from scoring. The Jefferson/London regression proves Jefferson receives the full profile modifier, London cannot receive a larger modifier while both are available, and London is promoted after Jefferson is drafted. Task 14 validation passed on 2026-07-05: 167 focused forecast, recommendation, scenario-session, and Draft Room tests; TypeScript validation; lint with only the documented pre-existing `rankingNormalizer.test.ts` warning; and `git diff --check`. Task 15 must complete profile-backed reason and workflow validation before Task 16 resumes realistic positional scenarios, full automated validation, and focused manual exit QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, scenario, and replay coverage remain mandatory regression gates.
 
 ---
 
