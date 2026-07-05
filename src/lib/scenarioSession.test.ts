@@ -146,7 +146,14 @@ describe("transient scenario sessions", () => {
         ({ player }) => player.id === "target-rb",
       ),
     ).toMatchObject({ overallTier: 1, overallTierOrigin: "source" });
-    expect(getTimingEvidence(session)).toMatchObject({ forecastStatus });
+    expect(getTimingEvidence(session)).toMatchObject({
+      forecastStatus,
+      profileOverallTierOrigin: "source",
+      allocationRole: forecastStatus === "active" ? expect.any(String) : "neutral",
+      profileAnchorPlayerId:
+        forecastStatus === "active" ? expect.any(String) : null,
+      profileOrdinal: forecastStatus === "active" ? expect.any(Number) : null,
+    });
     expect(session.recommendations).toEqual(
       generateRecommendationsForSession(session),
     );
@@ -220,6 +227,10 @@ describe("transient scenario sessions", () => {
       id: imported.draft.id,
     });
     expect(imported.recommendations).toEqual(session.recommendations);
+    const serialized = serializeScenarioV2(scenario);
+    expect(serialized).not.toContain("draft_pocket_timing");
+    expect(serialized).not.toContain("profileAnchorPlayerId");
+    expect(serialized).not.toContain("allocationRole");
   });
 
   it("refreshes active forecast evidence between turns, on turn, and at the final user pick", () => {
@@ -228,6 +239,10 @@ describe("transient scenario sessions", () => {
     expect(getTimingEvidence(initial)).toMatchObject({
       forecastStatus: "active",
       targetPickNumber: 12,
+      profileOverallTierOrigin: "defaulted-neutral",
+      profileAnchorPlayerId: expect.any(String),
+      profileOrdinal: expect.any(Number),
+      allocationRole: expect.any(String),
     });
 
     const afterOpponentPick = draftPlayerInTransientSession(
@@ -243,6 +258,8 @@ describe("transient scenario sessions", () => {
     expect(getTimingEvidence(afterOpponentPick)).toMatchObject({
       forecastStatus: "active",
       targetPickNumber: 12,
+      profileOverallTierOrigin: "defaulted-neutral",
+      profileAnchorPlayerId: expect.any(String),
     });
 
     const onUserTurn = ["available-wr", "available-qb"].reduce(
@@ -254,6 +271,8 @@ describe("transient scenario sessions", () => {
     expect(getTimingEvidence(onUserTurn)).toMatchObject({
       forecastStatus: "active",
       targetPickNumber: 13,
+      profileOverallTierOrigin: "defaulted-neutral",
+      profileAnchorPlayerId: expect.any(String),
     });
 
     const finalUserPick = [
@@ -570,6 +589,21 @@ describe("transient scenario sessions", () => {
             ({ sourceComponentId }) => sourceComponentId === "tier_cliff",
           ),
         ).toBe(false);
+        expect(
+          recommendation.reasons.some(
+            ({ id }) =>
+              id ===
+              "draft_pocket_timing:highest_meaningful_tier_disappeared",
+          ),
+        ).toBe(false);
+        const timing = recommendation.components.find(
+          ({ id }) => id === "draft_pocket_timing",
+        );
+        if (timing?.evidence) {
+          expect(timing.evidence.profileOverallTierOrigin).toBe(
+            "defaulted-neutral",
+          );
+        }
       }
     }
   });

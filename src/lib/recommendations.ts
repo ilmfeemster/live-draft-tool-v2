@@ -1028,21 +1028,65 @@ function buildDraftPocketTimingReasonCandidate(
     "candidateInCurrentPocket",
   );
   const candidatePosition = getStringEvidence(component, "candidatePosition");
+  const profilePosition = getStringEvidence(component, "profilePosition");
+  const profileOverallTierOrigin = getStringEvidence(
+    component,
+    "profileOverallTierOrigin",
+  );
+  const profileOverallTier = getNumberEvidence(component, "profileOverallTier");
+  const profileAnchorPlayerId = getStringEvidence(
+    component,
+    "profileAnchorPlayerId",
+  );
+  const profileOrdinal = getNumberEvidence(component, "profileOrdinal");
+  const allocationRole = getStringEvidence(component, "allocationRole");
   const skipSafety = getStringEvidence(component, "skipSafety");
   const thresholdMatched = getStringEvidence(component, "thresholdMatched");
+  const validProfileEvidence =
+    profilePosition === candidatePosition &&
+    (profileOverallTierOrigin === "source" ||
+      profileOverallTierOrigin === "defaulted-neutral") &&
+    profileOverallTier !== null &&
+    Number.isInteger(profileOverallTier) &&
+    profileOverallTier > 0 &&
+    profileAnchorPlayerId !== null &&
+    profileAnchorPlayerId.trim().length > 0 &&
+    profileOrdinal !== null &&
+    Number.isInteger(profileOrdinal) &&
+    profileOrdinal > 0;
+  const validAllocation =
+    (skipSafety === "low" &&
+      allocationRole === "full" &&
+      profileOrdinal === 1 &&
+      component.delta === LOW_SKIP_SAFETY_DELTA &&
+      thresholdMatched === "low_skip_safety") ||
+    (skipSafety === "low" &&
+      allocationRole === "reduced" &&
+      profileOrdinal !== null &&
+      profileOrdinal > 1 &&
+      component.delta === MEDIUM_SKIP_SAFETY_DELTA &&
+      thresholdMatched === "low_skip_safety") ||
+    (skipSafety === "medium" &&
+      allocationRole === "full" &&
+      profileOrdinal === 1 &&
+      component.delta === MEDIUM_SKIP_SAFETY_DELTA &&
+      thresholdMatched === "medium_skip_safety");
 
   if (
     forecastStatus !== "active" ||
     candidateInCurrentPocket !== true ||
     !candidatePosition ||
     !urgencyPositions.has(candidatePosition as Position) ||
-    (skipSafety !== "low" && skipSafety !== "medium") ||
-    thresholdMatched !== `${skipSafety}_skip_safety`
+    !validProfileEvidence ||
+    !validAllocation
   ) {
     return null;
   }
 
-  if (getBooleanEvidence(component, "highestMeaningfulTierDisappeared") === true) {
+  if (
+    profileOverallTierOrigin === "source" &&
+    getBooleanEvidence(component, "highestMeaningfulTierDisappeared") === true
+  ) {
     return createReasonCandidate(
       component,
       "draft_pocket_timing:highest_meaningful_tier_disappeared",

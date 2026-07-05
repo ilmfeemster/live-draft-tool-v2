@@ -114,7 +114,38 @@ describe("DraftRoom loaded workspace recommendations", () => {
         (component) => component.id === "draft_pocket_timing",
       );
     })).toBe(true);
+    const profileBackedRecommendation = expectedRecommendations.find(
+      (recommendation) => {
+        return recommendation.components.some((component) => {
+          return component.id === "draft_pocket_timing" && component.delta > 0;
+        });
+      },
+    );
+    const profileTiming = profileBackedRecommendation?.components.find(
+      (component) => component.id === "draft_pocket_timing",
+    );
+
+    expect(profileBackedRecommendation).toBeDefined();
+    expect(profileTiming).toMatchObject({
+      direction: "positive",
+      evidence: {
+        profilePosition: expect.any(String),
+        profileOverallTierOrigin: "defaulted-neutral",
+        profileOverallTier: 1,
+        profileAnchorPlayerId: expect.any(String),
+        profileOrdinal: expect.any(Number),
+        allocationRole: expect.stringMatching(/^(full|reduced)$/),
+      },
+    });
+    expect(
+      profileBackedRecommendation?.reasons.some((reason) => {
+        return reason.sourceComponentId === "draft_pocket_timing";
+      }),
+    ).toBe(true);
     expect(markup).toContain("draft_pocket_timing");
+    expect(markup).not.toContain(
+      "This overall tier is not represented in the forecasted next pocket.",
+    );
 
     const draftedPlayer = workspace.rankings[0];
     expect(draftedPlayer.player.id).toBe("drafted-player");

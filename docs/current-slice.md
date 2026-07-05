@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Awaiting implementation and validation.
+In progress. Implementation and automated validation completed on 2026-07-05. Required manual Draft Room QA is blocked by the unavailable in-app browser connection.
 
 ## Context
 
@@ -188,3 +188,17 @@ Stop and report instead of broadening the slice if:
 ## Follow-up
 
 After Task 15 is complete, promote Task 16 to run full Phase 5.5 regression, persistence, production-build, and manual exit validation without adding product behavior.
+
+## Implementation Progress
+
+- Hardened draft-pocket reason eligibility so only full low, reduced low, and full medium allocations with coherent profile identity, anchor, ordinal, safety, delta, and threshold evidence can produce a reason.
+- Preserved existing reason IDs, wording, priority, and precedence while preventing defaulted-neutral profiles from producing meaningful overall-tier disappearance language.
+- Added direct coverage for all valid positive allocations, zero allocation, malformed profile evidence, contradictory roles/safety/deltas, and defaulted-neutral position-based wording.
+- Extended the Jefferson/London regression to prove Jefferson receives the profile-backed reason, London receives none at zero allocation, and promoted London receives the approved reason after Jefferson is drafted.
+- Added both-deep, both-thin, asymmetric RB/WR, and filled-QB score-backed reason regressions.
+- Strengthened Scenario V1/V2, pick, preview, export/re-import, persisted Draft Room, and derived-output serialization regressions with profile evidence assertions.
+- Automated validation passed: 199 focused recommendation, scenario-session, portability, replay, Draft Room, and repository-mapping tests, `npx tsc --noEmit`, `npm run lint`, and `git diff --check`. Lint reports only the documented pre-existing `stripLocations` warning in `src/lib/rankingNormalizer.test.ts`.
+
+## Blocker
+
+The browser skill could not connect to the in-app browser because the browser-control runtime rejected initialization before any page could be opened. Per the slice contract, manual Jefferson/London, pick/undo, persisted load, Scenario V1/V2, replay-target, and export/re-import QA remains required. Do not mark Task 15 complete or begin Task 16 until that browser QA succeeds.

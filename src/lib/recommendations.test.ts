@@ -209,6 +209,27 @@ function createCandidateSignal(
   };
 }
 
+function createTimingReasonEvidence(
+  overrides: Partial<Record<string, string | number | boolean | null>> = {},
+) {
+  return {
+    forecastStatus: "active",
+    candidateInCurrentPocket: true,
+    candidatePosition: "RB",
+    profilePosition: "RB",
+    profileOverallTierOrigin: "source",
+    profileOverallTier: 2,
+    profileAnchorPlayerId: "candidate-rb",
+    profileOrdinal: 1,
+    allocationRole: "full",
+    skipSafety: "low",
+    thresholdMatched: "low_skip_safety",
+    highestMeaningfulTierDisappeared: false,
+    profileDisappeared: false,
+    ...overrides,
+  };
+}
+
 function createRecommendationContext(
   rankings: readonly RecommendationRankingFact[],
 ): RecommendationRankingContext {
@@ -1001,6 +1022,17 @@ describe("generatePlayerRecommendations", () => {
         thresholdMatched: "profile_member_no_allocation",
       },
     });
+    expect(jefferson.reasons).toContainEqual({
+      id: "draft_pocket_timing:medium_skip_safety",
+      text: "Only limited comparable WR options remain in the forecasted next pocket.",
+      sourceComponentId: "draft_pocket_timing",
+      priority: 20,
+    });
+    expect(
+      london.reasons.some((reason) => {
+        return reason.sourceComponentId === "draft_pocket_timing";
+      }),
+    ).toBe(false);
     expect(before.indexOf(jefferson)).toBeLessThan(before.indexOf(london));
     expectScoreToReconcile(jefferson);
     expectScoreToReconcile(london);
@@ -1041,6 +1073,12 @@ describe("generatePlayerRecommendations", () => {
       },
     });
     if (promotedLondon) {
+      expect(promotedLondon.reasons).toContainEqual({
+        id: "draft_pocket_timing:medium_skip_safety",
+        text: "Only limited comparable WR options remain in the forecasted next pocket.",
+        sourceComponentId: "draft_pocket_timing",
+        priority: 20,
+      });
       expectScoreToReconcile(promotedLondon);
     }
   });
@@ -1176,9 +1214,156 @@ describe("generatePlayerRecommendations", () => {
     );
 
     const closeIds = getPlayerRecommendationIds(closeRecommendations);
+    const urgentRb = closeRecommendations.find((recommendation) => {
+      return recommendation.playerId === "urgent-rb";
+    });
+    const safeWr = closeRecommendations.find((recommendation) => {
+      return recommendation.playerId === "safe-wr";
+    });
 
     expect(closeIds.indexOf("urgent-rb")).toBeLessThan(closeIds.indexOf("safe-wr"));
+    expect(urgentRb?.reasons).toContainEqual(
+      expect.objectContaining({
+        id: "draft_pocket_timing:profile_disappeared",
+        sourceComponentId: "draft_pocket_timing",
+      }),
+    );
+    expect(
+      safeWr?.reasons.some((reason) => {
+        return reason.sourceComponentId === "draft_pocket_timing";
+      }),
+    ).toBe(false);
     expect(getPlayerRecommendationIds(eliteRecommendations)[0]).toBe("elite-wr");
+  });
+
+  it("keeps both-deep profiles neutral and both-thin profiles score-backed", () => {
+    const draft = createTestDraft({
+      rounds: 4,
+      picks: generateSnakeDraftOrder(2, 4),
+    });
+    const bothDeepFacts = [
+      createOverallTierRanking("deep-wr-1", 1, 1, {
+        adpRank: 100,
+        position: "WR",
+      }),
+      createOverallTierRanking("deep-rb-1", 2, 1, {
+        adpRank: 101,
+        position: "RB",
+      }),
+      createOverallTierRanking("deep-wr-2", 3, 1, {
+        adpRank: 102,
+        position: "WR",
+      }),
+      createOverallTierRanking("deep-rb-2", 4, 1, {
+        adpRank: 103,
+        position: "RB",
+      }),
+      createOverallTierRanking("removed-qb", 5, 1, {
+        adpRank: 1,
+        position: "QB",
+      }),
+      createOverallTierRanking("removed-te", 6, 1, {
+        adpRank: 2,
+        position: "TE",
+      }),
+      createOverallTierRanking("removed-k", 7, 1, {
+        adpRank: 3,
+        position: "K",
+      }),
+    ];
+    const bothThinFacts = [
+      createOverallTierRanking("thin-wr", 1, 1, {
+        adpRank: 1,
+        position: "WR",
+      }),
+      createOverallTierRanking("thin-rb", 2, 1, {
+        adpRank: 2,
+        position: "RB",
+      }),
+      createOverallTierRanking("removed-qb", 3, 1, {
+        adpRank: 3,
+        position: "QB",
+      }),
+      createOverallTierRanking("forecast-te", 4, 1, {
+        adpRank: 100,
+        position: "TE",
+      }),
+      createOverallTierRanking("forecast-dst", 5, 1, {
+        adpRank: 101,
+        position: "DST",
+      }),
+      createOverallTierRanking("forecast-k", 6, 1, {
+        adpRank: 102,
+        position: "K",
+      }),
+    ];
+    const generate = (facts: RecommendationRankingFact[]) => {
+      return generatePlayerRecommendations(
+        createRecommendationInput({
+          draft,
+          rankings: toRawRankings(facts),
+          recommendationRankingContext: createRecommendationContext(facts),
+        }),
+      );
+    };
+    const bothDeep = generate(bothDeepFacts);
+    const bothThin = generate(bothThinFacts);
+
+    for (const playerId of ["deep-wr-1", "deep-rb-1"]) {
+      const recommendation = bothDeep.find((candidate) => {
+        return candidate.playerId === playerId;
+      });
+      const timing = recommendation?.components.find(
+        ({ id }) => id === "draft_pocket_timing",
+      );
+
+      expect(timing).toMatchObject({
+        delta: 0,
+        evidence: {
+          replacementQuality: "high",
+          skipSafety: "high",
+          allocationRole: "neutral",
+        },
+      });
+      expect(
+        recommendation?.reasons.some(
+          ({ sourceComponentId }) =>
+            sourceComponentId === "draft_pocket_timing",
+        ),
+      ).toBe(false);
+    }
+
+    for (const playerId of ["thin-wr", "thin-rb"]) {
+      const recommendation = bothThin.find((candidate) => {
+        return candidate.playerId === playerId;
+      });
+      const timing = recommendation?.components.find(
+        ({ id }) => id === "draft_pocket_timing",
+      );
+
+      expect(timing).toMatchObject({
+        delta: 6,
+        evidence: {
+          replacementQuality: "low",
+          skipSafety: "low",
+          allocationRole: "full",
+          profileDisappeared: true,
+        },
+      });
+      expect(recommendation?.reasons).toContainEqual(
+        expect.objectContaining({
+          id: "draft_pocket_timing:profile_disappeared",
+        }),
+      );
+      if (recommendation) {
+        expectScoreToReconcile(recommendation);
+      }
+    }
+
+    expect(getPlayerRecommendationIds(bothThin).slice(0, 2)).toEqual([
+      "thin-wr",
+      "thin-rb",
+    ]);
   });
 
   it("preserves a filled-QB roster penalty alongside positive timing", () => {
@@ -1228,6 +1413,14 @@ describe("generatePlayerRecommendations", () => {
     if (!candidate) {
       throw new Error("Expected candidate QB recommendation.");
     }
+    expect(candidate.reasons).toContainEqual(
+      expect.objectContaining({
+        sourceComponentId: "draft_pocket_timing",
+      }),
+    );
+    expect(
+      candidate.components.find(({ id }) => id === "roster_fit")?.delta,
+    ).toBe(-6);
     expectScoreToReconcile(candidate);
   });
 
@@ -2364,11 +2557,7 @@ describe("generatePlayerRecommendations", () => {
           direction: "positive",
           priority: 20,
           evidence: {
-            forecastStatus: "active",
-            candidateInCurrentPocket: true,
-            candidatePosition: "RB",
-            skipSafety: "low",
-            thresholdMatched: "low_skip_safety",
+            ...createTimingReasonEvidence(),
             ...evidence,
           },
         },
@@ -2421,15 +2610,15 @@ describe("generatePlayerRecommendations", () => {
           delta: skipSafety === "low" ? 6 : 3,
           direction: "positive",
           priority: 20,
-          evidence: {
-            forecastStatus: "active",
-            candidateInCurrentPocket: true,
+          evidence: createTimingReasonEvidence({
             candidatePosition: position,
+            profilePosition: position,
             skipSafety,
+            allocationRole: "full",
             highestMeaningfulTierDisappeared: false,
             profileDisappeared: false,
             thresholdMatched,
-          },
+          }),
         },
       ],
       availableValueRank: 10,
@@ -2442,6 +2631,181 @@ describe("generatePlayerRecommendations", () => {
         text,
       }),
     ]);
+  });
+
+  it.each([
+    {
+      label: "full low-safety allocation",
+      delta: 6,
+      overrides: {},
+      id: "draft_pocket_timing:low_skip_safety",
+      text: "Comparable RB options are thin in the forecasted next pocket.",
+    },
+    {
+      label: "reduced low-safety allocation",
+      delta: 3,
+      overrides: { profileOrdinal: 2, allocationRole: "reduced" },
+      id: "draft_pocket_timing:low_skip_safety",
+      text: "Comparable RB options are thin in the forecasted next pocket.",
+    },
+    {
+      label: "full medium-safety allocation",
+      delta: 3,
+      overrides: {
+        skipSafety: "medium",
+        thresholdMatched: "medium_skip_safety",
+      },
+      id: "draft_pocket_timing:medium_skip_safety",
+      text: "Only limited comparable RB options remain in the forecasted next pocket.",
+    },
+  ])("maps $label from complete profile evidence", ({ delta, overrides, id, text }) => {
+    const reasons = selectRecommendationReasons({
+      ranking: createRanking("candidate-rb", 10, "RB"),
+      components: [
+        {
+          id: "draft_pocket_timing",
+          delta,
+          direction: "positive",
+          priority: 20,
+          evidence: createTimingReasonEvidence(overrides),
+        },
+      ],
+      availableValueRank: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(reasons).toEqual([
+      { id, text, sourceComponentId: "draft_pocket_timing", priority: 20 },
+    ]);
+  });
+
+  it.each([
+    ["mismatched profile position", { profilePosition: "WR" }],
+    ["invalid profile origin", { profileOverallTierOrigin: "legacy" }],
+    ["non-positive profile tier", { profileOverallTier: 0 }],
+    ["fractional profile tier", { profileOverallTier: 2.5 }],
+    ["missing profile anchor", { profileAnchorPlayerId: null }],
+    ["blank profile anchor", { profileAnchorPlayerId: " " }],
+    ["non-positive profile ordinal", { profileOrdinal: 0 }],
+    ["fractional profile ordinal", { profileOrdinal: 1.5 }],
+    ["neutral allocation", { allocationRole: "neutral" }],
+    ["reduced leader", { allocationRole: "reduced" }],
+    ["full later member", { allocationRole: "full", profileOrdinal: 2 }],
+  ] as const)("suppresses %s timing profile evidence", (_label, overrides) => {
+    const reasons = selectRecommendationReasons({
+      ranking: createRanking("candidate-rb", 10, "RB"),
+      components: [
+        {
+          id: "draft_pocket_timing",
+          delta: 6,
+          direction: "positive",
+          priority: 20,
+          evidence: createTimingReasonEvidence(overrides),
+        },
+      ],
+      availableValueRank: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(reasons).toEqual([]);
+  });
+
+  it("suppresses role, safety, threshold, and delta contradictions", () => {
+    const contradictoryComponents: RecommendationScoreComponent[] = [
+      {
+        id: "draft_pocket_timing",
+        delta: 3,
+        direction: "positive",
+        priority: 20,
+        evidence: createTimingReasonEvidence(),
+      },
+      {
+        id: "draft_pocket_timing",
+        delta: 3,
+        direction: "positive",
+        priority: 20,
+        evidence: createTimingReasonEvidence({
+          skipSafety: "medium",
+          allocationRole: "reduced",
+          profileOrdinal: 2,
+          thresholdMatched: "medium_skip_safety",
+        }),
+      },
+      {
+        id: "draft_pocket_timing",
+        delta: 3,
+        direction: "positive",
+        priority: 20,
+        evidence: createTimingReasonEvidence({
+          skipSafety: "medium",
+          thresholdMatched: "low_skip_safety",
+        }),
+      },
+    ];
+
+    for (const component of contradictoryComponents) {
+      expect(
+        selectRecommendationReasons({
+          ranking: createRanking("candidate-rb", 10, "RB"),
+          components: [component],
+          availableValueRank: 10,
+          tuning: defaultRecommendationTuningConfig,
+        }),
+      ).toEqual([]);
+    }
+  });
+
+  it("keeps defaulted-neutral profile reasons position-based", () => {
+    const reasons = selectRecommendationReasons({
+      ranking: createRanking("candidate-wr", 10, "WR"),
+      components: [
+        {
+          id: "draft_pocket_timing",
+          delta: 6,
+          direction: "positive",
+          priority: 20,
+          evidence: createTimingReasonEvidence({
+            candidatePosition: "WR",
+            profilePosition: "WR",
+            profileOverallTierOrigin: "defaulted-neutral",
+            highestMeaningfulTierDisappeared: true,
+            profileDisappeared: true,
+          }),
+        },
+      ],
+      availableValueRank: 10,
+      tuning: defaultRecommendationTuningConfig,
+    });
+
+    expect(reasons).toEqual([
+      {
+        id: "draft_pocket_timing:profile_disappeared",
+        text: "Similar WR options are not represented in the forecasted next pocket.",
+        sourceComponentId: "draft_pocket_timing",
+        priority: 20,
+      },
+    ]);
+  });
+
+  it("emits no reason for a zero profile allocation", () => {
+    const component = calculateDraftPocketTimingComponent({
+      signal: createCandidateSignal({
+        skipSafety: "medium",
+        allocationRole: "neutral",
+        profileOrdinal: 2,
+      }),
+      forecast: createTimingForecast(),
+    });
+
+    expect(component.delta).toBe(0);
+    expect(
+      selectRecommendationReasons({
+        ranking: createRanking("candidate-rb", 10, "RB"),
+        components: [component],
+        availableValueRank: 10,
+        tuning: defaultRecommendationTuningConfig,
+      }),
+    ).toEqual([]);
   });
 
   it.each([
@@ -2553,15 +2917,7 @@ describe("generatePlayerRecommendations", () => {
         delta: 6,
         direction: "positive",
         priority: 20,
-        evidence: {
-          forecastStatus: "active",
-          candidateInCurrentPocket: true,
-          candidatePosition: "RB",
-          skipSafety: "low",
-          thresholdMatched: "low_skip_safety",
-          highestMeaningfulTierDisappeared: false,
-          profileDisappeared: false,
-        },
+        evidence: createTimingReasonEvidence(),
       },
       {
         id: "overall_tier",
