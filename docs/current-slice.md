@@ -1,214 +1,190 @@
-# Current Slice - Task 14: Project Profile Transitions Into Monotonic Candidate Timing Allocation
+# Current Slice - Task 15: Integrate Profile-Backed Reasons and Corrective Workflow Regressions
 
 ## Status
 
-Complete. Implemented and validated on 2026-07-05.
+Planned. Awaiting implementation and validation.
 
 ## Context
 
-Task 13 added the pure shared profile-transition boundary. It groups each current position/overall-tier profile once, uses the highest-ranked member as a shared anchor, and derives common replacement quality and skip safety from the forecasted pocket.
+Tasks 13-14 replaced candidate-relative draft-pocket timing with shared position/overall-tier profile transitions and monotonic full/reduced allocation. The Recommendation Engine now emits profile identity, anchor, ordinal, allocation role, shared replacement counts, skip safety, and disappearance observations in each `draft_pocket_timing` component.
 
-Recommendation scoring still uses the superseded candidate-relative path. This slice replaces that path with candidate projections from the Task 13 transitions and applies the approved full/reduced allocation:
+The existing reason mapper still recognizes only the older subset of timing evidence. It currently relies on component direction, forecast status, current-pocket membership, candidate position, skip safety, and threshold. Task 15 closes the corrective work by requiring valid profile-backed allocation evidence before producing a reason and proving that derived output recomputes across persisted and transient workflows.
 
-| Shared profile skip safety | Profile leader | Other profile members |
-| --- | ---: | ---: |
-| Low | `+6` | `+3` |
-| Medium | `+3` | `0` |
-| High or neutral | `0` | `0` |
-
-Task 15 remains responsible for a focused review of reason semantics and workflow regressions. This slice must preserve existing reason wording and selection machinery while supplying it with the new component evidence.
+Reason wording does not need redesign. Existing language already describes future position/profile options rather than exact-player availability. This slice tightens eligibility, adds defaulted-neutral safeguards, and expands workflow regressions without changing scoring.
 
 ## Goal
 
-Compute profile transitions once per recommendation calculation, project their shared evidence onto current candidates, and replace candidate-relative draft-pocket scoring with deterministic allocation that can never award a lower-ranked member of a profile a larger timing modifier than a higher-ranked available member.
+Ensure every positive draft-pocket reason is backed by a material profile allocation from one shared transition, then prove profile-backed components, ordering, and reasons recompute deterministically across pick, undo, reset, restart, persisted load, Scenario V1/V2, replay-target, export, and re-import workflows.
 
 ## Scope
 
 ### Goals
 
-- Extend candidate signals with profile identity, shared anchor, one-based profile ordinal, and allocation role.
-- Make replacement counts, replacement quality, skip safety, and disappearance observations direct projections of one shared profile transition.
-- Keep candidate presence in the forecasted pocket as diagnostic evidence only.
-- Compute profile transitions once in the Phase 5.5 scoring context and reuse them for every recommendation candidate.
-- Apply the approved full/reduced/neutral timing allocation without new score values or tuning settings.
-- Remove the superseded candidate-relative forecasted-pocket scan after the profile-backed path is validated.
-- Preserve component reconciliation, urgency and context caps, deterministic ordering, and existing non-forecast modifiers.
-- Prove the Jefferson/London inversion cannot recur while both share the same current profile.
+- Require coherent profile identity and allocation evidence before mapping a positive timing component to a reason.
+- Allow reasons only for allocations that can produce the component's positive delta: full low, reduced low, or full medium.
+- Suppress timing reasons for zero allocations, neutral roles, malformed profile evidence, inactive forecasts, outside-pocket candidates, high safety, and ineligible positions.
+- Preserve the existing reason precedence and wording for highest meaningful tier disappearance, exact profile disappearance, low safety, and medium safety.
+- Keep defaulted-neutral reasons position-based and prevent meaningful overall-tier disappearance language.
+- Assert Jefferson's shared medium-profile reason and London's zero-allocation reason suppression while preserving their corrected ordering.
+- Cover deep, disappearing, both-deep, and both-thin RB/WR profiles plus QB/TE roster-fit interactions through score-backed reason assertions.
+- Prove persisted and transient workflows recompute profile-backed recommendation output from captured inputs.
+- Confirm Scenario V1/V2 export and replay remain independent of serialized derived output and mutable ranking sets.
 
 ### Non-goals
 
-- Do not change board forecasting, ADP normalization, target-pick selection, pocket construction, or Task 13 transition derivation.
-- Do not change draft-pocket reason wording, priority, materiality, caveat, or maximum-count rules.
-- Do not complete Task 15 workflow/reason validation or Task 16 exit validation.
-- Do not add score magnitudes, position weights, tuning configuration, hidden adjustments, or final-sort overrides.
-- Do not retune base value, overall tier, roster fit, tier pressure, scarcity, run pressure, or value opportunity.
-- Do not make raw ADP, removal-window membership, exact-player forecast presence, diversity labels, or missing-ADP fallback score directly.
-- Do not change persistence, scenario formats, repositories, React state, or UI controls.
+- Do not change profile transition derivation, candidate projection, allocation roles, timing deltas, scoring, caps, or ordering.
+- Do not add or change user-facing reason text, priorities, materiality thresholds, caveats, or maximum counts.
+- Do not add new recommendation components, reason categories, UI controls, or presentation.
+- Do not serialize profiles, transitions, components, adjustments, scores, or reasons.
+- Do not change scenario versions, ranking snapshots, database schema, repositories, replay rules, or persistence ownership.
+- Do not add direct ADP, exact-player-gone, diversity-label, fallback-ADP, or position-tier claims.
+- Do not begin the full Task 16 exit-validation matrix.
 
-## Candidate Projection Contract
+## Reason Eligibility Contract
 
-### Required Evidence
+### Required Profile Evidence
 
-Extend `CandidatePocketSignal` with:
-
-```text
-profile identity
-profile anchor player ID, nullable for a neutral projection
-one-based profile ordinal, nullable for a neutral projection
-allocation role: full | reduced | neutral
-```
-
-Retain the existing candidate fields for compatibility, but change their source:
-
-- `comparableReplacementCount` comes from the shared transition's forecasted comparable count.
-- `nearReplacementCount` comes from the shared transition's forecasted near count.
-- `replacementQuality` and `skipSafety` come directly from the shared transition.
-- `currentProfileCount` comes from the shared transition.
-- `forecastedProfileCount` maps to the transition's exact-profile count.
-- `profileDisappeared` maps to exact-profile disappearance.
-- `highestMeaningfulTierDisappeared` comes from the shared transition.
-- `candidateInForecastedPocket` remains an exact-player diagnostic and affects no category or delta.
-
-Every current candidate in one profile therefore receives identical shared transition evidence. Only player identity, forecast membership, profile ordinal, and allocation role may differ.
-
-### Neutral Projection
-
-A candidate receives a neutral projection when:
-
-- the forecast is not active;
-- the candidate is outside the current pocket; or
-- no future profile transition applies.
-
-Neutral projections retain the candidate's structural profile and diagnostic pocket membership. They use a null anchor, null ordinal, neutral allocation role, neutral replacement/skip levels, zero counts, and false disappearance observations.
-
-For an active forecast, a candidate listed in the current pocket must resolve to exactly one shared transition. Missing or duplicate membership is an explicit domain error rather than a neutral fallback.
-
-## Allocation Contract
-
-### Candidate Role
-
-Profile ordinal is one-based in overall-rank then stable-ID order.
-
-Derive allocation role from shared skip safety and ordinal:
+A positive `draft_pocket_timing` reason requires all existing timing evidence plus:
 
 ```text
-Low safety + ordinal 1       -> full
-Low safety + ordinal > 1     -> reduced
-Medium safety + ordinal 1    -> full
-Medium safety + ordinal > 1  -> neutral
-High or neutral safety       -> neutral
+profile position
+profile overall-tier origin
+profile overall-tier value
+profile anchor player ID
+one-based profile ordinal
+allocation role
 ```
 
-### Timing Delta
+The evidence must be internally coherent:
 
-Map role and shared skip safety to the existing `draft_pocket_timing` values:
+- profile position equals candidate position;
+- tier origin is `source` or `defaulted-neutral`;
+- overall tier is a positive finite integer;
+- anchor player ID is non-empty;
+- profile ordinal is a positive integer;
+- allocation role is valid for the shared skip safety and positive component delta.
 
-```text
-Full + low safety       -> +6
-Reduced + low safety    -> +3
-Full + medium safety    -> +3
-Every other state       -> 0
-```
+### Valid Positive Allocations
 
-The component remains eligible only for an active forecast, a current-pocket candidate, and QB/RB/WR/TE. DST and K remain neutral even if their profile transition is low or medium safety.
+Reasons are eligible only for:
 
-The timing delta continues through the existing urgency cap and total-context cap. It must reconcile from the component and existing adjustments without a new same-profile adjustment.
+| Skip safety | Allocation role | Component delta | Threshold |
+| --- | --- | ---: | --- |
+| Low | Full | `+6` | `low_skip_safety` |
+| Low | Reduced | `+3` | `low_skip_safety` |
+| Medium | Full | `+3` | `medium_skip_safety` |
 
-### Component Evidence
+Every other role/safety/delta combination is unsupported and produces no timing reason.
 
-Add profile identity, anchor, ordinal, and allocation role to `draft_pocket_timing` evidence. Preserve the existing forecast status, target pick, candidate position, pocket membership, shared counts, safety levels, and disappearance observations.
+The reason mapper validates the component it receives; it does not recalculate scores, repair malformed evidence, or infer allocation from ordinal.
 
-Keep the existing `low_skip_safety` and `medium_skip_safety` thresholds for positive full or reduced allocations so current reason wording and selection remain unchanged in this slice. Use a deterministic neutral threshold such as `profile_member_no_allocation` when a medium-safety non-leader receives zero. High and neutral states retain their existing neutral meanings.
+### Reason Precedence
+
+For an eligible positive allocation, retain the existing precedence:
+
+1. A meaningful source tier disappeared from the forecasted pocket.
+2. The exact position/overall-tier profile disappeared.
+3. Low skip safety left the profile thin.
+4. Medium skip safety left limited comparable options.
+
+Defaulted-neutral profiles skip step 1 even if contradictory evidence claims a meaningful tier disappeared. They may use position/profile language from steps 2-4 because the neutral tier does not represent a real quality boundary.
+
+Zero-allocation candidates have neutral timing components and therefore no timing reason, even when their shared profile has low or medium skip safety.
+
+## Workflow Recalculation Contract
+
+Profile transitions, candidate projections, allocations, scores, and reasons remain derived values. Every supported state change must call the existing recommendation boundary with current draft state and captured ranking context:
+
+- accepted pick;
+- rejected pick, with the original state retained;
+- undo;
+- reset from source;
+- persisted workspace load;
+- transient restart;
+- replay-target replacement;
+- between-turn and on-turn preview;
+- Scenario V1/V2 export and re-import.
+
+No workflow may cache, serialize, or restore profile-derived output as authoritative state.
 
 ## Implementation Steps
 
-1. In `src/types/draft.ts`, add a narrow `DraftPocketTimingAllocationRole` union of `full | reduced | neutral` and extend `CandidatePocketSignal` with `profile`, nullable `profileAnchorPlayerId`, nullable one-based `profileOrdinal`, and `allocationRole`.
-2. Refactor `createCandidatePocketSignal` in `src/lib/draftPocketForecast.ts` to accept the candidate, shared forecast, and the already-derived `DraftPocketProfileTransition[]`. Remove its rankings input and all candidate-relative ranking resolution, rank-window scanning, replacement classification, and candidate-presence skip-safety adjustment.
-3. For inactive forecasts and candidates outside the current pocket, return the neutral projection defined above. For active current-pocket candidates, find the single transition whose ordered `currentPlayerIds` contains the candidate.
-4. Fail explicitly if an active current-pocket candidate resolves to no transition or more than one transition. Validate that the candidate's position, overall-tier origin, and overall-tier value match the transition profile before projecting it.
-5. Derive one-based profile ordinal from the candidate's index in `currentPlayerIds`. Project every shared count, category, and disappearance observation directly from the transition; use forecasted-pocket membership only for `candidateInForecastedPocket` evidence.
-6. Derive `allocationRole` exactly from profile ordinal and shared skip safety. Do not calculate a score inside the forecast-analysis function.
-7. In `src/lib/recommendations.ts`, construct `forecast` once inside `createPhase55ScoringContext`, call `createDraftPocketProfileTransitions` once with that forecast and normalized rankings, and retain both values in the scoring context.
-8. Pass the shared transition collection to `createCandidatePocketSignal` for every candidate. Do not call transition derivation inside the candidate map.
-9. Update `calculateDraftPocketTimingComponent` to map allocation role plus shared skip safety to `+6`, `+3`, or `0`. Preserve forecast/current-pocket/position eligibility checks, existing component priority, caps, and evidence exclusions.
-10. Preserve current reason behavior by retaining `low_skip_safety` or `medium_skip_safety` for material positive components. A zero-allocation profile member must produce a neutral component and therefore no positive timing reason.
-11. Replace the superseded `createCandidatePocketSignal` unit tests in `src/lib/draftPocketForecast.test.ts` with profile-projection tests covering shared evidence, full/reduced/neutral roles, neutral projections, exact-player diagnostic independence, leader promotion, deterministic ties, transition mismatch, and immutability. Keep Task 13 transition tests intact.
-12. Update direct component tests in `src/lib/recommendations.test.ts` for every valid role/safety combination and all existing neutral eligibility states. Assert complete profile-backed evidence and continued absence of raw ADP, removal-window, fallback, and diversity-label evidence.
-13. Add an integrated Jefferson/London regression using their default rank, ADP, position, and tier facts. Assert both read one shared medium-safety WR/source-tier-2 transition, Jefferson receives the full `+3`, London receives `0`, Jefferson remains ordered first, and every score reconciles.
-14. Add leader-promotion coverage: after Jefferson is drafted or unavailable, London becomes the profile leader and receives the full modifier supported by the recomputed shared transition.
-15. Preserve and update existing urgency-cap, context-cap, QB/TE roster-fit, DST/K neutrality, deterministic ordering, and no-ADP/no-next-pick regressions only where the intentional profile-backed evidence changes their exact expectations.
-16. Run focused validation:
+1. In `src/lib/recommendations.ts`, extend `buildDraftPocketTimingReasonCandidate` to read the profile position, tier origin/value, anchor ID, one-based ordinal, and allocation role emitted by Task 14.
+2. Validate profile evidence and require profile position to match candidate position. Reuse the existing typed evidence readers; add only the smallest local validation helper needed for allocation coherence.
+3. Accept exactly the three positive allocation combinations in the table above, including reduced low-safety `+3`. Reject malformed deltas, role/safety mismatches, neutral roles, invalid ordinals, missing anchors, and contradictory thresholds.
+4. Preserve existing timing reason IDs, text, priority, and precedence. For `defaulted-neutral` profile origin, ignore `highestMeaningfulTierDisappeared` when choosing a reason and fall through to position/profile, low-, or medium-safety language.
+5. In `src/lib/recommendations.test.ts`, update direct reason fixtures to carry complete profile evidence. Add exact full-low, reduced-low, and full-medium reason cases plus suppression cases for zero allocation and every malformed profile/allocation combination.
+6. Add a defaulted-neutral regression proving a positive profile allocation may produce position-based timing language but never `draft_pocket_timing:highest_meaningful_tier_disappeared` or overall-tier disappearance text.
+7. Extend the integrated Jefferson/London test to assert Jefferson's material medium-profile reason is backed by his full allocation, London has no draft-pocket timing reason while his allocation is zero, and London receives the same approved reason only after promotion to profile leader.
+8. Add or refine integrated profile fixtures for deep, disappearing, both-deep, and both-thin RB/WR states and QB/TE filled-versus-open roster states. Assert component delta, allocation role, reason presence/suppression, ordering, and exact score reconciliation without changing tuning.
+9. In `src/lib/scenarioSession.test.ts`, assert profile identity, anchor, ordinal, allocation role, and reason output recompute after local pick, undo, reset, restart, between-turn/on-turn changes, and replay-target replacement. Prefer extending existing workflow tests rather than duplicating their setup.
+10. For Scenario V1, assert defaulted-neutral timing reasons remain position-based and never claim meaningful overall-tier disappearance. For Scenario V2, assert source-profile evidence and reasons survive export/re-import through recomputation while derived profiles remain absent from the portable document.
+11. In `src/components/DraftRoom.test.tsx`, strengthen the persisted-workspace boundary test to assert rendered recommendations match profile-backed engine ordering, scores, component evidence, and reasons. Keep structured normalization failure behavior unchanged.
+12. Run the focused corrective regression set:
 
    ```powershell
-   npm test -- src/lib/draftPocketForecast.test.ts src/lib/recommendations.test.ts src/lib/scenarioSession.test.ts src/components/DraftRoom.test.tsx
+   npm test -- src/lib/recommendations.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioPortability.test.ts src/lib/scenarioReplay.test.ts src/components/DraftRoom.test.tsx src/lib/draftRepositoryMapping.test.ts
    npx tsc --noEmit
    npm run lint
    git diff --check
    ```
 
-17. After validation passes, mark Task 14 complete in `docs/tasks.md` and add dated completion notes to this file. Do not begin Task 15.
+13. Complete focused manual QA in the running Draft Room:
+   - reproduce the default Jefferson/London state and confirm Jefferson remains first with a profile-backed reason while London has no timing reason;
+   - draft Jefferson and confirm London is promoted and receives the full applicable profile-backed reason;
+   - undo and confirm the original ordering, allocation, and reasons return;
+   - load a persisted workspace and import Scenario V1 and V2, then verify recommendation evidence and reasons recompute after a pick and replay-target change;
+   - export and re-import the active scenario and confirm equivalent ordering, components, adjustments, scores, and reasons.
+14. After automated and manual validation pass, mark Task 15 complete in `docs/tasks.md` and add dated completion notes to this file. Do not begin Task 16.
 
 ## Expected Files
 
-- `src/types/draft.ts`
-- `src/lib/draftPocketForecast.ts`
-- `src/lib/draftPocketForecast.test.ts`
 - `src/lib/recommendations.ts`
 - `src/lib/recommendations.test.ts`
+- `src/lib/scenarioSession.test.ts`
+- `src/components/DraftRoom.test.tsx`
 - `docs/tasks.md`, status and testing-status updates only after validation
 - `docs/current-slice.md`, completion notes only after validation
 
-Expected production/test blast radius: five code and test files, plus two status-only documentation updates.
+Expected production/test blast radius: one production file and three existing test files, plus two status-only documentation updates.
 
 ## Acceptance Criteria
 
-- Profile transitions are computed exactly once per Phase 5.5 recommendation calculation and reused for all candidate projections.
-- Every current candidate in one profile receives identical profile identity, anchor, shared counts, replacement quality, skip safety, and disappearance observations.
-- Profile ordinal is one-based and follows overall rank then stable player ID; removing the leader promotes the next member deterministically.
-- Candidate forecast membership remains inspectable but cannot change shared replacement quality, skip safety, allocation role, or timing delta.
-- Low-safety leaders receive `+6`, later low-safety members receive `+3`, medium-safety leaders receive `+3`, and later medium-safety members receive `0`.
-- High, neutral, inactive, outside-pocket, DST, and K cases receive `0`.
-- Within every profile, a higher-ranked member's timing delta is greater than or equal to every lower-ranked member's timing delta.
-- Jefferson and London share medium-safety WR/source-tier-2 evidence; Jefferson receives `+3`, London receives `0`, and London cannot outrank Jefferson from draft-pocket timing while both are available.
-- When Jefferson becomes unavailable, London becomes the recomputed profile leader and receives the full applicable timing modifier.
-- Active current-pocket candidates missing a unique matching transition fail explicitly rather than silently using candidate-relative or neutral behavior.
-- Raw ADP, exact removal, candidate forecast membership, missing-ADP fallback, and diversity labels remain non-scoring.
-- Every score reconciles exactly from components and adjustments; no final-sort override or hidden correction is introduced.
-- Existing urgency/context caps, overall-tier scoring, roster fit, tier pressure, scarcity, run pressure, value opportunity, QB/TE handling, deterministic ties, and legacy no-context behavior remain intact.
-- Existing reason wording and selection rules remain unchanged; zero timing components emit no positive timing reason.
-- Focused tests, TypeScript validation, lint, and `git diff --check` pass with no new warnings.
+- Every positive draft-pocket reason contains complete, coherent profile identity, anchor, ordinal, allocation, safety, and threshold evidence.
+- Full low-safety `+6`, reduced low-safety `+3`, and full medium-safety `+3` components retain their existing approved reason IDs and wording.
+- Zero allocations and malformed role/safety/delta combinations produce no timing reason.
+- Missing or invalid profile position, tier origin/value, anchor, ordinal, or allocation role produces no timing reason.
+- Defaulted-neutral profiles may produce position-based timing reasons but never meaningful overall-tier disappearance reasons or text.
+- Jefferson remains above London; Jefferson's full medium allocation produces the approved limited-options reason, London has no timing reason at zero allocation, and promoted London receives the approved reason after Jefferson is drafted.
+- Deep profiles with high skip safety remain reason-neutral; disappearing and thin profiles produce only the single reason backed by their allocated timing component.
+- Both-deep and both-thin RB/WR cases preserve player-quality and roster-context ordering under existing caps.
+- QB/TE profile reasons remain subordinate to existing filled-position penalties and never invent a onesie roster need.
+- Pick, undo, reset, persisted load, restart, replay-target, and between-turn/on-turn changes recompute exact deterministic profile-backed output.
+- Scenario V1 remains defaulted-neutral; Scenario V2 preserves source semantics; export/re-import reproduces derived ordering, components, adjustments, scores, and reasons without serializing profile output.
+- Persisted Draft Room rendering preserves engine recommendation order, displayed scores, and reason text.
+- Existing overall-tier reasons, materiality, priority, caveat, maximum-count, score reconciliation, draft invariants, and structured-error behavior remain intact.
+- Focused tests, TypeScript validation, lint, manual QA, and `git diff --check` pass with no new warnings.
 
 ## Failure Conditions
 
 Stop and report instead of broadening the slice if:
 
-- monotonic allocation requires a final-sort override, hidden adjustment, or score that does not reconcile;
-- profile transitions must be rebuilt per candidate or candidate-relative rank windows are required;
-- candidate forecast membership must affect skip safety or timing to preserve existing behavior;
-- correct integration requires new score magnitudes, tuning settings, reason wording, persistence, scenario-format, repository, React, or UI changes;
-- the Jefferson/London regression cannot be reproduced from deterministic inputs;
-- validation exposes an unrelated failure or requires files outside the expected implementation/test set.
+- correct profile-backed reasons require new wording, priorities, categories, scoring, or allocation changes;
+- a workflow requires serializing or persisting profile transitions or recommendation output;
+- Scenario V1 compatibility requires treating legacy or defaulted-neutral tiers as meaningful source tiers;
+- persisted, replayed, or exported output depends on the mutable source ranking set;
+- manual QA requires UI controls, schema changes, or workflow behavior outside the existing workbench;
+- validation exposes an unrelated failure or requires production changes outside `src/lib/recommendations.ts`.
 
 ## Slice Review
 
-1. Smallest meaningful increment: yes - it replaces only candidate projection and timing allocation while deferring reason/workflow hardening to Task 15.
-2. Executable without redefining the approach: yes - signal fields, neutral behavior, lookup rules, allocation roles, deltas, evidence, integration ownership, tests, and failures are explicit.
-3. Avoids unnecessary architecture changes: yes - it reuses the pure forecast, shared transitions, existing component, and existing caps without new state or abstractions.
-4. Reasonable blast radius: yes - three domain/type files and two focused recommendation files; documentation changes are status-only.
-5. Comfortably reviewable and revertible: yes - the superseded candidate-relative path is replaced at one domain boundary and one scoring call site.
-6. Observable and testable acceptance criteria: yes - shared evidence, roles, deltas, ordering, score reconciliation, promotion, and neutrality are deterministic outputs.
+1. Smallest meaningful increment: yes - it hardens reason eligibility and proves existing workflows after the completed scoring correction.
+2. Executable without redefining the approach: yes - required evidence, valid allocation combinations, precedence, workflow states, tests, manual checks, and stop conditions are explicit.
+3. Avoids unnecessary architecture changes: yes - no scoring, persistence, scenario, replay, or UI contract changes are authorized.
+4. Reasonable blast radius: yes - one production reason mapper and three focused test files.
+5. Comfortably reviewable and revertible: yes - production behavior changes only by suppressing reasons that lack valid profile-backed allocation evidence.
+6. Observable and testable acceptance criteria: yes - reason IDs/text, component evidence, state transitions, rendered output, and round-trip equality are deterministic.
 
 ## Follow-up
 
-After Task 14 is complete, promote Task 15 to validate profile-backed reasons and recomputation across persisted, preview, scenario, replay, and workbench workflows before final Phase 5.5 exit validation.
-
-## Completion Notes
-
-- Extended candidate signals with structural profile identity, shared anchor, one-based ordinal, and full/reduced/neutral allocation role.
-- Replaced candidate-relative forecasted-pocket scanning with projections from one shared transition collection computed once per recommendation calculation.
-- Mapped low-safety leaders to `+6`, later low-safety members to `+3`, medium-safety leaders to `+3`, and every other profile allocation to `0` under the existing urgency and context caps.
-- Kept exact-player forecast membership diagnostic and preserved raw ADP, removal membership, fallback status, and diversity labels as non-scoring evidence.
-- Added explicit errors for missing, duplicate, or profile-mismatched active candidate transitions and retained neutral projections for inactive or outside-pocket candidates.
-- Added the integrated Jefferson/London regression: both share medium-safety WR/source-tier-2 evidence, Jefferson receives `+3`, London receives `0`, and London becomes the full-allocation leader after Jefferson is drafted.
-- Preserved existing reason wording and selection behavior for Task 15 review.
-- Validation passed: 167 focused forecast, recommendation, scenario-session, and Draft Room tests, `npx tsc --noEmit`, `npm run lint`, and `git diff --check`. Lint reports only the documented pre-existing `stripLocations` warning in `src/lib/rankingNormalizer.test.ts`.
+After Task 15 is complete, promote Task 16 to run full Phase 5.5 regression, persistence, production-build, and manual exit validation without adding product behavior.
