@@ -580,7 +580,7 @@ Recompute deterministic Phase 5.5 forecasts and recommendations throughout scena
 
 ## Task 13 - Add Shared Position/Tier Profile Transition Analysis
 
-- [ ] Not started
+- [x] Complete
 
 ### Goal
 
@@ -779,7 +779,7 @@ Prove overall-tier quality and profile-level draft-pocket timing improve decisio
 
 Phase 5 exit validation is complete. Phase 5.5 normalization, workflow propagation, overall-tier component, deterministic board forecasting, tier-aware pocket construction, the original candidate-relative replacement and skip-safety model, bounded scoring integration, score-backed explanations, persisted/transient preview wiring, the portable Scenario V2 ranking-context contract, and version-aware replay/workbench integration are complete through Task 12. The original direct-ADP component has been removed from executable code under its approved supersession. Task 12 validation passed on 2026-07-03: 208 focused scenario, portability, replay, Draft Room, repository-mapping, forecast, and recommendation tests; TypeScript validation; lint with only the documented pre-existing `rankingNormalizer.test.ts` warning; and `git diff --check`.
 
-Exit validation exposed a same-profile quality inversion in which candidate-relative replacement analysis could award a larger timing modifier to a lower-ranked player in the same position/source-tier profile. Tasks 13-15 apply the corrective profile-transition design before Task 16 resumes realistic positional scenarios, workflow regressions, full automated validation, and focused manual exit QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, scenario, and replay coverage remain mandatory regression gates.
+Exit validation exposed a same-profile quality inversion in which candidate-relative replacement analysis could award a larger timing modifier to a lower-ranked player in the same position/source-tier profile. Task 13 is complete: shared position/tier profile identity, stable anchors, forecast option classifications, replacement quality, skip safety, disappearance evidence, neutral states, and the Jefferson/London transition regression are implemented as a pure parallel boundary without changing scoring. Task 13 validation passed on 2026-07-05: 142 focused forecast and recommendation tests, TypeScript validation, lint with only the documented pre-existing `rankingNormalizer.test.ts` warning, and `git diff --check`. Tasks 14-15 must integrate monotonic allocation and profile-backed reasons before Task 16 resumes realistic positional scenarios, workflow regressions, full automated validation, and focused manual exit QA. Existing draft invariants and completed Phase 5 ranking, snapshot, persistence, scenario, and replay coverage remain mandatory regression gates.
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Awaiting implementation and validation.
+Complete. Implemented and validated on 2026-07-05.
 
 ## Context
 
@@ -196,3 +196,12 @@ Stop and report instead of broadening the slice if:
 ## Follow-up
 
 After Task 13 is complete, promote Task 14 to project shared profile transitions into candidate evidence and replace candidate-relative timing with monotonic full/reduced modifier allocation.
+
+## Completion Notes
+
+- Added explicit immutable profile and profile-transition domain types without changing the existing forecast contract.
+- Added one pure shared transition derivation that groups current-pocket candidates by position and overall-tier semantics, uses a stable profile anchor, and classifies forecasted options through the shared 12-rank window.
+- Derived exact/comparable/near evidence, profile-level replacement quality and skip safety, exact-profile disappearance, and highest-meaningful-tier disappearance while keeping defaulted-neutral tiers free of meaningful-tier claims.
+- Preserved the existing candidate-relative signal and recommendation path for Task 14; recommendation scores, ordering, components, and reasons remain unchanged.
+- Added focused coverage for source and neutral profiles, thresholds, rank-window boundaries, stable ties, inactive states, explicit failures, immutability, and the Jefferson/London shared-profile regression.
+- Validation passed: 142 focused forecast and recommendation tests, `npx tsc --noEmit`, `npm run lint`, and `git diff --check`. Lint reports only the documented pre-existing `stripLocations` warning in `src/lib/rankingNormalizer.test.ts`.

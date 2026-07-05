@@ -64,6 +64,29 @@ export type DraftPocket = Readonly<{
 
 export type DraftPocketSignalLevel = "high" | "medium" | "low" | "neutral";
 
+export type DraftPocketProfile = Readonly<{
+  position: Position;
+  overallTierOrigin: RecommendationOverallTierOrigin;
+  overallTier: number;
+}>;
+
+export type DraftPocketProfileTransition = Readonly<{
+  profile: DraftPocketProfile;
+  anchorPlayerId: string;
+  anchorOverallRank: number;
+  currentPlayerIds: readonly string[];
+  currentProfileCount: number;
+  forecastedComparablePlayerIds: readonly string[];
+  forecastedNearPlayerIds: readonly string[];
+  forecastedExactProfileCount: number;
+  forecastedComparableCount: number;
+  forecastedNearCount: number;
+  replacementQuality: DraftPocketSignalLevel;
+  skipSafety: DraftPocketSignalLevel;
+  exactProfileDisappeared: boolean;
+  highestMeaningfulTierDisappeared: boolean;
+}>;
+
 export type CandidatePocketSignal = Readonly<{
   candidatePlayerId: string;
   candidatePosition: Position;

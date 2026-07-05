@@ -4,6 +4,7 @@ import {
   createCandidatePocketSignal,
   createDraftPocket,
   createDraftPocketForecast,
+  createDraftPocketProfileTransitions,
 } from "@/lib/draftPocketForecast";
 import type {
   Draft,
@@ -281,6 +282,377 @@ describe("createDraftPocket", () => {
     });
 
     expect(createDraftPocket(rankings).diversityLabels).toEqual([label]);
+  });
+});
+
+describe("createDraftPocketProfileTransitions", () => {
+  it("groups the Jefferson and London profile around one shared anchor", () => {
+    const jefferson = createRanking("justin-jefferson", 9, 10, "WR", {
+      overallTier: 2,
+    });
+    const london = createRanking("drake-london", 11, 18, "WR", {
+      overallTier: 2,
+    });
+    const taylor = createRanking("jonathan-taylor", 10, 8, "RB", {
+      overallTier: 2,
+    });
+    const collins = createRanking("nico-collins", 12, 23, "WR", {
+      overallTier: 3,
+    });
+    const rankings = [collins, london, taylor, jefferson];
+    const forecast = createActiveForecast(
+      [london, taylor, jefferson],
+      [collins, london],
+    );
+
+    expect(
+      createDraftPocketProfileTransitions({ forecast, rankings }),
+    ).toEqual([
+      {
+        profile: {
+          position: "WR",
+          overallTierOrigin: "source",
+          overallTier: 2,
+        },
+        anchorPlayerId: "justin-jefferson",
+        anchorOverallRank: 9,
+        currentPlayerIds: ["justin-jefferson", "drake-london"],
+        currentProfileCount: 2,
+        forecastedComparablePlayerIds: ["drake-london"],
+        forecastedNearPlayerIds: ["nico-collins"],
+        forecastedExactProfileCount: 1,
+        forecastedComparableCount: 1,
+        forecastedNearCount: 1,
+        replacementQuality: "medium",
+        skipSafety: "medium",
+        exactProfileDisappeared: false,
+        highestMeaningfulTierDisappeared: false,
+      },
+      {
+        profile: {
+          position: "RB",
+          overallTierOrigin: "source",
+          overallTier: 2,
+        },
+        anchorPlayerId: "jonathan-taylor",
+        anchorOverallRank: 10,
+        currentPlayerIds: ["jonathan-taylor"],
+        currentProfileCount: 1,
+        forecastedComparablePlayerIds: [],
+        forecastedNearPlayerIds: [],
+        forecastedExactProfileCount: 0,
+        forecastedComparableCount: 0,
+        forecastedNearCount: 0,
+        replacementQuality: "low",
+        skipSafety: "low",
+        exactProfileDisappeared: true,
+        highestMeaningfulTierDisappeared: false,
+      },
+    ]);
+  });
+
+  it("classifies same and better tiers as comparable and worse tiers as near", () => {
+    const candidate = createRanking("candidate-rb", 20, 20, "RB", {
+      overallTier: 2,
+    });
+    const better = createRanking("better-rb", 18, 18, "RB", {
+      overallTier: 1,
+    });
+    const exact = createRanking("exact-rb", 25, 25, "RB", {
+      overallTier: 2,
+    });
+    const nearWithGap = createRanking("near-rb", 26, 26, "RB", {
+      overallTier: 9,
+    });
+    const differentPosition = createRanking("different-wr", 21, 21, "WR", {
+      overallTier: 2,
+    });
+    const transition = createDraftPocketProfileTransitions({
+      forecast: createActiveForecast(
+        [candidate],
+        [nearWithGap, exact, differentPosition, better],
+      ),
+      rankings: [candidate, better, exact, nearWithGap, differentPosition],
+    })[0];
+
+    expect(transition).toMatchObject({
+      forecastedComparablePlayerIds: ["better-rb", "exact-rb"],
+      forecastedNearPlayerIds: ["near-rb"],
+      forecastedExactProfileCount: 1,
+      forecastedComparableCount: 2,
+      forecastedNearCount: 1,
+      replacementQuality: "high",
+      skipSafety: "high",
+    });
+  });
+
+  it("derives medium from near-only depth and low when no option remains", () => {
+    const candidateRb = createRanking("candidate-rb", 20, 20, "RB", {
+      overallTier: 2,
+    });
+    const candidateTe = createRanking("candidate-te", 21, 21, "TE", {
+      overallTier: 2,
+    });
+    const nearRb = createRanking("near-rb", 25, 25, "RB", {
+      overallTier: 3,
+    });
+    const transitions = createDraftPocketProfileTransitions({
+      forecast: createActiveForecast([candidateRb, candidateTe], [nearRb]),
+      rankings: [candidateRb, candidateTe, nearRb],
+    });
+
+    expect(transitions[0]).toMatchObject({
+      anchorPlayerId: "candidate-rb",
+      forecastedComparableCount: 0,
+      forecastedNearCount: 1,
+      replacementQuality: "medium",
+      skipSafety: "medium",
+      exactProfileDisappeared: true,
+    });
+    expect(transitions[1]).toMatchObject({
+      anchorPlayerId: "candidate-te",
+      forecastedComparableCount: 0,
+      forecastedNearCount: 0,
+      replacementQuality: "low",
+      skipSafety: "low",
+      exactProfileDisappeared: true,
+    });
+  });
+
+  it("uses the shared anchor at rank-window boundaries for every profile member", () => {
+    const laterMember = createRanking("later-member", 24, 24, "WR", {
+      overallTier: 2,
+    });
+    const anchor = createRanking("anchor", 20, 20, "WR", {
+      overallTier: 2,
+    });
+    const atBoundary = createRanking("at-boundary", 32, 32, "WR", {
+      overallTier: 2,
+    });
+    const outsideBoundary = createRanking("outside-boundary", 33, 33, "WR", {
+      overallTier: 2,
+    });
+    const transition = createDraftPocketProfileTransitions({
+      forecast: createActiveForecast(
+        [laterMember, anchor],
+        [outsideBoundary, atBoundary],
+      ),
+      rankings: [laterMember, anchor, atBoundary, outsideBoundary],
+    })[0];
+
+    expect(transition).toMatchObject({
+      anchorPlayerId: "anchor",
+      anchorOverallRank: 20,
+      currentPlayerIds: ["anchor", "later-member"],
+      forecastedComparablePlayerIds: ["at-boundary"],
+      forecastedComparableCount: 1,
+      replacementQuality: "medium",
+    });
+  });
+
+  it("treats defaulted-neutral tiers as position depth only", () => {
+    const candidate = createRanking("candidate-wr", 20, 20, "WR", {
+      overallTierOrigin: "defaulted-neutral",
+    });
+    const first = createRanking("first-wr", 25, 25, "WR", {
+      overallTier: 8,
+      overallTierOrigin: "defaulted-neutral",
+    });
+    const second = createRanking("second-wr", 32, 32, "WR", {
+      overallTier: 9,
+      overallTierOrigin: "defaulted-neutral",
+    });
+    const outside = createRanking("outside-wr", 33, 33, "WR", {
+      overallTierOrigin: "defaulted-neutral",
+    });
+    const transition = createDraftPocketProfileTransitions({
+      forecast: createActiveForecast(
+        [candidate],
+        [outside, second, first],
+      ),
+      rankings: [candidate, first, second, outside],
+    })[0];
+
+    expect(transition).toMatchObject({
+      forecastedComparablePlayerIds: ["first-wr", "second-wr"],
+      forecastedNearPlayerIds: [],
+      forecastedExactProfileCount: 0,
+      forecastedComparableCount: 2,
+      forecastedNearCount: 0,
+      replacementQuality: "high",
+      skipSafety: "high",
+      exactProfileDisappeared: true,
+      highestMeaningfulTierDisappeared: false,
+    });
+  });
+
+  it("tracks exact-profile and highest-tier disappearance independently", () => {
+    const candidate = createRanking("candidate-rb", 10, 10, "RB", {
+      overallTier: 1,
+    });
+    const sameTierOtherPosition = createRanking("tier-peer-wr", 12, 12, "WR", {
+      overallTier: 1,
+    });
+    const lowerTier = createRanking("lower-tier-wr", 18, 18, "WR", {
+      overallTier: 2,
+    });
+    const rankings = [candidate, sameTierOtherPosition, lowerTier];
+    const tierRemains = createDraftPocketProfileTransitions({
+      forecast: createActiveForecast([candidate], [sameTierOtherPosition]),
+      rankings,
+    })[0];
+    const tierDisappears = createDraftPocketProfileTransitions({
+      forecast: createActiveForecast([candidate], [lowerTier]),
+      rankings,
+    })[0];
+
+    expect(tierRemains).toMatchObject({
+      exactProfileDisappeared: true,
+      highestMeaningfulTierDisappeared: false,
+    });
+    expect(tierDisappears).toMatchObject({
+      exactProfileDisappeared: true,
+      highestMeaningfulTierDisappeared: true,
+    });
+  });
+
+  it("keeps shared safety independent of which exact member remains forecasted", () => {
+    const jefferson = createRanking("justin-jefferson", 9, 10, "WR", {
+      overallTier: 2,
+    });
+    const london = createRanking("drake-london", 11, 18, "WR", {
+      overallTier: 2,
+    });
+    const collins = createRanking("nico-collins", 12, 23, "WR", {
+      overallTier: 3,
+    });
+    const rankings = [jefferson, london, collins];
+    const londonRemainsForecast = {
+      ...createActiveForecast([jefferson, london], [london, collins]),
+      removalWindowPlayerIds: [jefferson.player.id],
+    };
+    const jeffersonRemainsForecast = {
+      ...createActiveForecast([jefferson, london], [jefferson, collins]),
+      removalWindowPlayerIds: [london.player.id],
+    };
+    const londonRemains = createDraftPocketProfileTransitions({
+      forecast: londonRemainsForecast,
+      rankings,
+    })[0];
+    const jeffersonRemains = createDraftPocketProfileTransitions({
+      forecast: jeffersonRemainsForecast,
+      rankings,
+    })[0];
+
+    expect(londonRemains).toMatchObject({
+      anchorPlayerId: "justin-jefferson",
+      currentPlayerIds: ["justin-jefferson", "drake-london"],
+      forecastedExactProfileCount: 1,
+      forecastedComparableCount: 1,
+      forecastedNearCount: 1,
+      replacementQuality: "medium",
+      skipSafety: "medium",
+    });
+    expect(jeffersonRemains).toMatchObject({
+      anchorPlayerId: "justin-jefferson",
+      currentPlayerIds: ["justin-jefferson", "drake-london"],
+      forecastedExactProfileCount: 1,
+      forecastedComparableCount: 1,
+      forecastedNearCount: 1,
+      replacementQuality: "medium",
+      skipSafety: "medium",
+    });
+  });
+
+  it("returns no transitions for inactive or empty forecasts", () => {
+    const candidate = createRanking("candidate", 10, null, "RB", {
+      overallTier: 1,
+    });
+    const active = createActiveForecast([candidate], [candidate]);
+    const noAdp: DraftPocketForecast = {
+      ...active,
+      status: "no-adp",
+      forecastedPocket: null,
+    };
+    const noNextPick: DraftPocketForecast = {
+      ...active,
+      status: "no-next-pick",
+      forecastedPocket: null,
+    };
+
+    expect(
+      createDraftPocketProfileTransitions({ forecast: noAdp, rankings: [] }),
+    ).toEqual([]);
+    expect(
+      createDraftPocketProfileTransitions({ forecast: noNextPick, rankings: [] }),
+    ).toEqual([]);
+    expect(
+      createDraftPocketProfileTransitions({
+        forecast: createActiveForecast([], []),
+        rankings: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("rejects mixed origins and unresolved pocket identities", () => {
+    const candidate = createRanking("candidate", 20, 20, "RB", {
+      overallTier: 2,
+    });
+    const mixed = createRanking("mixed", 25, 25, "RB", {
+      overallTierOrigin: "defaulted-neutral",
+    });
+    const mixedForecast = createActiveForecast([candidate], [mixed]);
+    const missingForecast: DraftPocketForecast = {
+      ...mixedForecast,
+      currentPocket: {
+        ...mixedForecast.currentPocket,
+        playerIds: ["missing-player"],
+      },
+    };
+
+    expect(() => {
+      createDraftPocketProfileTransitions({
+        forecast: mixedForecast,
+        rankings: [candidate, mixed],
+      });
+    }).toThrow("mixed overall-tier origins");
+    expect(() => {
+      createDraftPocketProfileTransitions({
+        forecast: missingForecast,
+        rankings: [candidate, mixed],
+      });
+    }).toThrow("missing from ranking context");
+  });
+
+  it("uses stable anchors and does not mutate shuffled equivalent inputs", () => {
+    const tiedZ = createRanking("tied-z", 10, 10, "TE", {
+      overallTier: 2,
+    });
+    const tiedA = createRanking("tied-a", 10, 10, "TE", {
+      overallTier: 2,
+    });
+    const replacement = createRanking("replacement", 15, 15, "TE", {
+      overallTier: 2,
+    });
+    const rankings = [tiedZ, replacement, tiedA];
+    const shuffledRankings = [replacement, tiedA, tiedZ];
+    const forecast = createActiveForecast([tiedZ, tiedA], [replacement]);
+    const forecastBefore = structuredClone(forecast);
+    const rankingsBefore = structuredClone(rankings);
+
+    const first = createDraftPocketProfileTransitions({ forecast, rankings });
+    const second = createDraftPocketProfileTransitions({
+      forecast,
+      rankings: shuffledRankings,
+    });
+
+    expect(first).toEqual(second);
+    expect(first[0]).toMatchObject({
+      anchorPlayerId: "tied-a",
+      currentPlayerIds: ["tied-a", "tied-z"],
+    });
+    expect(forecast).toEqual(forecastBefore);
+    expect(rankings).toEqual(rankingsBefore);
   });
 });
 
