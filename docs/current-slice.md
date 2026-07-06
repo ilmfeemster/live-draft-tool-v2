@@ -1,74 +1,108 @@
-# Current Slice - Task 1: Add the Insight Engine Contract and Neutral Bundle
+# Current Slice - Task 2: Generate Primary Decision Frames and Top-Candidate Summaries
 
 ## Status
 
-Complete. Task 1 passed focused validation on 2026-07-06.
+Planned. Ready for implementation.
 
 ## Context
 
-Phase 6 introduces a pure Strategy & Insight Engine above the existing Recommendation Engine. The Insight Engine explains the current draft decision by interpreting draft state, league settings, immutable ranking snapshot entries, recommendation output, and supported forecast observations.
+Phase 6 Task 1 created the pure Insight Engine contract and `generateStrategicInsights` neutral bundle. Task 2 should make the first useful Insight Engine output by interpreting existing recommendation components for the current top recommendation.
 
-This first slice should create only the domain contract and deterministic neutral output. It should not generate visible strategic advice, change recommendation scoring, change recommendation ordering, integrate with the Draft Room, or add UI presentation.
+This slice should still stay entirely inside the pure domain layer. It should not call the Insight Engine from the Draft Room, change recommendation scoring, change recommendation ordering, or add UI presentation.
 
-The existing domain types live in `src/types/draft.ts`. The current Recommendation Engine is implemented in `src/lib/recommendations.ts`, and Phase 5.5 forecast/profile evidence is implemented in `src/lib/draftPocketForecast.ts`. This slice should add a separate pure Insight Engine module rather than mixing insight behavior into recommendation scoring.
+The Insight Engine currently lives in `src/lib/insights.ts`, with tests in `src/lib/insights.test.ts`. Recommendation output already exposes the structured surface this slice should consume: `totalScore`, `baseScore`, `contextScore`, `components`, `scoreAdjustments`, and `reasons`.
 
 ## Goal
 
-Define the Phase 6 Insight Engine boundary and return a stable neutral insight bundle for empty, missing, or not-yet-interpreted recommendation states.
+Generate a deterministic primary decision frame and concise top-candidate summary from existing recommendation evidence, while suppressing unsupported or immaterial claims.
 
 ## Scope
 
 ### Goals
 
-- Add Insight Engine domain types for input, output bundle, summary, insights, support references, suppressed signals, insight kinds, severities, decision frames, score-gap labels, and suppression reasons.
-- Add a pure `generateStrategicInsights` function that accepts typed draft state, league settings, user team id, ranking entries, player recommendations, and optional draft-pocket forecast output.
-- Return deterministic neutral output with `decisionFrame: "no_material_insight"` before any strategy-specific insight selection exists.
-- Represent empty recommendation states safely with `leadingPlayerId: null` and `scoreGapLabel: "unavailable"`.
-- Include empty arrays for candidate insights, tradeoff insights, roster insights, board insights, caveats, and suppressed signals.
-- Keep the new module independent of React, Prisma, repositories, raw import formats, mutable ranking sets, and UI state.
-- Add focused unit tests for neutral output, empty recommendations, one recommendation, multiple recommendations, determinism, and input immutability.
+- Derive `summary.scoreGapLabel` from the top recommendation and next recommendation without reordering recommendations.
+- Generate one `primaryInsight` when the top recommendation has a supported material decision frame.
+- Generate one `candidate_summary` insight for the top recommendation when material supported evidence exists.
+- Support these first decision frames:
+  - `clean_best_player`
+  - `value_over_need`
+  - `need_over_value`
+  - `pocket_pressure`
+  - `tier_boundary`
+  - `run_pressure`
+  - `caveated_top_pick`
+  - `close_call`
+  - `no_material_insight`
+- Interpret only existing top-recommendation components and minimal second-recommendation score context needed for score-gap and value/need framing.
+- Use conservative materiality thresholds:
+  - positive component material at `delta >= 3`;
+  - negative caveat material at `delta <= -6`;
+  - close score gap at `<= 3`;
+  - slight lean at `> 3` and `<= 8`;
+  - clear lean at `> 8`.
+- Include `supportedBy` references for every generated insight.
+- Suppress insight text when component evidence is neutral, below threshold, defaulted-neutral, unsupported, contradictory, or absent.
 
 ### Non-goals
 
-- Do not generate primary decision frames beyond the neutral default.
-- Do not generate top-candidate summaries, tradeoff insights, roster insights, board insights, next-pocket insights, caveats, or capability notes yet.
-- Do not call the Insight Engine from the Draft Room or any existing UI.
+- Do not generate top-options tradeoff insights; Task 3 owns multi-candidate tradeoff wording.
+- Do not generate roster construction summaries; Task 4 owns roster insight.
+- Do not generate board or next-pocket notes beyond using a material top-candidate `draft_pocket_timing` component for the primary frame/summary; Task 5 owns board and pocket insight.
+- Do not call the Insight Engine from UI or application workflows.
 - Do not change recommendation scores, ordering, components, adjustments, reasons, caps, or forecast behavior.
 - Do not persist insight output or change database/schema/scenario contracts.
-- Do not add AI-generated language, simulations, opponent modeling, probabilities, exact-player availability claims, or new recommendation signals.
+- Do not add AI-generated language, simulations, opponent modeling, probabilities, exact-player availability claims, ADP-as-quality claims, or new recommendation signals.
 
 ## Implementation Steps
 
-1. In `src/types/draft.ts`, add the Insight Engine type contract:
-   - `InsightInput`
-   - `StrategicInsightBundle`
-   - `CurrentDecisionSummary`
-   - `Insight`
-   - `InsightSupport`
-   - `SuppressedSignal`
-   - string-union types for insight kind, severity, decision frame, score-gap label, and suppression reason.
-2. Keep support references optional and traceable to existing domain evidence:
-   - `playerId`
-   - `componentId`
-   - `evidenceKeys`
-   - `reasonId`
-   - `scoreAdjustmentId`
-   - `forecastProfileId`
-3. Create `src/lib/insights.ts` with `generateStrategicInsights(input: InsightInput): StrategicInsightBundle`.
-4. Implement only neutral bundle behavior:
-   - `summary.leadingPlayerId` should be the first recommendation's `playerId` when one exists, otherwise `null`;
-   - `summary.decisionFrame` should always be `"no_material_insight"` in this slice;
-   - `summary.scoreGapLabel` should be `"unavailable"` for zero or one recommendation and may remain `"unavailable"` for multiple recommendations until Task 2 introduces materiality labels;
-   - all insight arrays should be empty;
-   - the function must not mutate input objects or arrays.
-5. Add `src/lib/insights.test.ts` using existing test fixture style from `src/lib/recommendations.test.ts`.
-6. Cover:
-   - empty recommendations return a complete neutral bundle;
-   - one recommendation sets `leadingPlayerId` but still returns neutral insight arrays;
-   - multiple recommendations keep current neutral behavior without changing or sorting recommendations;
-   - repeated equivalent inputs return exactly equal output;
-   - the function does not mutate the draft, rankings, recommendations, or forecast input.
-7. Run focused validation:
+1. In `src/lib/insights.ts`, add local helper functions for:
+   - finding components by id on a `PlayerRecommendation`;
+   - checking material positive and negative components;
+   - deriving `scoreGapLabel`;
+   - building `supportedBy` references from component ids, evidence keys, reason ids, and score adjustment ids.
+2. Derive score gap labels:
+   - zero recommendations: `leadingPlayerId: null`, `scoreGapLabel: "unavailable"`;
+   - one recommendation: `leadingPlayerId` set, `scoreGapLabel: "unavailable"`;
+   - two or more recommendations: compare `top.totalScore - second.totalScore`;
+   - `<= 3`: `"close_call"`;
+   - `> 3` and `<= 8`: `"slight_lean"`;
+   - `> 8`: `"clear_lean"`.
+3. Add primary frame selection in deterministic priority order:
+   - `close_call` when the score gap label is `"close_call"`;
+   - `caveated_top_pick` when the top recommendation has a material negative component and still ranks first;
+   - `pocket_pressure` when material `draft_pocket_timing` evidence is supported;
+   - `tier_boundary` when material `overall_tier` or recommendation-eligible `tier_cliff` evidence is supported;
+   - `run_pressure` when material `positional_run` evidence is supported;
+   - `need_over_value` when material positive `roster_fit` or urgency/context components explain the top recommendation while another recommendation has a stronger `baseScore`;
+   - `value_over_need` when the top recommendation has the strongest visible player-quality case but a neutral/negative roster-fit component;
+   - `clean_best_player` when the top recommendation leads on `baseScore` and has no material caveat;
+   - otherwise `no_material_insight`.
+4. Generate `primaryInsight` only when the selected frame is not `no_material_insight`.
+   - Use concise deterministic titles and optional bodies.
+   - Keep wording grounded in component ids and evidence.
+   - Do not mention exact future availability, opponent behavior, probability, projection, or ADP quality.
+5. Generate one top-candidate `candidate_summary` insight when the top recommendation has material supported evidence.
+   - Prefer the strongest material positive component by priority, then delta, then id.
+   - Include one material caveat in the body only when present.
+   - Suppress the summary when only neutral or unsupported evidence exists.
+6. Preserve the existing neutral bundle shape for arrays not owned by this slice:
+   - `tradeoffInsights: []`
+   - `rosterInsights: []`
+   - `boardInsights: []`
+   - `caveats: []` unless a caveat is included as the top-candidate summary body or primary caveated frame.
+   - `suppressedSignals` may include deterministic records for below-threshold/defaulted/unsupported signals when useful for tests, but UI-facing insight arrays should remain silent.
+7. Extend `src/lib/insights.test.ts` with fixtures covering:
+   - score-gap labels for unavailable, close, slight, and clear states;
+   - clean best-player frame;
+   - value-over-need frame;
+   - need-over-value frame;
+   - pocket-pressure frame from material `draft_pocket_timing`;
+   - tier-boundary frame from supported `overall_tier` or `tier_cliff`;
+   - run-pressure frame;
+   - caveated top pick from material negative component;
+   - suppression for below-threshold, defaulted-neutral, inactive forecast, high skip-safety, and unsupported timing evidence;
+   - deterministic `supportedBy` references.
+8. Run focused validation:
 
    ```powershell
    npm test -- src/lib/insights.test.ts
@@ -78,20 +112,22 @@ Define the Phase 6 Insight Engine boundary and return a stable neutral insight b
 
 ## Expected Files
 
-- `src/types/draft.ts`
 - `src/lib/insights.ts`
 - `src/lib/insights.test.ts`
 
-No documentation updates are expected during implementation unless a contradiction is discovered.
+Type changes are not expected. Do not edit `src/types/draft.ts` unless implementation reveals a missing type required by the already-approved contract.
+
+No UI, persistence, scenario, or recommendation-engine files are expected.
 
 ## Acceptance Criteria
 
-- The Insight Engine can be called with current draft inputs and recommendation output.
-- The returned bundle has stable structured fields and deterministic defaults.
-- Empty recommendations return `no_material_insight` without throwing.
-- One or more recommendations preserve the first recommendation as `leadingPlayerId` without creating strategic advice yet.
-- Insight, support, and suppressed-signal types can reference existing player, component, reason, adjustment, evidence, and forecast-profile identifiers.
-- No database, UI, mutable ranking-set, import-format, or React type crosses into the Insight Engine boundary.
+- `generateStrategicInsights` derives deterministic score-gap labels from existing recommendation order and scores.
+- A clean top player produces a concise best-player or player-quality frame.
+- A top player with material roster/timing support produces the appropriate supported frame.
+- A top player with a meaningful negative component produces a caveated frame or caveated summary.
+- Close top scores avoid overstated certainty by using the `close_call` frame.
+- Unsupported, inactive, defaulted-neutral, below-threshold, high-safety, or neutral tier/forecast/run/timing evidence does not produce UI-facing claims.
+- Every generated primary or candidate-summary insight includes traceable `supportedBy` references.
 - Recommendation scores, ordering, components, adjustments, and reasons are unchanged.
 - Focused tests, TypeScript validation, and `git diff --check` pass.
 
@@ -99,30 +135,21 @@ No documentation updates are expected during implementation unless a contradicti
 
 Stop and report instead of broadening the slice if:
 
-- the existing recommendation output lacks enough structured data to define the contract without changing Recommendation Engine behavior;
-- implementing the neutral bundle requires UI, persistence, scenario, or recommendation-scoring changes;
-- type additions conflict with existing domain types or phase boundaries;
-- validation failures are unrelated to this slice.
+- the existing component evidence is insufficient to support a required frame without changing Recommendation Engine behavior;
+- frame selection requires broad multi-candidate tradeoff logic that belongs in Task 3;
+- implementing summaries requires roster reconstruction beyond existing top-recommendation component evidence;
+- validation failures require recommendation scoring, forecast, UI, persistence, scenario, or schema changes;
+- a needed insight claim would be unsupported by structured inputs.
 
 ## Slice Review
 
-1. Smallest meaningful increment: yes - this creates only the Phase 6 contract and neutral output.
-2. Executable without redefining the approach: yes - the expected files, types, function behavior, tests, and validation commands are explicit.
-3. Avoids unnecessary architecture changes: yes - it adds one pure domain module above recommendations and no service, persistence, or UI boundary.
-4. Reasonable blast radius: yes - expected changes are limited to three files.
-5. Comfortably reviewable and revertible: yes - no existing behavior should change.
-6. Observable and testable acceptance criteria: yes - neutral output, determinism, immutability, and validation commands are directly testable.
+1. Smallest meaningful increment: yes - this adds the first visible domain insight while leaving tradeoffs, roster summaries, board notes, and UI for later tasks.
+2. Executable without redefining the approach: yes - frame priority, thresholds, supported evidence, tests, and validation commands are explicit.
+3. Avoids unnecessary architecture changes: yes - work remains inside the pure Insight Engine.
+4. Reasonable blast radius: yes - expected changes are limited to two files, with a possible type-file edit only if the existing contract is insufficient.
+5. Comfortably reviewable and revertible: yes - no existing recommendation behavior should change.
+6. Observable and testable acceptance criteria: yes - generated frames, summaries, support references, suppression behavior, and validation commands are directly testable.
 
 ## Follow-up
 
-After this slice passes, promote Task 2: Generate Primary Decision Frames and Top-Candidate Summaries.
-
-## Completion Notes
-
-Completed on 2026-07-06.
-
-- Added the Phase 6 Insight Engine type contract in `src/types/draft.ts`.
-- Added `generateStrategicInsights` in `src/lib/insights.ts` with deterministic neutral bundle behavior only.
-- Added focused tests in `src/lib/insights.test.ts` covering empty, single, multiple, deterministic, and immutability behavior.
-- Confirmed `npm test -- src/lib/insights.test.ts`, `npx tsc --noEmit`, and `git diff --check` pass.
-- No recommendation scoring, ordering, reasons, forecast behavior, UI, persistence, or scenario contracts changed.
+After this slice passes, promote Task 3: Add Top-Options Tradeoff Insights.
