@@ -202,6 +202,94 @@ export type PlayerRecommendation = {
   reasons: RecommendationReason[];
 };
 
+export type InsightInput = {
+  draft: Draft;
+  rankings: RankingEntry[];
+  leagueSettings: LeagueSettings;
+  userTeamId: string;
+  recommendations: PlayerRecommendation[];
+  forecast?: DraftPocketForecast;
+};
+
+export type InsightKind =
+  | "primary_decision"
+  | "candidate_summary"
+  | "tradeoff"
+  | "roster_context"
+  | "board_context"
+  | "next_pocket"
+  | "caveat"
+  | "capability_note";
+
+export type InsightSeverity = "positive" | "info" | "warning" | "neutral";
+
+export type InsightDecisionFrame =
+  | "clean_best_player"
+  | "value_over_need"
+  | "need_over_value"
+  | "pocket_pressure"
+  | "tier_boundary"
+  | "run_pressure"
+  | "caveated_top_pick"
+  | "close_call"
+  | "no_material_insight";
+
+export type InsightScoreGapLabel =
+  | "clear_lean"
+  | "slight_lean"
+  | "close_call"
+  | "unavailable";
+
+export type InsightSuppressionReason =
+  | "neutral"
+  | "below_threshold"
+  | "defaulted_neutral"
+  | "unsupported_semantics"
+  | "inactive_forecast"
+  | "capped"
+  | "not_roster_relevant";
+
+export type InsightSupport = {
+  playerId?: string;
+  componentId?: string;
+  evidenceKeys?: string[];
+  reasonId?: string;
+  scoreAdjustmentId?: RecommendationScoreAdjustmentId;
+  forecastProfileId?: string;
+};
+
+export type Insight = {
+  id: string;
+  kind: InsightKind;
+  severity: InsightSeverity;
+  title: string;
+  body?: string;
+  supportedBy: InsightSupport[];
+};
+
+export type CurrentDecisionSummary = {
+  leadingPlayerId: string | null;
+  decisionFrame: InsightDecisionFrame;
+  scoreGapLabel: InsightScoreGapLabel;
+};
+
+export type SuppressedSignal = {
+  id: string;
+  reason: InsightSuppressionReason;
+  supportedBy: InsightSupport[];
+};
+
+export type StrategicInsightBundle = {
+  summary: CurrentDecisionSummary;
+  primaryInsight: Insight | null;
+  candidateInsights: Insight[];
+  tradeoffInsights: Insight[];
+  rosterInsights: Insight[];
+  boardInsights: Insight[];
+  caveats: Insight[];
+  suppressedSignals: SuppressedSignal[];
+};
+
 export type RecommendationTuningConfig = {
   baseScoreCurveCoefficient: number;
   maxPositiveContextScore: number;

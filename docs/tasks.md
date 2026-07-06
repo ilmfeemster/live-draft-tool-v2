@@ -38,7 +38,7 @@ Promote only one task at a time into `docs/current-slice.md`. Keep the domain co
 
 ## Task 1 - Add the Insight Engine Contract and Neutral Bundle
 
-- [ ] Pending
+- [x] Complete
 
 ### Goal
 
@@ -343,7 +343,7 @@ Prove the Strategy & Insight Engine improves decision understanding without chan
 
 Phase 5.5 exit validation completed on 2026-07-06. Task 16 evidence included the focused Phase 5.5 regression set with 323 passing tests, the full automated suite with 810 passing tests and 1 intentionally skipped DB-gated test in the default run, TypeScript validation, lint with only the documented pre-existing `rankingNormalizer.test.ts` warning, production build, Prisma validation, PostgreSQL integration validation for ranking-set repository behavior, and user-completed browser QA across managed rankings, missing data, Draft Room, recommendation behavior, scenario/replay, export/re-import, and determinism.
 
-Phase 6 testing has not started. The next testing work should focus on deterministic Insight Engine contract and decision-frame behavior before UI presentation.
+Phase 6 Task 1 is complete. The Insight Engine contract and neutral bundle behavior are covered by focused tests in `src/lib/insights.test.ts`. Task 1 validation passed with 5 focused tests, TypeScript validation, and `git diff --check` on 2026-07-06. The next testing work should focus on deterministic primary decision-frame behavior before UI presentation.
 
 ---
 
