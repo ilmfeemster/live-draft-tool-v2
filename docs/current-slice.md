@@ -2,7 +2,7 @@
 
 ## Status
 
-Pending. This slice is planned for implementation after Phase 6 Task 3.
+Complete. Task 4 passed focused validation on 2026-07-07.
 
 ## Context
 
@@ -156,3 +156,15 @@ Stop and report instead of broadening the slice if:
 ## Follow-up
 
 After this slice passes, promote Task 5: Add Board and Next-Pocket Insights.
+
+## Completion Notes
+
+Completed on 2026-07-07.
+
+- Added deterministic roster-context insight selection in `src/lib/insights.ts`.
+- Derived user roster and roster-slot context from draft picks, ranking entries, user team id, and configured league settings.
+- Used existing `roster_fit` recommendation components as the materiality and support gate for starter, flex, bench-depth, saturated, limited-need, and early DST/K roster context.
+- Added concise `roster_context` insight output with traceable `supportedBy` references.
+- Preserved existing primary decision frames, candidate summaries, tradeoff insights, recommendation scoring, ordering, reasons, forecast behavior, UI, persistence, and scenario contracts.
+- Extended `src/lib/insights.test.ts` to 39 focused tests covering roster context presence, suppression, support references, non-default roster settings, determinism, and immutability.
+- Confirmed `npm test -- src/lib/insights.test.ts`, `npx tsc --noEmit`, and `git diff --check` pass.

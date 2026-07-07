@@ -4,7 +4,9 @@ import type {
   InsightInput,
   InsightScoreGapLabel,
   InsightSupport,
+  LeagueSettings,
   PlayerRecommendation,
+  Position,
   RecommendationScoreComponent,
   StrategicInsightBundle,
 } from "@/types/draft";
@@ -39,6 +41,38 @@ type TradeoffSelection = {
   type: TradeoffType;
   candidates: [TradeoffCandidate, TradeoffCandidate];
   support: InsightSupport[];
+};
+
+type RosterInsightTiming =
+  | "direct_starter_need"
+  | "flex_need"
+  | "bench_depth"
+  | "saturated"
+  | "early_def_k"
+  | "limited_need";
+
+type RosterPlayer = {
+  position: Position;
+};
+
+type RosterSlotAnalysis = {
+  directStarterSlots: number;
+  flexSlots: number;
+  benchSlots: number;
+  directStarterOpenings: number;
+  flexOpenings: number;
+  benchOpenings: number;
+  rosterCountAtPosition: number;
+  totalUsefulCapacity: number;
+};
+
+type RosterInsightCandidate = {
+  recommendation: PlayerRecommendation;
+  component: RecommendationScoreComponent;
+  support: InsightSupport;
+  timing: RosterInsightTiming;
+  position: Position;
+  slotAnalysis: RosterSlotAnalysis;
 };
 
 function getComponent(
@@ -116,6 +150,17 @@ function getBooleanEvidence(
   return typeof value === "boolean" ? value : null;
 }
 
+function isPosition(value: string | null): value is Position {
+  return (
+    value === "QB" ||
+    value === "RB" ||
+    value === "WR" ||
+    value === "TE" ||
+    value === "DST" ||
+    value === "K"
+  );
+}
+
 function deriveScoreGapLabel(
   recommendations: readonly PlayerRecommendation[],
 ): InsightScoreGapLabel {
@@ -145,6 +190,36 @@ function isSupportedRosterFit(component: RecommendationScoreComponent) {
       timing === "flex_need" ||
       timing === "bench_depth")
   );
+}
+
+function getRosterInsightTiming(
+  component: RecommendationScoreComponent,
+): RosterInsightTiming | null {
+  if (component.id !== "roster_fit") {
+    return null;
+  }
+
+  const timing = getStringEvidence(component, "timing");
+
+  if (
+    isMaterialPositive(component) &&
+    (timing === "direct_starter_need" ||
+      timing === "flex_need" ||
+      timing === "bench_depth")
+  ) {
+    return timing;
+  }
+
+  if (
+    isMaterialNegative(component) &&
+    (timing === "saturated" ||
+      timing === "early_def_k" ||
+      timing === "limited_need")
+  ) {
+    return timing;
+  }
+
+  return null;
 }
 
 function isSupportedCaveat(component: RecommendationScoreComponent) {
@@ -650,6 +725,281 @@ function selectTradeoffInsight({
   return selection ? createTradeoffInsight(selection) : null;
 }
 
+function isBenchSlot(label: string) {
+  return label.toUpperCase() === "BENCH";
+}
+
+function getUserRosterPlayers(input: InsightInput): RosterPlayer[] {
+  const rankingsByPlayerId = new Map(
+    input.rankings.map((ranking) => {
+      return [ranking.player.id, ranking] as const;
+    }),
+  );
+
+  return input.draft.picks.flatMap((pick) => {
+    if (pick.teamId !== input.userTeamId || !pick.playerId) {
+      return [];
+    }
+
+    const ranking = rankingsByPlayerId.get(pick.playerId);
+
+    return ranking ? [{ position: ranking.player.position }] : [];
+  });
+}
+
+function countRosterPosition(
+  rosterPlayers: readonly RosterPlayer[],
+  position: Position,
+) {
+  return rosterPlayers.filter((player) => player.position === position).length;
+}
+
+function getDirectStarterSlots(
+  leagueSettings: LeagueSettings,
+  position: Position,
+) {
+  return leagueSettings.rosterSlots.filter((slot) => {
+    return (
+      !isBenchSlot(slot.label) &&
+      slot.eligiblePositions.length === 1 &&
+      slot.eligiblePositions[0] === position
+    );
+  });
+}
+
+function getFlexSlots(leagueSettings: LeagueSettings, position: Position) {
+  return leagueSettings.rosterSlots.filter((slot) => {
+    return (
+      !isBenchSlot(slot.label) &&
+      slot.eligiblePositions.length > 1 &&
+      slot.eligiblePositions.includes(position)
+    );
+  });
+}
+
+function analyzeRosterSlots({
+  leagueSettings,
+  rosterPlayers,
+  position,
+}: {
+  leagueSettings: LeagueSettings;
+  rosterPlayers: readonly RosterPlayer[];
+  position: Position;
+}): RosterSlotAnalysis {
+  const benchSlots = leagueSettings.rosterSlots.filter((slot) => {
+    return isBenchSlot(slot.label) && slot.eligiblePositions.includes(position);
+  }).length;
+  const directStarterSlots = getDirectStarterSlots(
+    leagueSettings,
+    position,
+  ).length;
+  const flexSlots = getFlexSlots(leagueSettings, position).length;
+  const allFlexEligiblePositions = new Set(
+    leagueSettings.rosterSlots
+      .filter((slot) => !isBenchSlot(slot.label) && slot.eligiblePositions.length > 1)
+      .flatMap((slot) => slot.eligiblePositions),
+  );
+  const rosterCountAtPosition = countRosterPosition(rosterPlayers, position);
+  const directStarterOpenings = Math.max(
+    directStarterSlots - rosterCountAtPosition,
+    0,
+  );
+  const flexEligibleSurplus = Array.from(allFlexEligiblePositions).reduce(
+    (surplus, eligiblePosition) => {
+      const directSlotsForPosition = getDirectStarterSlots(
+        leagueSettings,
+        eligiblePosition,
+      ).length;
+
+      return (
+        surplus +
+        Math.max(
+          countRosterPosition(rosterPlayers, eligiblePosition) -
+            directSlotsForPosition,
+          0,
+        )
+      );
+    },
+    0,
+  );
+  const flexOpenings = Math.max(flexSlots - flexEligibleSurplus, 0);
+  const totalNonBenchSlots = leagueSettings.rosterSlots.filter((slot) => {
+    return !isBenchSlot(slot.label);
+  }).length;
+  const benchUsed = Math.max(rosterPlayers.length - totalNonBenchSlots, 0);
+  const benchOpenings = Math.max(benchSlots - benchUsed, 0);
+
+  return {
+    directStarterSlots,
+    flexSlots,
+    benchSlots,
+    directStarterOpenings,
+    flexOpenings,
+    benchOpenings,
+    rosterCountAtPosition,
+    totalUsefulCapacity: directStarterSlots + flexSlots + benchSlots,
+  };
+}
+
+function getRosterPosition(
+  recommendation: PlayerRecommendation,
+  component: RecommendationScoreComponent,
+): Position | null {
+  const evidencePosition = getStringEvidence(component, "position");
+
+  if (isPosition(evidencePosition)) {
+    return evidencePosition;
+  }
+
+  return recommendation.ranking.player.position;
+}
+
+function classifyRosterInsightCandidate(
+  input: InsightInput,
+  rosterPlayers: readonly RosterPlayer[],
+  recommendation: PlayerRecommendation,
+): RosterInsightCandidate | null {
+  const component = getComponent(recommendation, "roster_fit");
+
+  if (!component) {
+    return null;
+  }
+
+  const timing = getRosterInsightTiming(component);
+  const position = getRosterPosition(recommendation, component);
+
+  if (!timing || !position) {
+    return null;
+  }
+
+  return {
+    recommendation,
+    component,
+    support: createComponentSupport(recommendation, component),
+    timing,
+    position,
+    slotAnalysis: analyzeRosterSlots({
+      leagueSettings: input.leagueSettings,
+      rosterPlayers,
+      position,
+    }),
+  };
+}
+
+function getRosterInsightCandidates({
+  input,
+  scoreGapLabel,
+}: {
+  input: InsightInput;
+  scoreGapLabel: InsightScoreGapLabel;
+}) {
+  const rosterPlayers = getUserRosterPlayers(input);
+  const recommendationCandidates =
+    scoreGapLabel === "close_call" || scoreGapLabel === "slight_lean"
+      ? input.recommendations.slice(0, 3)
+      : input.recommendations.slice(0, 1);
+
+  return recommendationCandidates.flatMap((recommendation) => {
+    const candidate = classifyRosterInsightCandidate(
+      input,
+      rosterPlayers,
+      recommendation,
+    );
+
+    return candidate ? [candidate] : [];
+  });
+}
+
+function getRosterTimingPriority(timing: RosterInsightTiming) {
+  const priorities: Record<RosterInsightTiming, number> = {
+    direct_starter_need: 1,
+    flex_need: 2,
+    saturated: 3,
+    early_def_k: 4,
+    bench_depth: 5,
+    limited_need: 6,
+  };
+
+  return priorities[timing];
+}
+
+function selectRosterInsight({
+  input,
+  scoreGapLabel,
+}: {
+  input: InsightInput;
+  scoreGapLabel: InsightScoreGapLabel;
+}): Insight | null {
+  const candidates = getRosterInsightCandidates({ input, scoreGapLabel });
+  const leadingCandidate = candidates.find((candidate) => {
+    return candidate.recommendation === input.recommendations[0];
+  });
+  const selected =
+    leadingCandidate ??
+    candidates.sort((a, b) => {
+      return getRosterTimingPriority(a.timing) - getRosterTimingPriority(b.timing);
+    })[0];
+
+  return selected ? createRosterInsight(selected) : null;
+}
+
+function isSingleStartOnly(candidate: RosterInsightCandidate) {
+  return (
+    candidate.slotAnalysis.directStarterSlots === 1 &&
+    candidate.slotAnalysis.flexSlots === 0
+  );
+}
+
+function createRosterInsight(candidate: RosterInsightCandidate): Insight {
+  const { recommendation, position, slotAnalysis, timing } = candidate;
+  const titles: Record<RosterInsightTiming, string> = {
+    direct_starter_need: `Open ${position} starter slot`,
+    flex_need:
+      position === "TE"
+        ? "TE has flex eligibility here"
+        : `${position} still carries flex utility`,
+    bench_depth: `Bench depth is still useful at ${position}`,
+    saturated: `${position} is close to saturated`,
+    early_def_k: `${position} is early for this roster phase`,
+    limited_need: isSingleStartOnly(candidate)
+      ? `${position} is a single-start slot here`
+      : `Limited roster need at ${position}`,
+  };
+  const bodies: Record<RosterInsightTiming, string> = {
+    direct_starter_need:
+      slotAnalysis.directStarterOpenings > 1
+        ? `${recommendation.ranking.player.name} fits one of ${slotAnalysis.directStarterOpenings} open ${position} starter slots.`
+        : `${recommendation.ranking.player.name} fits an open ${position} starter slot.`,
+    flex_need:
+      position === "TE"
+        ? `${recommendation.ranking.player.name} is flex-eligible in this format, but TE depth should stay tied to supported roster need.`
+        : `${recommendation.ranking.player.name} helps fill remaining flex utility in this roster format.`,
+    bench_depth:
+      `${recommendation.ranking.player.name} still has useful bench-depth value for this roster shape.`,
+    saturated:
+      `${recommendation.ranking.player.name} carries a roster caveat because ${position} is already near its useful capacity.`,
+    early_def_k:
+      `${recommendation.ranking.player.name} carries a roster-timing caveat for this draft phase.`,
+    limited_need: isSingleStartOnly(candidate)
+      ? `${recommendation.ranking.player.name} has limited roster utility unless this format creates more ${position} demand.`
+      : `${recommendation.ranking.player.name} has limited roster utility for the current roster shape.`,
+  };
+
+  return {
+    id: `roster_context:${timing}:${recommendation.playerId}`,
+    kind: "roster_context",
+    severity:
+      timing === "direct_starter_need" ||
+      timing === "flex_need" ||
+      timing === "bench_depth"
+        ? "positive"
+        : "warning",
+    title: titles[timing],
+    body: bodies[timing],
+    supportedBy: [candidate.support],
+  };
+}
+
 function createTradeoffInsight(selection: TradeoffSelection): Insight {
   const [first, second] = selection.candidates;
   const playerNames = [
@@ -1013,6 +1363,10 @@ export function generateStrategicInsights(
     recommendations: input.recommendations,
     scoreGapLabel,
   });
+  const rosterInsight = selectRosterInsight({
+    input,
+    scoreGapLabel,
+  });
   const candidateSummary = topRecommendation
     ? createCandidateSummary(topRecommendation)
     : null;
@@ -1026,7 +1380,7 @@ export function generateStrategicInsights(
     primaryInsight,
     candidateInsights: candidateSummary ? [candidateSummary] : [],
     tradeoffInsights: tradeoffInsight ? [tradeoffInsight] : [],
-    rosterInsights: [],
+    rosterInsights: rosterInsight ? [rosterInsight] : [],
     boardInsights: [],
     caveats: [],
     suppressedSignals: [],

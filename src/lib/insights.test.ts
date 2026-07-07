@@ -6,6 +6,7 @@ import type {
   Draft,
   DraftPocketForecast,
   InsightInput,
+  LeagueSettings,
   PlayerRecommendation,
   Position,
   RankingEntry,
@@ -60,6 +61,26 @@ function createBaseComponent(overallRank: number, delta = 90) {
   return createComponent("base_value", delta, { overallRank });
 }
 
+function createRosterFitComponent(
+  position: Position,
+  timing: string,
+  delta: number,
+  evidence: RecommendationScoreComponent["evidence"] = {},
+) {
+  return createComponent("roster_fit", delta, {
+    position,
+    directStarterSlots: 1,
+    flexSlots: position === "RB" || position === "WR" || position === "TE" ? 2 : 0,
+    benchSlots: 6,
+    directStarterOpenings: timing === "direct_starter_need" ? 1 : 0,
+    flexOpenings: timing === "flex_need" ? 1 : 0,
+    benchOpenings: timing === "bench_depth" ? 1 : 0,
+    rosterCountAtPosition: 0,
+    timing,
+    ...evidence,
+  });
+}
+
 function createRecommendation({
   id,
   overallRank,
@@ -109,6 +130,19 @@ function createTestDraft(overrides: Partial<Draft> = {}): Draft {
   };
 }
 
+function createDraftWithUserPicks(playerIds: string[]): Draft {
+  return createTestDraft({
+    currentPickNumber: playerIds.length + 1,
+    picks: playerIds.map((playerId, index) => ({
+      pickNumber: index + 1,
+      round: index + 1,
+      pickInRound: 1,
+      teamId: "team-1",
+      playerId,
+    })),
+  });
+}
+
 function createTestForecast(): DraftPocketForecast {
   const currentPocket = {
     playerIds: ["player-1"],
@@ -147,6 +181,27 @@ function createInsightInput(
     recommendations,
     ...overrides,
   };
+}
+
+function createInputWithRoster({
+  recommendations,
+  rosterRankings,
+  leagueSettings = defaultLeagueSettings,
+}: {
+  recommendations: PlayerRecommendation[];
+  rosterRankings: RankingEntry[];
+  leagueSettings?: LeagueSettings;
+}) {
+  return createInsightInput(recommendations, {
+    draft: createDraftWithUserPicks(
+      rosterRankings.map((ranking) => ranking.player.id),
+    ),
+    rankings: [
+      ...recommendations.map((recommendation) => recommendation.ranking),
+      ...rosterRankings,
+    ],
+    leagueSettings,
+  });
 }
 
 function cloneJson<T>(value: T): T {
@@ -835,6 +890,265 @@ describe("generateStrategicInsights", () => {
       generateStrategicInsights(createInsightInput([top, second]))
         .tradeoffInsights,
     ).toEqual([]);
+  });
+
+  it("generates roster context for an open RB starter need", () => {
+    const top = createRecommendation({
+      id: "starter-rb",
+      overallRank: 8,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createRosterFitComponent("RB", "direct_starter_need", 10),
+      ],
+    });
+    const bundle = generateStrategicInsights(createInsightInput([top]));
+
+    expect(bundle.rosterInsights).toEqual([
+      expect.objectContaining({
+        id: "roster_context:direct_starter_need:starter-rb",
+        kind: "roster_context",
+        severity: "positive",
+        title: "Open RB starter slot",
+        body: "starter-rb fits one of 2 open RB starter slots.",
+        supportedBy: [
+          expect.objectContaining({
+            playerId: "starter-rb",
+            componentId: "roster_fit",
+            reasonId: "roster_fit:reason",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("generates roster context for WR flex utility", () => {
+    const top = createRecommendation({
+      id: "flex-wr",
+      overallRank: 12,
+      position: "WR",
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(12, 80),
+        createRosterFitComponent("WR", "flex_need", 5),
+      ],
+    });
+    const bundle = generateStrategicInsights(createInsightInput([top]));
+
+    expect(bundle.rosterInsights[0]).toMatchObject({
+      id: "roster_context:flex_need:flex-wr",
+      severity: "positive",
+      title: "WR still carries flex utility",
+      body: "flex-wr helps fill remaining flex utility in this roster format.",
+    });
+  });
+
+  it("uses cautious TE flex language", () => {
+    const top = createRecommendation({
+      id: "flex-te",
+      overallRank: 12,
+      position: "TE",
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(12, 80),
+        createRosterFitComponent("TE", "flex_need", 5),
+      ],
+    });
+    const bundle = generateStrategicInsights(createInsightInput([top]));
+
+    expect(bundle.rosterInsights[0]).toMatchObject({
+      id: "roster_context:flex_need:flex-te",
+      title: "TE has flex eligibility here",
+      body: "flex-te is flex-eligible in this format, but TE depth should stay tied to supported roster need.",
+    });
+  });
+
+  it("generates roster context for useful bench depth", () => {
+    const top = createRecommendation({
+      id: "bench-rb",
+      overallRank: 24,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(24, 80),
+        createRosterFitComponent("RB", "bench_depth", 3),
+      ],
+    });
+    const bundle = generateStrategicInsights(createInsightInput([top]));
+
+    expect(bundle.rosterInsights[0]).toMatchObject({
+      id: "roster_context:bench_depth:bench-rb",
+      severity: "positive",
+      title: "Bench depth is still useful at RB",
+      body: "bench-rb still has useful bench-depth value for this roster shape.",
+    });
+  });
+
+  it("generates a roster caveat for a saturated WR recommendation", () => {
+    const top = createRecommendation({
+      id: "saturated-wr",
+      overallRank: 3,
+      position: "WR",
+      totalScore: 100,
+      baseScore: 95,
+      components: [
+        createBaseComponent(3, 95),
+        createRosterFitComponent("WR", "saturated", -12),
+      ],
+    });
+    const bundle = generateStrategicInsights(createInsightInput([top]));
+
+    expect(bundle.rosterInsights[0]).toMatchObject({
+      id: "roster_context:saturated:saturated-wr",
+      severity: "warning",
+      title: "WR is close to saturated",
+      body: "saturated-wr carries a roster caveat because WR is already near its useful capacity.",
+    });
+  });
+
+  it("describes QB as a single-start slot when a close option carries that caveat", () => {
+    const top = createRecommendation({
+      id: "need-rb",
+      overallRank: 10,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(10, 80),
+        createRosterFitComponent("RB", "direct_starter_need", 10),
+      ],
+    });
+    const second = createRecommendation({
+      id: "limited-qb",
+      overallRank: 7,
+      position: "QB",
+      totalScore: 98,
+      baseScore: 90,
+      components: [
+        createBaseComponent(7, 90),
+        createRosterFitComponent("QB", "limited_need", -6),
+      ],
+    });
+    const bundle = generateStrategicInsights(createInsightInput([second, top]));
+
+    expect(bundle.rosterInsights[0]).toMatchObject({
+      id: "roster_context:limited_need:limited-qb",
+      severity: "warning",
+      title: "QB is a single-start slot here",
+      body: "limited-qb has limited roster utility unless this format creates more QB demand.",
+    });
+  });
+
+  it("generates an early DST roster caveat from existing roster-fit evidence", () => {
+    const top = createRecommendation({
+      id: "early-dst",
+      overallRank: 80,
+      position: "DST",
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(80, 80),
+        createRosterFitComponent("DST", "early_def_k", -20),
+      ],
+    });
+    const bundle = generateStrategicInsights(createInsightInput([top]));
+
+    expect(bundle.rosterInsights[0]).toMatchObject({
+      id: "roster_context:early_def_k:early-dst",
+      severity: "warning",
+      title: "DST is early for this roster phase",
+      body: "early-dst carries a roster-timing caveat for this draft phase.",
+    });
+  });
+
+  it("suppresses roster context for neutral or unsupported roster-fit evidence", () => {
+    const top = createRecommendation({
+      id: "neutral-rb",
+      overallRank: 12,
+      totalScore: 100,
+      baseScore: 90,
+      components: [
+        createBaseComponent(12, 90),
+        createRosterFitComponent("RB", "neutral", 0),
+      ],
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([top])).rosterInsights,
+    ).toEqual([]);
+  });
+
+  it("derives single-start language from non-default roster settings", () => {
+    const twoQbSettings: LeagueSettings = {
+      ...defaultLeagueSettings,
+      rosterSlots: [
+        { id: "qb-1", label: "QB", eligiblePositions: ["QB"] },
+        { id: "qb-2", label: "QB", eligiblePositions: ["QB"] },
+        { id: "bench-1", label: "BENCH", eligiblePositions: ["QB", "RB", "WR", "TE", "DST", "K"] },
+      ],
+    };
+    const top = createRecommendation({
+      id: "limited-qb",
+      overallRank: 10,
+      position: "QB",
+      totalScore: 100,
+      baseScore: 90,
+      components: [
+        createBaseComponent(10, 90),
+        createRosterFitComponent("QB", "limited_need", -6),
+      ],
+    });
+    const bundle = generateStrategicInsights(
+      createInputWithRoster({
+        recommendations: [top],
+        rosterRankings: [createRanking("rostered-qb", 1, "QB")],
+        leagueSettings: twoQbSettings,
+      }),
+    );
+
+    expect(bundle.rosterInsights[0]).toMatchObject({
+      id: "roster_context:limited_need:limited-qb",
+      title: "Limited roster need at QB",
+    });
+  });
+
+  it("includes deterministic roster-fit support references", () => {
+    const top = createRecommendation({
+      id: "supported-wr",
+      overallRank: 12,
+      position: "WR",
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(12, 80),
+        createRosterFitComponent("WR", "flex_need", 5),
+      ],
+    });
+    const input = createInsightInput([top]);
+
+    expect(generateStrategicInsights(input).rosterInsights[0]?.supportedBy).toEqual([
+      {
+        playerId: "supported-wr",
+        componentId: "roster_fit",
+        evidenceKeys: [
+          "benchOpenings",
+          "benchSlots",
+          "directStarterOpenings",
+          "directStarterSlots",
+          "flexOpenings",
+          "flexSlots",
+          "position",
+          "rosterCountAtPosition",
+          "timing",
+        ],
+        reasonId: "roster_fit:reason",
+      },
+    ]);
+    expect(generateStrategicInsights(input)).toEqual(
+      generateStrategicInsights(cloneJson(input)),
+    );
   });
 
   it("returns deterministic output for equivalent inputs", () => {
