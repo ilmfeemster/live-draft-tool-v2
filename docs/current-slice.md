@@ -1,153 +1,138 @@
-# Current Slice - Task 6: Present Strategic Insights in the Draft Experience
+# Current Slice - Task 7: Complete Phase 6 Regression and Exit Validation
 
 ## Status
 
-Complete. Implemented on 2026-07-07.
+Pending. This slice is planned for implementation after Phase 6 Tasks 1-6 are complete.
 
 ## Context
 
-Phase 6 Tasks 1-5 created the pure Insight Engine and its domain outputs for neutral bundles, primary decision frames, top-candidate summaries, top-options tradeoffs, roster construction insights, and board/next-pocket insights.
+Phase 6 added a pure Strategy & Insight Engine above the deterministic Recommendation Engine and exposed the resulting insight bundle in the Draft Room. Tasks 1-6 covered the Insight Engine contract, neutral behavior, primary decision frames, top-candidate summaries, top-options tradeoffs, roster construction insights, board and next-pocket insights, and compact recommendation-panel presentation.
 
-Task 6 exposes those structured insights in the draft experience. The current Draft Room computes `recommendations` in `src/components/DraftRoom.tsx` and passes them into `src/components/RecommendationsPanel.tsx`, where recommendation order, scores, score-backed reasons, and diagnostic score details are already rendered.
+Task 7 is the Phase 6 exit-validation slice. It should prove that strategic insights are deterministic, supported, and useful without changing recommendation scores, recommendation ordering, forecast behavior, persistence contracts, scenario/replay behavior, or manual draft workflows.
 
-This slice should call `generateStrategicInsights` after recommendations are available, pass the resulting bundle to the recommendations panel, and render concise insight output near the recommendation list. The work must preserve recommendation ordering, scoring, reasons, pick entry, undo, reset, persisted draft load, scenario import/replay, transient restart, and score detail diagnostics.
+This slice is primarily validation and documentation. Do not add new insight categories, tune scoring, redesign UI, or broaden product scope during exit validation.
 
 ## Goal
 
-Display the current strategic insight bundle in the Draft Room so users can see the current decision frame, top candidate context, strongest tradeoff, and one roster or board note while keeping existing recommendation details available.
+Complete Phase 6 regression and exit validation so the Strategy & Insight Engine can be considered complete and ready for the next planning phase.
 
 ## Scope
 
 ### Goals
 
-- Call `generateStrategicInsights` from `src/components/DraftRoom.tsx` after the active recommendations are selected.
-- Use the currently displayed draft context:
-  - `displayedDraft`;
-  - `activeRankings`;
-  - `activeLeagueSettings`;
-  - `displayedDraft.userTeamId`;
-  - `recommendations`.
-- Pass the resulting `StrategicInsightBundle` into `RecommendationsPanel`.
-- Render a compact insight area near the top of the recommendations panel when there is at least one non-neutral insight.
-- Display, when present:
-  - `primaryInsight`;
-  - the first `candidateInsights` item;
-  - the first `tradeoffInsights` item;
-  - the first useful roster or board insight, preferring `rosterInsights[0]` and falling back to `boardInsights[0]`;
-  - any future `caveats` if present.
-- Gracefully suppress the insight area when the bundle is neutral or all insight arrays are empty.
-- Preserve existing recommendation list, score-backed reason pills, score details, raw components, cap adjustments, and draft buttons.
-- Keep the presentation compact, scannable, and narrow in blast radius.
+- Run focused and full automated validation for Phase 6 and its regression boundaries.
+- Confirm Insight Engine outputs remain deterministic, structured, traceable, and derived.
+- Confirm recommendation scores, ordering, components, reasons, caps, forecast output, and profile-transition behavior are unchanged except for intentionally added insight presentation.
+- Confirm persisted drafts and portable scenarios recompute recommendations and insights from captured draft/ranking inputs.
+- Confirm the Draft Room remains usable for manual draft, persisted draft, scenario import, replay-target changes, reset, undo, restart, and final-pick states.
+- Confirm insight language does not contain unsupported claims about opponents, probabilities, exact player availability, AI reasoning, projections, VORP, ADP-as-quality, or source tiers as position tiers.
+- Record validation evidence and any residual risks in project documentation after validation completes.
 
 ### Non-goals
 
-- Do not redesign the Draft Room broadly.
-- Do not add controls, settings, filters, toggles, scoring controls, or recommendation tuning UI.
-- Do not change recommendation scoring, ordering, reasons, components, caps, or forecast behavior.
-- Do not change the Insight Engine contract or domain wording unless an implementation blocker is found.
-- Do not persist insight output or change database/schema/scenario contracts.
-- Do not add live-provider integration.
-- Do not introduce opponent modeling, probabilities, exact-player availability claims, AI-generated reasoning, projections, VORP, or ADP-as-quality language.
-- Do not add package dependencies.
+- Do not change recommendation scoring, ordering, component weights, caps, reason generation, forecast construction, or profile-transition behavior.
+- Do not add new insight categories, thresholds, wording systems, or domain semantics.
+- Do not redesign the Draft Room or add controls, settings, filters, toggles, or tuning UI.
+- Do not persist insight output or change database/schema/scenario serialization contracts.
+- Do not introduce live-provider integration, accounts, simulations, AI reasoning, projections, VORP, or opponent modeling.
+- Do not create broad testing infrastructure beyond what is needed to validate Phase 6.
 
 ## Implementation Steps
 
-1. In `src/components/DraftRoom.tsx`, import `generateStrategicInsights`.
-2. Add a `useMemo` that derives `strategicInsights` from:
-   - `displayedDraft`;
-   - `activeRankings`;
-   - `activeLeagueSettings`;
-   - `recommendations`;
-   - `displayedDraft.userTeamId`.
-   Keep dependencies explicit so insights recompute after pick, undo, reset, persisted load, transient scenario import, replay-target changes, and transient restart.
-3. Pass `strategicInsights` to `RecommendationsPanel`.
-4. In `src/components/RecommendationsPanel.tsx`, update props to accept `strategicInsights: StrategicInsightBundle`.
-5. Add a small rendering helper that collects visible insights in deterministic order:
-   1. `primaryInsight`;
-   2. `candidateInsights[0]`;
-   3. `tradeoffInsights[0]`;
-   4. `rosterInsights[0] ?? boardInsights[0]`;
-   5. all `caveats`.
-6. Render the insight area only when the collected list is non-empty.
-7. Use the existing `Insight` fields directly:
-   - title as the compact label;
-   - body when present;
-   - severity for quiet visual treatment.
-   Keep styling local and restrained, using existing Tailwind conventions. Do not place the insight area inside each recommendation card.
-8. Keep the neutral/empty state clean:
-   - no insight area for empty recommendations or `no_material_insight` with no insight items;
-   - existing "No recommendations available." behavior remains unchanged.
-9. Extend `src/components/RecommendationsPanel.test.tsx` with focused rendering coverage:
-   - primary/candidate/tradeoff/roster-or-board insights render in deterministic order;
-   - neutral bundles do not render the insight area;
-   - existing recommendation order, score text, reason pills, diagnostics, and disabled draft button behavior remain unchanged.
-10. Extend `src/components/DraftRoom.test.tsx` with focused render-boundary coverage:
-    - Draft Room renders a supported Insight Engine message when recommendation evidence supports one;
-    - recommendation ordering, scores, reasons, and diagnostic timing component output remain visible;
-    - normalization failure still does not fabricate overall-tier or draft-pocket timing insights.
-11. Run focused validation:
+1. Review the current changed-file set and confirm Task 7 starts from completed Phase 6 Task 6 work.
+2. Run focused Phase 6 automated validation:
 
    ```powershell
-   npm test -- src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx
-   npm test -- src/lib/insights.test.ts
+   npm test -- src/lib/insights.test.ts src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx
+   ```
+
+3. Run focused regression validation for Recommendation Engine, forecast/profile-transition, scenario/replay, persisted workspace, ranking normalization, and ranking-set behavior using the existing relevant test files. Prefer targeted existing tests over adding new coverage unless a Phase 6 gap is discovered.
+4. Run the full automated suite:
+
+   ```powershell
+   npm test
+   ```
+
+5. Run project validation commands:
+
+   ```powershell
    npx tsc --noEmit
+   npm run lint
+   npm run build
+   npm run prisma:validate
    git diff --check
    ```
 
+6. Manually inspect the current insight text surface in source/test fixtures for unsupported claims:
+   - opponent predictions;
+   - probability estimates;
+   - exact-player availability claims;
+   - ADP-as-quality language;
+   - source-tier-as-position-tier language;
+   - AI-generated reasoning claims;
+   - projection or VORP language.
+7. Complete focused manual QA in the running app for representative Phase 6 states:
+   - clean best-player or player-quality recommendation;
+   - value-versus-need or need-versus-value decision;
+   - close-call tradeoff;
+   - roster-construction insight;
+   - board or next-pocket context;
+   - caveated recommendation;
+   - neutral or missing-forecast state;
+   - persisted draft load;
+   - scenario import and replay-target change;
+   - undo, reset/restart, and final-pick behavior.
+8. If automated or manual validation exposes a bug caused by Phase 6, fix only the smallest issue necessary and rerun the affected validation. Stop and report if fixing requires changing non-goal areas or reinterpreting approved design.
+9. After validation passes, update `docs/tasks.md` to mark Task 7 complete and summarize validation evidence.
+10. Update `docs/current-slice.md` completion notes with:
+    - commands run and results;
+    - manual QA states covered;
+    - any skipped or environment-gated validation;
+    - residual risks or follow-up recommendations.
+
 ## Expected Files
 
-- `src/components/DraftRoom.tsx`
-- `src/components/RecommendationsPanel.tsx`
-- `src/components/DraftRoom.test.tsx`
-- `src/components/RecommendationsPanel.test.tsx`
+Planning this slice only updates:
 
-Insight Engine source changes are not expected. Do not edit `src/lib/insights.ts` or `src/types/draft.ts` unless implementation reveals a blocker in the already-approved presentation contract.
+- `docs/current-slice.md`
 
-No persistence, schema, scenario serialization, recommendation-engine, forecast-construction, package, or ranking import files are expected.
+Implementation of this slice is expected to update:
+
+- `docs/current-slice.md`
+- `docs/tasks.md`
+
+Production source changes are not expected. Test changes are not expected unless validation reveals a Phase 6 regression or meaningful coverage gap. Do not edit Insight Engine, Recommendation Engine, persistence, scenario, schema, or UI files unless required to fix a validation failure directly caused by Phase 6.
 
 ## Acceptance Criteria
 
-- Draft Room users can see the current decision frame and concise supported insight near recommendations.
-- Insight output updates from the same displayed draft/recommendation state used by the current recommendation panel.
-- Pick, undo, reset, persisted load, replay-target changes, scenario import, and transient restart continue to recompute or display the appropriate recommendations and insights.
-- Empty or neutral bundles do not create broken, empty, or misleading UI.
-- Existing recommendation details remain accessible, including scores, reason pills, raw components, cap adjustments, and score-backed reasons.
-- The UI does not display unsupported opponent, probability, exact-player availability, AI, projection, VORP, or ADP-quality claims.
-- Recommendation scores, ordering, components, adjustments, reasons, forecast output, profile transitions, and insight generation behavior are unchanged.
-- Focused component tests, focused Insight Engine regression tests, TypeScript validation, and `git diff --check` pass.
-
-## Completion Notes
-
-- Added strategic insight derivation in `DraftRoom` from the displayed draft, active rankings, active league settings, user team id, and selected recommendations.
-- Passed the derived `StrategicInsightBundle` into `RecommendationsPanel`.
-- Rendered primary, candidate, tradeoff, roster-or-board, and caveat insights in deterministic order while suppressing neutral/empty bundles.
-- Preserved existing recommendation cards, score details, raw components, cap adjustments, score-backed reasons, draft buttons, and empty recommendation behavior.
-- Added focused component coverage for ordered insight rendering, neutral suppression, board fallback, Draft Room render-boundary output, and preserved recommendation diagnostics.
-- Validation passed on 2026-07-07:
-  - `npm test -- src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx`
-  - `npm test -- src/lib/insights.test.ts`
-  - `npx tsc --noEmit`
-  - `git diff --check`
+- Focused Phase 6 tests pass.
+- Relevant existing regression tests for recommendations, forecast/profile transitions, scenarios/replay, persisted workspace loading, ranking normalization, and ranking-set behavior pass.
+- Full automated test suite passes, except for any already-documented environment-gated tests.
+- TypeScript validation, lint, production build, Prisma validation, and `git diff --check` pass or any pre-existing/environment-gated limitations are clearly documented.
+- Manual QA confirms Draft Room usability across manual, persisted, scenario, replay, undo, reset/restart, neutral, caveated, and final-pick states.
+- No visible insight text or tested insight fixture contains unsupported opponent, probability, exact availability, AI, projection, VORP, ADP-quality, or source-tier-as-position-tier claims.
+- Recommendation scores, ordering, components, adjustments, reasons, forecast output, profile transitions, and persistence/scenario contracts remain unchanged except for the approved insight presentation from Task 6.
+- `docs/tasks.md` and `docs/current-slice.md` record Phase 6 exit-validation evidence after validation completes.
 
 ## Failure Conditions
 
 Stop and report instead of broadening the slice if:
 
-- presenting insights requires changing recommendation scoring, reason generation, forecast construction, profile transitions, or Insight Engine semantics;
-- the UI needs a broad Draft Room redesign to fit the insight output;
-- persisted drafts, scenarios, replay, or transient sessions require serialization of insight output;
-- useful wording would require unsupported claims about exact player availability, opponents, probabilities, projections, ADP quality, or whole-draft planning;
-- validation failures require persistence, schema, scenario serialization, recommendation-engine, forecast, or import changes.
+- validation failures require recommendation scoring, forecast construction, profile-transition, persistence, schema, scenario serialization, or ranking import changes not directly caused by Phase 6;
+- manual QA requires broad Draft Room redesign or new controls to consider Phase 6 complete;
+- unsupported insight wording would require new domain semantics rather than correcting an obvious presentation or fixture issue;
+- full validation depends on unavailable external services or a database state that cannot be reproduced in the current environment;
+- completing validation requires adding live integrations, simulations, projections, VORP, AI reasoning, opponent modeling, or account/cloud features.
 
 ## Slice Review
 
-1. Smallest meaningful increment: yes - this only presents existing insight output in the Draft Room.
-2. Executable without redefining the approach: yes - computation location, props, rendering order, tests, and validation commands are explicit.
-3. Avoids unnecessary architecture changes: yes - Insight Engine remains pure and derived; UI receives a computed bundle.
-4. Reasonable blast radius: yes - expected changes are limited to four component/test files.
-5. Comfortably reviewable and revertible: yes - recommendation behavior and persistence contracts should not change.
-6. Observable and testable acceptance criteria: yes - insight rendering, suppression, preserved diagnostics, and validation commands are directly testable.
+1. Smallest meaningful increment: yes - this closes Phase 6 by validating the already-completed Insight Engine and presentation work.
+2. Executable without redefining the approach: yes - commands, inspection targets, manual QA states, documentation updates, and stop conditions are explicit.
+3. Avoids unnecessary architecture changes: yes - this is a validation slice and expects no production architecture changes.
+4. Reasonable blast radius: yes - expected implementation changes are documentation-only unless validation reveals a Phase 6 bug.
+5. Comfortably reviewable and revertible: yes - validation evidence and task status updates are isolated.
+6. Observable and testable acceptance criteria: yes - command results, manual QA coverage, unsupported-claim inspection, and documentation updates are directly observable.
 
 ## Follow-up
 
-After this slice passes, promote Task 7: Complete Phase 6 Regression and Exit Validation.
+After this slice passes, Phase 6 should be considered complete. The next slice should be a planning slice to choose and promote the next active project phase from the roadmap or project backlog.
