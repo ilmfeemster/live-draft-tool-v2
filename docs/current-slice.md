@@ -1,113 +1,94 @@
-# Current Slice - Task 5: Add Board and Next-Pocket Insights
+# Current Slice - Task 6: Present Strategic Insights in the Draft Experience
 
 ## Status
 
-Complete. Task 5 passed focused validation on 2026-07-07.
+Pending. This slice is planned for implementation after Phase 6 Task 5.
 
 ## Context
 
-Phase 6 Tasks 1-4 created the pure Insight Engine contract, neutral bundle behavior, score-gap labels, primary decision frames, top-candidate summaries, top-options tradeoff insights, and roster construction insights.
+Phase 6 Tasks 1-5 created the pure Insight Engine and its domain outputs for neutral bundles, primary decision frames, top-candidate summaries, top-options tradeoffs, roster construction insights, and board/next-pocket insights.
 
-Task 5 adds near-term board and next-pocket interpretation to the same pure Insight Engine. The goal is to explain supported forecast/profile context for the current decision without changing forecast construction, recommendation scoring, candidate timing allocation, or UI presentation.
+Task 6 exposes those structured insights in the draft experience. The current Draft Room computes `recommendations` in `src/components/DraftRoom.tsx` and passes them into `src/components/RecommendationsPanel.tsx`, where recommendation order, scores, score-backed reasons, and diagnostic score details are already rendered.
 
-`InsightInput` currently carries an optional `forecast` plus recommendation components. The existing `draft_pocket_timing` recommendation component already carries the Phase 5.5 candidate/profile-transition evidence needed by this slice, including forecast status, target pick, candidate/profile position, overall-tier origin, profile ordinal, allocation role, current/forecast pocket membership, comparable and near replacement counts, replacement quality, skip safety, current and forecasted profile counts, profile disappearance, highest meaningful tier disappearance, and threshold matched.
-
-This slice must not add raw profile-transition arrays to the Insight Engine boundary unless implementation proves the existing component evidence is insufficient. It must not change recommendation scores, ordering, reason generation, board forecasts, profile transitions, UI presentation, persistence, or scenario contracts.
+This slice should call `generateStrategicInsights` after recommendations are available, pass the resulting bundle to the recommendations panel, and render concise insight output near the recommendation list. The work must preserve recommendation ordering, scoring, reasons, pick entry, undo, reset, persisted draft load, scenario import/replay, transient restart, and score detail diagnostics.
 
 ## Goal
 
-Generate deterministic board or next-pocket insight in `boardInsights` when existing active forecast and `draft_pocket_timing` evidence materially explain profile-level current-pocket pressure or wait-safe next-pocket context.
+Display the current strategic insight bundle in the Draft Room so users can see the current decision frame, top candidate context, strongest tradeoff, and one roster or board note while keeping existing recommendation details available.
 
 ## Scope
 
 ### Goals
 
-- Interpret existing `draft_pocket_timing` component evidence for the top recommendations.
-- Use `input.forecast` only as optional aggregate support for active forecast, current pocket, forecasted pocket, and next-pick target context.
-- Generate at most one `next_pocket` or `board_context` insight in `boardInsights`.
-- Prefer current-pocket pressure insight when low or medium skip safety materially supports the current decision.
-- Generate wait-safe board context only when high skip safety or enough comparable forecasted profiles make urgency unsupported but context is still useful.
-- Explain profile-level timing pressure without saying a specific player will or will not be available.
-- Preserve the distinction between source overall tiers and defaulted-neutral tiers.
-- Include support references to the relevant player/component and, where possible, a stable `forecastProfileId`.
-- Suppress board insight when forecast evidence is inactive, missing, neutral, unsupported, or not material.
+- Call `generateStrategicInsights` from `src/components/DraftRoom.tsx` after the active recommendations are selected.
+- Use the currently displayed draft context:
+  - `displayedDraft`;
+  - `activeRankings`;
+  - `activeLeagueSettings`;
+  - `displayedDraft.userTeamId`;
+  - `recommendations`.
+- Pass the resulting `StrategicInsightBundle` into `RecommendationsPanel`.
+- Render a compact insight area near the top of the recommendations panel when there is at least one non-neutral insight.
+- Display, when present:
+  - `primaryInsight`;
+  - the first `candidateInsights` item;
+  - the first `tradeoffInsights` item;
+  - the first useful roster or board insight, preferring `rosterInsights[0]` and falling back to `boardInsights[0]`;
+  - any future `caveats` if present.
+- Gracefully suppress the insight area when the bundle is neutral or all insight arrays are empty.
+- Preserve existing recommendation list, score-backed reason pills, score details, raw components, cap adjustments, and draft buttons.
+- Keep the presentation compact, scannable, and narrow in blast radius.
 
 ### Non-goals
 
-- Do not change forecast construction, pocket creation, profile transitions, candidate timing allocation, scoring, caps, reasons, or recommendation ordering.
-- Do not add raw profile-transition arrays to `InsightInput` unless required by implementation and kept within the already-approved pure boundary.
-- Do not introduce opponent modeling, probabilities, exact-player availability predictions, simulations, projections, VORP, or ADP-as-quality claims.
-- Do not infer position tiers from overall/source tiers.
-- Do not create whole-draft planning, multi-pick optimization, or strategy-profile advice.
-- Do not add UI presentation; Task 6 owns that work.
+- Do not redesign the Draft Room broadly.
+- Do not add controls, settings, filters, toggles, scoring controls, or recommendation tuning UI.
+- Do not change recommendation scoring, ordering, reasons, components, caps, or forecast behavior.
+- Do not change the Insight Engine contract or domain wording unless an implementation blocker is found.
 - Do not persist insight output or change database/schema/scenario contracts.
+- Do not add live-provider integration.
+- Do not introduce opponent modeling, probabilities, exact-player availability claims, AI-generated reasoning, projections, VORP, or ADP-as-quality language.
 - Do not add package dependencies.
 
 ## Implementation Steps
 
-1. In `src/lib/insights.ts`, add local board/next-pocket helper types and evidence readers for `draft_pocket_timing` components:
-   - `forecastStatus`;
-   - `targetPickNumber`;
-   - `candidatePosition`;
-   - `profilePosition`;
-   - `profileOverallTierOrigin`;
-   - `profileOverallTier`;
-   - `profileAnchorPlayerId`;
-   - `profileOrdinal`;
-   - `allocationRole`;
-   - `candidateInCurrentPocket`;
-   - `candidateInForecastedPocket`;
-   - `comparableReplacementCount`;
-   - `nearReplacementCount`;
-   - `replacementQuality`;
-   - `skipSafety`;
-   - `currentProfileCount`;
-   - `forecastedProfileCount`;
-   - `profileDisappeared`;
-   - `highestMeaningfulTierDisappeared`;
-   - `thresholdMatched`.
-2. Add a support helper for forecast/profile evidence that extends existing component support with a stable `forecastProfileId` when the component has enough profile evidence. Use profile-level ids, not player-availability claims.
-3. Add a board insight candidate classifier that only considers `draft_pocket_timing` when:
-   - the component belongs to a visible recommendation, preferably the top three;
-   - component direction is positive and material, or the component is neutral with high skip-safety wait-safe evidence;
-   - forecast status is `"active"`;
-   - candidate is in the current pocket;
-   - candidate position is not `DST` or `K`;
-   - allocation role is not `"neutral"` for pressure insights;
-   - profile overall-tier origin is not `"defaulted-neutral"` for meaningful tier disappearance language.
-4. Select at most one board insight using deterministic priority:
-   1. low skip-safety current-pocket pressure with absent comparable forecast profiles;
-   2. medium skip-safety current-pocket pressure with limited comparable or near profiles;
-   3. source-tier highest meaningful tier disappearance for a material current-pocket candidate;
-   4. high skip-safety wait-safe context when comparable forecast profiles remain and urgency should not be overstated.
-   Break ties by recommendation order.
-5. Create concise insight output:
-   - use `kind: "next_pocket"` for pressure or wait-safe next-pocket timing context;
-   - use `kind: "board_context"` for broader current-board thinness or profile context;
-   - use `severity: "warning"` for low skip-safety or disappearing-profile pressure;
-   - use `severity: "info"` for medium skip-safety and wait-safe context;
-   - use stable ids such as `next_pocket:low_skip_safety:<playerId>` or `board_context:wait_safe:<playerId>`.
-6. Keep wording profile-level and supported. Acceptable patterns include:
-   - `Comparable RB profiles thin out before your next pick.`;
-   - `This WR profile has limited next-pocket support.`;
-   - `Comparable profiles remain in the next pocket.`;
-   - `Current-pocket timing is supported for this profile.`;
-   Avoid wording such as "this player will be gone", "opponents will take", "X% chance", or "ADP says he is better."
-7. Add the selected insight to `boardInsights`; leave `primaryInsight`, `candidateInsights`, `tradeoffInsights`, `rosterInsights`, `caveats`, recommendation output, and forecast output unchanged.
-8. Extend `src/lib/insights.test.ts` with focused fixtures covering:
-   - low skip-safety pocket pressure with absent comparable profiles;
-   - medium skip-safety with limited comparable or near profiles;
-   - high skip-safety wait-safe context with comparable profiles remaining;
-   - defaulted-neutral overall-tier profile suppresses tier-disappearance claims;
-   - no-ADP, no-next-pick, inactive, missing, and outside-current-pocket states suppress board insight;
-   - DST/K timing evidence suppresses board insight;
-   - neutral allocation or zero-allocation timing evidence suppresses pressure insight;
-   - same-profile candidates use the same profile evidence consistently;
-   - support references include the relevant `draft_pocket_timing` component and stable forecast profile id when available;
-   - equivalent inputs produce deterministic output and inputs are not mutated.
-9. Run focused validation:
+1. In `src/components/DraftRoom.tsx`, import `generateStrategicInsights`.
+2. Add a `useMemo` that derives `strategicInsights` from:
+   - `displayedDraft`;
+   - `activeRankings`;
+   - `activeLeagueSettings`;
+   - `recommendations`;
+   - `displayedDraft.userTeamId`.
+   Keep dependencies explicit so insights recompute after pick, undo, reset, persisted load, transient scenario import, replay-target changes, and transient restart.
+3. Pass `strategicInsights` to `RecommendationsPanel`.
+4. In `src/components/RecommendationsPanel.tsx`, update props to accept `strategicInsights: StrategicInsightBundle`.
+5. Add a small rendering helper that collects visible insights in deterministic order:
+   1. `primaryInsight`;
+   2. `candidateInsights[0]`;
+   3. `tradeoffInsights[0]`;
+   4. `rosterInsights[0] ?? boardInsights[0]`;
+   5. all `caveats`.
+6. Render the insight area only when the collected list is non-empty.
+7. Use the existing `Insight` fields directly:
+   - title as the compact label;
+   - body when present;
+   - severity for quiet visual treatment.
+   Keep styling local and restrained, using existing Tailwind conventions. Do not place the insight area inside each recommendation card.
+8. Keep the neutral/empty state clean:
+   - no insight area for empty recommendations or `no_material_insight` with no insight items;
+   - existing "No recommendations available." behavior remains unchanged.
+9. Extend `src/components/RecommendationsPanel.test.tsx` with focused rendering coverage:
+   - primary/candidate/tradeoff/roster-or-board insights render in deterministic order;
+   - neutral bundles do not render the insight area;
+   - existing recommendation order, score text, reason pills, diagnostics, and disabled draft button behavior remain unchanged.
+10. Extend `src/components/DraftRoom.test.tsx` with focused render-boundary coverage:
+    - Draft Room renders a supported Insight Engine message when recommendation evidence supports one;
+    - recommendation ordering, scores, reasons, and diagnostic timing component output remain visible;
+    - normalization failure still does not fabricate overall-tier or draft-pocket timing insights.
+11. Run focused validation:
 
    ```powershell
+   npm test -- src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx
    npm test -- src/lib/insights.test.ts
    npx tsc --noEmit
    git diff --check
@@ -115,57 +96,45 @@ Generate deterministic board or next-pocket insight in `boardInsights` when exis
 
 ## Expected Files
 
-- `src/lib/insights.ts`
-- `src/lib/insights.test.ts`
+- `src/components/DraftRoom.tsx`
+- `src/components/RecommendationsPanel.tsx`
+- `src/components/DraftRoom.test.tsx`
+- `src/components/RecommendationsPanel.test.tsx`
 
-Type changes are not expected. Do not edit `src/types/draft.ts` unless implementation proves the existing Insight Engine contract cannot express required support references.
+Insight Engine source changes are not expected. Do not edit `src/lib/insights.ts` or `src/types/draft.ts` unless implementation reveals a blocker in the already-approved presentation contract.
 
-No UI, persistence, scenario, recommendation-engine, forecast-construction, schema, package, or ranking import files are expected.
+No persistence, schema, scenario serialization, recommendation-engine, forecast-construction, package, or ranking import files are expected.
 
 ## Acceptance Criteria
 
-- Low or medium skip safety can produce supported next-pocket pressure language for material current-pocket candidates.
-- High skip safety suppresses urgency and may support wait-safe language when useful.
-- Defaulted-neutral profiles never produce meaningful overall-tier disappearance claims.
-- No-ADP, no-next-pick, inactive, missing, outside-pocket, DST/K, neutral-allocation, and unsupported states produce no board or future-pick claims.
-- Same-profile candidates read the same Phase 5.5 profile evidence consistently.
-- Every board or next-pocket insight traces to `draft_pocket_timing` evidence and, where applicable, active forecast context.
-- Insight wording stays profile-level and never predicts exact player availability, opponent behavior, probabilities, projections, or ADP-as-quality.
-- Existing primary decision frames, candidate summaries, tradeoff insights, and roster insights remain deterministic.
-- Recommendation scores, ordering, components, adjustments, reasons, forecast output, profile transitions, and timing allocation are unchanged.
-- Focused tests, TypeScript validation, and `git diff --check` pass.
+- Draft Room users can see the current decision frame and concise supported insight near recommendations.
+- Insight output updates from the same displayed draft/recommendation state used by the current recommendation panel.
+- Pick, undo, reset, persisted load, replay-target changes, scenario import, and transient restart continue to recompute or display the appropriate recommendations and insights.
+- Empty or neutral bundles do not create broken, empty, or misleading UI.
+- Existing recommendation details remain accessible, including scores, reason pills, raw components, cap adjustments, and score-backed reasons.
+- The UI does not display unsupported opponent, probability, exact-player availability, AI, projection, VORP, or ADP-quality claims.
+- Recommendation scores, ordering, components, adjustments, reasons, forecast output, profile transitions, and insight generation behavior are unchanged.
+- Focused component tests, focused Insight Engine regression tests, TypeScript validation, and `git diff --check` pass.
 
 ## Failure Conditions
 
 Stop and report instead of broadening the slice if:
 
-- board insight generation requires changing recommendation scoring, forecast construction, profile transitions, candidate timing allocation, caps, or reasons;
-- the existing `draft_pocket_timing` evidence is insufficient and adding raw profile transitions would expand the Insight Engine boundary beyond the approved contract;
+- presenting insights requires changing recommendation scoring, reason generation, forecast construction, profile transitions, or Insight Engine semantics;
+- the UI needs a broad Draft Room redesign to fit the insight output;
+- persisted drafts, scenarios, replay, or transient sessions require serialization of insight output;
 - useful wording would require unsupported claims about exact player availability, opponents, probabilities, projections, ADP quality, or whole-draft planning;
-- implementation requires UI, persistence, scenario, schema, ranking import, or recommendation-engine changes;
-- validation failures require changes outside the expected files.
+- validation failures require persistence, schema, scenario serialization, recommendation-engine, forecast, or import changes.
 
 ## Slice Review
 
-1. Smallest meaningful increment: yes - this adds the board/next-pocket insight category without pulling in UI or phase exit validation.
-2. Executable without redefining the approach: yes - evidence fields, materiality gates, priority order, output shape, tests, and validation commands are explicit.
-3. Avoids unnecessary architecture changes: yes - work remains inside the pure Insight Engine and uses existing recommendation component evidence.
-4. Reasonable blast radius: yes - expected changes are limited to two files.
-5. Comfortably reviewable and revertible: yes - no recommendation, forecast, persistence, or UI behavior should change.
-6. Observable and testable acceptance criteria: yes - insight presence, suppression, support references, deterministic output, and validation commands are directly testable.
+1. Smallest meaningful increment: yes - this only presents existing insight output in the Draft Room.
+2. Executable without redefining the approach: yes - computation location, props, rendering order, tests, and validation commands are explicit.
+3. Avoids unnecessary architecture changes: yes - Insight Engine remains pure and derived; UI receives a computed bundle.
+4. Reasonable blast radius: yes - expected changes are limited to four component/test files.
+5. Comfortably reviewable and revertible: yes - recommendation behavior and persistence contracts should not change.
+6. Observable and testable acceptance criteria: yes - insight rendering, suppression, preserved diagnostics, and validation commands are directly testable.
 
 ## Follow-up
 
-After this slice passes, promote Task 6: Present Strategic Insights in the Draft Experience.
-
-## Completion Notes
-
-Completed on 2026-07-07.
-
-- Added deterministic board and next-pocket insight selection in `src/lib/insights.ts`.
-- Interpreted existing `draft_pocket_timing` component evidence for low skip-safety pressure, medium skip-safety limited support, source-tier current-pocket context, and high skip-safety wait-safe context.
-- Added profile-level `next_pocket` and `board_context` insight output with traceable `supportedBy` references and stable forecast profile ids.
-- Suppressed unsupported board insight states for inactive aggregate forecasts, inactive component evidence, missing timing evidence, outside-pocket candidates, DST/K, neutral pressure allocation, and defaulted-neutral tier-disappearance claims.
-- Preserved recommendation scoring, ordering, components, adjustments, reasons, forecast construction, profile transitions, timing allocation, UI, persistence, and scenario contracts.
-- Extended `src/lib/insights.test.ts` to 52 focused tests covering board/next-pocket insight presence, suppression, support references, same-profile evidence, determinism, and immutability.
-- Confirmed `npm test -- src/lib/insights.test.ts`, `npx tsc --noEmit`, and `git diff --check` pass.
+After this slice passes, promote Task 7: Complete Phase 6 Regression and Exit Validation.
