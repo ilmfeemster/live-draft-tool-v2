@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Ready for implementation.
+Complete. Task 2 passed focused validation on 2026-07-06.
 
 ## Context
 
@@ -153,3 +153,15 @@ Stop and report instead of broadening the slice if:
 ## Follow-up
 
 After this slice passes, promote Task 3: Add Top-Options Tradeoff Insights.
+
+## Completion Notes
+
+Completed on 2026-07-06.
+
+- Added deterministic score-gap labels in `src/lib/insights.ts`.
+- Added primary decision-frame selection for clean best player, value over need, need over value, pocket pressure, tier boundary, run pressure, caveated top pick, close call, and no material insight.
+- Added top-candidate summary generation from supported material components with traceable `supportedBy` references.
+- Added suppression behavior for below-threshold, defaulted-neutral, inactive, high-safety, and unsupported evidence.
+- Extended `src/lib/insights.test.ts` to 21 focused tests covering frame selection, summaries, suppression, support references, determinism, and immutability.
+- Confirmed `npm test -- src/lib/insights.test.ts`, `npx tsc --noEmit`, and `git diff --check` pass.
+- No recommendation scoring, ordering, reasons, forecast behavior, UI, persistence, or scenario contracts changed.
