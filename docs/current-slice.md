@@ -1,106 +1,109 @@
-# Current Slice - Task 4: Add Roster Construction Insights
+# Current Slice - Task 5: Add Board and Next-Pocket Insights
 
 ## Status
 
-Complete. Task 4 passed focused validation on 2026-07-07.
+Pending. This slice is planned for implementation after Phase 6 Task 4.
 
 ## Context
 
-Phase 6 Tasks 1-3 created the pure Insight Engine contract, neutral bundle behavior, score-gap labels, primary decision frames, top-candidate summaries, and top-options tradeoff insights.
+Phase 6 Tasks 1-4 created the pure Insight Engine contract, neutral bundle behavior, score-gap labels, primary decision frames, top-candidate summaries, top-options tradeoff insights, and roster construction insights.
 
-Task 4 adds roster construction context to the same pure Insight Engine. The goal is to explain when the user's roster shape materially affects the current decision, using configured league slots, the user's drafted players, existing recommendation evidence, and current top-candidate context.
+Task 5 adds near-term board and next-pocket interpretation to the same pure Insight Engine. The goal is to explain supported forecast/profile context for the current decision without changing forecast construction, recommendation scoring, candidate timing allocation, or UI presentation.
 
-This slice must not change recommendation scoring, ordering, reason generation, roster-fit component generation, board forecasts, UI presentation, persistence, or scenario contracts.
+`InsightInput` currently carries an optional `forecast` plus recommendation components. The existing `draft_pocket_timing` recommendation component already carries the Phase 5.5 candidate/profile-transition evidence needed by this slice, including forecast status, target pick, candidate/profile position, overall-tier origin, profile ordinal, allocation role, current/forecast pocket membership, comparable and near replacement counts, replacement quality, skip safety, current and forecasted profile counts, profile disappearance, highest meaningful tier disappearance, and threshold matched.
+
+This slice must not add raw profile-transition arrays to the Insight Engine boundary unless implementation proves the existing component evidence is insufficient. It must not change recommendation scores, ordering, reason generation, board forecasts, profile transitions, UI presentation, persistence, or scenario contracts.
 
 ## Goal
 
-Generate at most one deterministic `roster_context` insight in `rosterInsights` when the user's roster construction materially explains the current recommendation decision or top-candidate context.
+Generate deterministic board or next-pocket insight in `boardInsights` when existing active forecast and `draft_pocket_timing` evidence materially explain profile-level current-pocket pressure or wait-safe next-pocket context.
 
 ## Scope
 
 ### Goals
 
-- Derive the user's roster from `input.draft.picks`, `input.rankings`, and `input.userTeamId`.
-- Derive roster slot context from `input.leagueSettings.rosterSlots` rather than MVP constants.
-- Classify roster context for relevant recommendation positions:
-  - open direct starter need;
-  - useful flex need;
-  - useful bench-depth need;
-  - limited need;
-  - saturated position;
-  - early single-start DST/K timing caveat.
-- Preserve RB/WR/FLEX utility language for the default two-flex PPR roster while deriving the behavior from configured slots.
-- Treat QB, DST, and K as single-start positions unless the configured roster slots show broader utility.
-- Generate a roster insight only when the top recommendation or a close top option has material supported roster-fit evidence.
-- Prefer the leading recommendation's roster context when it is material; otherwise use the strongest close top-option roster context if it helps explain the decision.
-- Include `supportedBy` references to the recommendation `roster_fit` component and its evidence keys.
-- Keep insight wording concise and factual.
+- Interpret existing `draft_pocket_timing` component evidence for the top recommendations.
+- Use `input.forecast` only as optional aggregate support for active forecast, current pocket, forecasted pocket, and next-pick target context.
+- Generate at most one `next_pocket` or `board_context` insight in `boardInsights`.
+- Prefer current-pocket pressure insight when low or medium skip safety materially supports the current decision.
+- Generate wait-safe board context only when high skip safety or enough comparable forecasted profiles make urgency unsupported but context is still useful.
+- Explain profile-level timing pressure without saying a specific player will or will not be available.
+- Preserve the distinction between source overall tiers and defaulted-neutral tiers.
+- Include support references to the relevant player/component and, where possible, a stable `forecastProfileId`.
+- Suppress board insight when forecast evidence is inactive, missing, neutral, unsupported, or not material.
 
 ### Non-goals
 
-- Do not add, retune, or reinterpret recommendation scoring.
-- Do not change `calculateRosterFitComponent`, roster-fit deltas, caps, reasons, or thresholds.
-- Do not hard-code default roster counts into Insight Engine behavior.
-- Do not generate broad whole-draft roster planning or strategy-profile advice.
-- Do not generate board, forecast, or next-pocket insights; Task 5 owns that work.
+- Do not change forecast construction, pocket creation, profile transitions, candidate timing allocation, scoring, caps, reasons, or recommendation ordering.
+- Do not add raw profile-transition arrays to `InsightInput` unless required by implementation and kept within the already-approved pure boundary.
+- Do not introduce opponent modeling, probabilities, exact-player availability predictions, simulations, projections, VORP, or ADP-as-quality claims.
+- Do not infer position tiers from overall/source tiers.
+- Do not create whole-draft planning, multi-pick optimization, or strategy-profile advice.
 - Do not add UI presentation; Task 6 owns that work.
 - Do not persist insight output or change database/schema/scenario contracts.
-- Do not add AI-generated language, simulations, opponent modeling, probabilities, exact-player availability claims, ADP-as-quality claims, or new recommendation signals.
+- Do not add package dependencies.
 
 ## Implementation Steps
 
-1. In `src/lib/insights.ts`, add small local roster helpers that keep the Insight Engine pure:
-   - build a `Map` of ranking entries by player id from `input.rankings`;
-   - collect drafted user players from `input.draft.picks` where `pick.teamId === input.userTeamId`;
-   - count rostered players by `Position`;
-   - identify bench slots by `slot.label.toUpperCase() === "BENCH"`;
-   - identify direct starter slots as non-bench slots with exactly one eligible position;
-   - identify flex-style slots as non-bench slots with more than one eligible position.
-2. Add a roster-slot analysis helper for a candidate position that derives:
-   - direct starter slots and openings;
-   - flex slots and openings for flex-eligible positions;
-   - bench slots and openings;
-   - roster count at the candidate position;
-   - total useful capacity for that candidate position.
-3. Reuse the existing recommendation `roster_fit` component as the materiality and support gate:
-   - positive material `direct_starter_need`, `flex_need`, or `bench_depth` can support roster context;
-   - negative material `limited_need`, `saturated`, or `early_def_k` can support roster caveat context;
-   - neutral, below-threshold, missing, or unsupported roster-fit evidence should suppress roster insight.
-4. Add a candidate selector for roster insights that:
-   - checks the leading recommendation first;
-   - may check the second or third recommendation only when `summary.scoreGapLabel` is `"close_call"` or `"slight_lean"`;
-   - chooses the strongest material roster-fit case using deterministic priority:
-     1. open direct starter need;
-     2. flex need;
-     3. saturated position caveat;
-     4. early DST/K timing caveat;
-     5. useful bench-depth need;
-     6. limited-need caveat;
-   - breaks ties by recommendation order.
-5. Add `createRosterInsight` output with:
-   - `kind: "roster_context"`;
-   - `severity: "positive"` for starter, flex, and bench-depth support;
-   - `severity: "warning"` for saturated, limited-need, and early DST/K caveats;
-   - stable ids such as `roster_context:<timing>:<playerId>`;
-   - concise titles and bodies that avoid unsupported future-pick or opponent claims.
-6. Keep wording grounded in roster state and configured slots. Use patterns such as:
-   - `Open RB starter slot`;
-   - `WR still carries flex utility`;
-   - `Bench depth is still useful at RB`;
-   - `WR is close to saturated`;
-   - `QB is a single-start slot here`;
-   - `DST is early for this roster phase`.
-7. Add the selected insight to `rosterInsights`; leave `boardInsights`, `caveats`, scoring output, and existing primary/candidate/tradeoff behavior unchanged.
+1. In `src/lib/insights.ts`, add local board/next-pocket helper types and evidence readers for `draft_pocket_timing` components:
+   - `forecastStatus`;
+   - `targetPickNumber`;
+   - `candidatePosition`;
+   - `profilePosition`;
+   - `profileOverallTierOrigin`;
+   - `profileOverallTier`;
+   - `profileAnchorPlayerId`;
+   - `profileOrdinal`;
+   - `allocationRole`;
+   - `candidateInCurrentPocket`;
+   - `candidateInForecastedPocket`;
+   - `comparableReplacementCount`;
+   - `nearReplacementCount`;
+   - `replacementQuality`;
+   - `skipSafety`;
+   - `currentProfileCount`;
+   - `forecastedProfileCount`;
+   - `profileDisappeared`;
+   - `highestMeaningfulTierDisappeared`;
+   - `thresholdMatched`.
+2. Add a support helper for forecast/profile evidence that extends existing component support with a stable `forecastProfileId` when the component has enough profile evidence. Use profile-level ids, not player-availability claims.
+3. Add a board insight candidate classifier that only considers `draft_pocket_timing` when:
+   - the component belongs to a visible recommendation, preferably the top three;
+   - component direction is positive and material, or the component is neutral with high skip-safety wait-safe evidence;
+   - forecast status is `"active"`;
+   - candidate is in the current pocket;
+   - candidate position is not `DST` or `K`;
+   - allocation role is not `"neutral"` for pressure insights;
+   - profile overall-tier origin is not `"defaulted-neutral"` for meaningful tier disappearance language.
+4. Select at most one board insight using deterministic priority:
+   1. low skip-safety current-pocket pressure with absent comparable forecast profiles;
+   2. medium skip-safety current-pocket pressure with limited comparable or near profiles;
+   3. source-tier highest meaningful tier disappearance for a material current-pocket candidate;
+   4. high skip-safety wait-safe context when comparable forecast profiles remain and urgency should not be overstated.
+   Break ties by recommendation order.
+5. Create concise insight output:
+   - use `kind: "next_pocket"` for pressure or wait-safe next-pocket timing context;
+   - use `kind: "board_context"` for broader current-board thinness or profile context;
+   - use `severity: "warning"` for low skip-safety or disappearing-profile pressure;
+   - use `severity: "info"` for medium skip-safety and wait-safe context;
+   - use stable ids such as `next_pocket:low_skip_safety:<playerId>` or `board_context:wait_safe:<playerId>`.
+6. Keep wording profile-level and supported. Acceptable patterns include:
+   - `Comparable RB profiles thin out before your next pick.`;
+   - `This WR profile has limited next-pocket support.`;
+   - `Comparable profiles remain in the next pocket.`;
+   - `Current-pocket timing is supported for this profile.`;
+   Avoid wording such as "this player will be gone", "opponents will take", "X% chance", or "ADP says he is better."
+7. Add the selected insight to `boardInsights`; leave `primaryInsight`, `candidateInsights`, `tradeoffInsights`, `rosterInsights`, `caveats`, recommendation output, and forecast output unchanged.
 8. Extend `src/lib/insights.test.ts` with focused fixtures covering:
-   - open RB/WR direct starter need;
-   - open flex utility for RB/WR and cautious TE flex language;
-   - useful bench-depth context;
-   - saturated RB/WR caveat;
-   - QB single-start context when another close option has stronger RB/WR roster utility;
-   - early DST/K caveat supported by existing roster-fit evidence;
-   - neutral or unrelated roster state suppresses roster insight;
-   - non-default roster settings derive openings from configured slots;
-   - every roster insight includes `roster_fit` support references;
+   - low skip-safety pocket pressure with absent comparable profiles;
+   - medium skip-safety with limited comparable or near profiles;
+   - high skip-safety wait-safe context with comparable profiles remaining;
+   - defaulted-neutral overall-tier profile suppresses tier-disappearance claims;
+   - no-ADP, no-next-pick, inactive, missing, and outside-current-pocket states suppress board insight;
+   - DST/K timing evidence suppresses board insight;
+   - neutral allocation or zero-allocation timing evidence suppresses pressure insight;
+   - same-profile candidates use the same profile evidence consistently;
+   - support references include the relevant `draft_pocket_timing` component and stable forecast profile id when available;
    - equivalent inputs produce deterministic output and inputs are not mutated.
 9. Run focused validation:
 
@@ -115,56 +118,42 @@ Generate at most one deterministic `roster_context` insight in `rosterInsights` 
 - `src/lib/insights.ts`
 - `src/lib/insights.test.ts`
 
-Type changes are not expected. Do not edit `src/types/draft.ts` unless implementation reveals a missing type required by the already-approved Insight Engine contract.
+Type changes are not expected. Do not edit `src/types/draft.ts` unless implementation proves the existing Insight Engine contract cannot express required support references.
 
-No UI, persistence, scenario, recommendation-engine, forecast, schema, or package files are expected.
+No UI, persistence, scenario, recommendation-engine, forecast-construction, schema, package, or ranking import files are expected.
 
 ## Acceptance Criteria
 
-- Open direct starter needs can produce a supported roster-context insight.
-- Flex openings keep eligible positions relevant without overstating TE depth.
-- Useful bench-depth needs can produce roster context only when materially supported.
-- Saturated or limited-need positions produce caveats only when material to a visible recommendation.
-- QB is described as a single-start slot unless league settings support broader utility.
-- DST/K caveats appear only when existing recommendation evidence supports early timing concerns.
-- Neutral, below-threshold, missing, unsupported, or unrelated roster state suppresses roster insight.
-- Non-default roster settings derive insight from configured slots rather than MVP constants.
-- Every roster insight references the relevant player and `roster_fit` component.
-- Existing primary decision frames, candidate summaries, and tradeoff insights remain deterministic.
-- Recommendation scores, ordering, components, adjustments, and reasons are unchanged.
+- Low or medium skip safety can produce supported next-pocket pressure language for material current-pocket candidates.
+- High skip safety suppresses urgency and may support wait-safe language when useful.
+- Defaulted-neutral profiles never produce meaningful overall-tier disappearance claims.
+- No-ADP, no-next-pick, inactive, missing, outside-pocket, DST/K, neutral-allocation, and unsupported states produce no board or future-pick claims.
+- Same-profile candidates read the same Phase 5.5 profile evidence consistently.
+- Every board or next-pocket insight traces to `draft_pocket_timing` evidence and, where applicable, active forecast context.
+- Insight wording stays profile-level and never predicts exact player availability, opponent behavior, probabilities, projections, or ADP-as-quality.
+- Existing primary decision frames, candidate summaries, tradeoff insights, and roster insights remain deterministic.
+- Recommendation scores, ordering, components, adjustments, reasons, forecast output, profile transitions, and timing allocation are unchanged.
 - Focused tests, TypeScript validation, and `git diff --check` pass.
 
 ## Failure Conditions
 
 Stop and report instead of broadening the slice if:
 
-- roster insight generation requires changing recommendation scoring, roster-fit component evidence, or recommendation reason generation;
-- deriving the roster requires persistence, React state, scenario contracts, or UI state;
-- useful roster wording would require unsupported claims about exact availability, opponents, probabilities, projections, ADP quality, or whole-draft planning;
-- the implementation needs board or next-pocket forecast interpretation that belongs in Task 5;
-- validation failures require UI, persistence, schema, scenario, recommendation scoring, or forecast changes.
+- board insight generation requires changing recommendation scoring, forecast construction, profile transitions, candidate timing allocation, caps, or reasons;
+- the existing `draft_pocket_timing` evidence is insufficient and adding raw profile transitions would expand the Insight Engine boundary beyond the approved contract;
+- useful wording would require unsupported claims about exact player availability, opponents, probabilities, projections, ADP quality, or whole-draft planning;
+- implementation requires UI, persistence, scenario, schema, ranking import, or recommendation-engine changes;
+- validation failures require changes outside the expected files.
 
 ## Slice Review
 
-1. Smallest meaningful increment: yes - this adds one focused insight category without pulling in board notes, UI, or phase exit validation.
-2. Executable without redefining the approach: yes - input derivation, materiality gates, priority order, output shape, tests, and validation commands are explicit.
-3. Avoids unnecessary architecture changes: yes - work remains inside the pure Insight Engine.
+1. Smallest meaningful increment: yes - this adds the board/next-pocket insight category without pulling in UI or phase exit validation.
+2. Executable without redefining the approach: yes - evidence fields, materiality gates, priority order, output shape, tests, and validation commands are explicit.
+3. Avoids unnecessary architecture changes: yes - work remains inside the pure Insight Engine and uses existing recommendation component evidence.
 4. Reasonable blast radius: yes - expected changes are limited to two files.
-5. Comfortably reviewable and revertible: yes - no existing recommendation behavior should change.
-6. Observable and testable acceptance criteria: yes - roster insight presence, suppression, support references, non-default settings, determinism, and validation commands are directly testable.
+5. Comfortably reviewable and revertible: yes - no recommendation, forecast, persistence, or UI behavior should change.
+6. Observable and testable acceptance criteria: yes - insight presence, suppression, support references, deterministic output, and validation commands are directly testable.
 
 ## Follow-up
 
-After this slice passes, promote Task 5: Add Board and Next-Pocket Insights.
-
-## Completion Notes
-
-Completed on 2026-07-07.
-
-- Added deterministic roster-context insight selection in `src/lib/insights.ts`.
-- Derived user roster and roster-slot context from draft picks, ranking entries, user team id, and configured league settings.
-- Used existing `roster_fit` recommendation components as the materiality and support gate for starter, flex, bench-depth, saturated, limited-need, and early DST/K roster context.
-- Added concise `roster_context` insight output with traceable `supportedBy` references.
-- Preserved existing primary decision frames, candidate summaries, tradeoff insights, recommendation scoring, ordering, reasons, forecast behavior, UI, persistence, and scenario contracts.
-- Extended `src/lib/insights.test.ts` to 39 focused tests covering roster context presence, suppression, support references, non-default roster settings, determinism, and immutability.
-- Confirmed `npm test -- src/lib/insights.test.ts`, `npx tsc --noEmit`, and `git diff --check` pass.
+After this slice passes, promote Task 6: Present Strategic Insights in the Draft Experience.
