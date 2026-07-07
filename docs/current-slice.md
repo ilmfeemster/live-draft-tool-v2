@@ -1,107 +1,93 @@
-# Current Slice - Task 2: Generate Primary Decision Frames and Top-Candidate Summaries
+# Current Slice - Task 3: Add Top-Options Tradeoff Insights
 
 ## Status
 
-Complete. Task 2 passed focused validation on 2026-07-06.
+Planned. Ready for implementation.
 
 ## Context
 
-Phase 6 Task 1 created the pure Insight Engine contract and `generateStrategicInsights` neutral bundle. Task 2 should make the first useful Insight Engine output by interpreting existing recommendation components for the current top recommendation.
+Phase 6 Tasks 1-2 created the pure Insight Engine contract, neutral bundle behavior, score-gap labels, primary decision frames, and top-candidate summaries.
 
-This slice should still stay entirely inside the pure domain layer. It should not call the Insight Engine from the Draft Room, change recommendation scoring, change recommendation ordering, or add UI presentation.
+Task 3 should add the next layer of strategic value: one concise explanation of the strongest meaningful contrast among the top recommendations. The user often already sees the ordered list; this slice should help explain what kind of choice the top two or three options represent.
 
-The Insight Engine currently lives in `src/lib/insights.ts`, with tests in `src/lib/insights.test.ts`. Recommendation output already exposes the structured surface this slice should consume: `totalScore`, `baseScore`, `contextScore`, `components`, `scoreAdjustments`, and `reasons`.
+This slice remains inside the pure Insight Engine. It must not change recommendation scoring, ordering, reason generation, forecast behavior, UI presentation, persistence, or scenario contracts.
 
 ## Goal
 
-Generate a deterministic primary decision frame and concise top-candidate summary from existing recommendation evidence, while suppressing unsupported or immaterial claims.
+Generate one deterministic `tradeoff` insight when the top recommendations are close enough and their existing components show a meaningful contrast, such as player quality versus roster fit, player quality versus timing pressure, or roster fit versus timing pressure.
 
 ## Scope
 
 ### Goals
 
-- Derive `summary.scoreGapLabel` from the top recommendation and next recommendation without reordering recommendations.
-- Generate one `primaryInsight` when the top recommendation has a supported material decision frame.
-- Generate one `candidate_summary` insight for the top recommendation when material supported evidence exists.
-- Support these first decision frames:
-  - `clean_best_player`
-  - `value_over_need`
-  - `need_over_value`
-  - `pocket_pressure`
-  - `tier_boundary`
-  - `run_pressure`
-  - `caveated_top_pick`
-  - `close_call`
-  - `no_material_insight`
-- Interpret only existing top-recommendation components and minimal second-recommendation score context needed for score-gap and value/need framing.
-- Use conservative materiality thresholds:
-  - positive component material at `delta >= 3`;
-  - negative caveat material at `delta <= -6`;
-  - close score gap at `<= 3`;
-  - slight lean at `> 3` and `<= 8`;
-  - clear lean at `> 8`.
-- Include `supportedBy` references for every generated insight.
-- Suppress insight text when component evidence is neutral, below threshold, defaulted-neutral, unsupported, contradictory, or absent.
+- Compare the top two or three recommendations in their existing order.
+- Generate at most one `tradeoff` insight in `tradeoffInsights`.
+- Only consider tradeoffs when the current `summary.scoreGapLabel` is `"close_call"` or `"slight_lean"`.
+- Identify supported material differences across:
+  - player quality, from `baseScore` and supported `base_value` evidence;
+  - roster fit, from supported material `roster_fit` evidence;
+  - timing pressure, from supported material `draft_pocket_timing`, `tier_cliff`, `positional_scarcity`, or `positional_run` evidence;
+  - value opportunity, from supported material `value_opportunity` evidence;
+  - caveats, from supported material negative components.
+- Prefer the highest-value supported contrast in deterministic priority order:
+  1. player quality versus roster/timing;
+  2. roster fit versus timing pressure;
+  3. player quality versus caveat;
+  4. value opportunity versus roster/timing;
+  5. close same-strength cluster.
+- Include `supportedBy` references for every player/component used by the tradeoff.
+- Preserve existing primary decision frames and candidate summaries unless a small helper extraction is needed.
+- Keep tradeoff wording concise and grounded in existing evidence.
 
 ### Non-goals
 
-- Do not generate top-options tradeoff insights; Task 3 owns multi-candidate tradeoff wording.
-- Do not generate roster construction summaries; Task 4 owns roster insight.
-- Do not generate board or next-pocket notes beyond using a material top-candidate `draft_pocket_timing` component for the primary frame/summary; Task 5 owns board and pocket insight.
-- Do not call the Insight Engine from UI or application workflows.
 - Do not change recommendation scores, ordering, components, adjustments, reasons, caps, or forecast behavior.
+- Do not generate roster construction summaries; Task 4 owns roster insight.
+- Do not generate board or next-pocket notes beyond interpreting material timing components already present in recommendations; Task 5 owns board/pocket insight.
+- Do not call the Insight Engine from UI or application workflows.
+- Do not add UI presentation.
 - Do not persist insight output or change database/schema/scenario contracts.
 - Do not add AI-generated language, simulations, opponent modeling, probabilities, exact-player availability claims, ADP-as-quality claims, or new recommendation signals.
+- Do not manufacture tradeoffs when the top option is clearly ahead or component differences are immaterial.
 
 ## Implementation Steps
 
-1. In `src/lib/insights.ts`, add local helper functions for:
-   - finding components by id on a `PlayerRecommendation`;
-   - checking material positive and negative components;
-   - deriving `scoreGapLabel`;
-   - building `supportedBy` references from component ids, evidence keys, reason ids, and score adjustment ids.
-2. Derive score gap labels:
-   - zero recommendations: `leadingPlayerId: null`, `scoreGapLabel: "unavailable"`;
-   - one recommendation: `leadingPlayerId` set, `scoreGapLabel: "unavailable"`;
-   - two or more recommendations: compare `top.totalScore - second.totalScore`;
-   - `<= 3`: `"close_call"`;
-   - `> 3` and `<= 8`: `"slight_lean"`;
-   - `> 8`: `"clear_lean"`.
-3. Add primary frame selection in deterministic priority order:
-   - `close_call` when the score gap label is `"close_call"`;
-   - `caveated_top_pick` when the top recommendation has a material negative component and still ranks first;
-   - `pocket_pressure` when material `draft_pocket_timing` evidence is supported;
-   - `tier_boundary` when material `overall_tier` or recommendation-eligible `tier_cliff` evidence is supported;
-   - `run_pressure` when material `positional_run` evidence is supported;
-   - `need_over_value` when material positive `roster_fit` or urgency/context components explain the top recommendation while another recommendation has a stronger `baseScore`;
-   - `value_over_need` when the top recommendation has the strongest visible player-quality case but a neutral/negative roster-fit component;
-   - `clean_best_player` when the top recommendation leads on `baseScore` and has no material caveat;
-   - otherwise `no_material_insight`.
-4. Generate `primaryInsight` only when the selected frame is not `no_material_insight`.
-   - Use concise deterministic titles and optional bodies.
-   - Keep wording grounded in component ids and evidence.
-   - Do not mention exact future availability, opponent behavior, probability, projection, or ADP quality.
-5. Generate one top-candidate `candidate_summary` insight when the top recommendation has material supported evidence.
-   - Prefer the strongest material positive component by priority, then delta, then id.
-   - Include one material caveat in the body only when present.
-   - Suppress the summary when only neutral or unsupported evidence exists.
-6. Preserve the existing neutral bundle shape for arrays not owned by this slice:
-   - `tradeoffInsights: []`
-   - `rosterInsights: []`
-   - `boardInsights: []`
-   - `caveats: []` unless a caveat is included as the top-candidate summary body or primary caveated frame.
-   - `suppressedSignals` may include deterministic records for below-threshold/defaulted/unsupported signals when useful for tests, but UI-facing insight arrays should remain silent.
+1. In `src/lib/insights.ts`, add local helpers for classifying each of the top recommendations by supported strengths:
+   - `player_quality`
+   - `roster_fit`
+   - `timing_pressure`
+   - `value_opportunity`
+   - `caveat`
+2. Reuse or extract existing support/component helper logic from Task 2 rather than creating a second parallel interpretation path.
+3. Add a tradeoff selection helper that:
+   - receives the already-ordered recommendations and derived score-gap label;
+   - immediately returns `null` unless the score-gap label is `"close_call"` or `"slight_lean"`;
+   - compares only the top two recommendations by default, consulting the third only when it has the clearest supported contrasting strength and remains within the same close/slight score band;
+   - never reorders recommendations or changes `summary.leadingPlayerId`.
+4. Implement deterministic tradeoff priority:
+   - If one candidate has the strongest player-quality case and another has supported roster or timing strength, emit a player-quality-versus-roster/timing tradeoff.
+   - If one candidate has supported roster fit and another has supported timing pressure, emit a roster-versus-timing tradeoff.
+   - If one candidate has the strongest player-quality case but also has a supported caveat while another has no material caveat, emit a player-quality-versus-caveat tradeoff.
+   - If one candidate has supported value opportunity and another has supported roster or timing strength, emit a value-versus-roster/timing tradeoff.
+   - If the top options are close and share the same supported primary strength, emit a restrained close-cluster tradeoff only when both sides have traceable support.
+5. Add deterministic tradeoff titles and bodies. Use wording such as:
+   - `Player quality versus roster/timing`
+   - `Roster fit versus timing pressure`
+   - `Value versus roster/timing`
+   - `Close options with similar support`
+   Avoid exact-player availability, opponent behavior, probability, projection, ADP-as-quality, or certainty language.
+6. Add the selected insight to `tradeoffInsights`; leave `rosterInsights`, `boardInsights`, and `caveats` unchanged.
 7. Extend `src/lib/insights.test.ts` with fixtures covering:
-   - score-gap labels for unavailable, close, slight, and clear states;
-   - clean best-player frame;
-   - value-over-need frame;
-   - need-over-value frame;
-   - pocket-pressure frame from material `draft_pocket_timing`;
-   - tier-boundary frame from supported `overall_tier` or `tier_cliff`;
-   - run-pressure frame;
-   - caveated top pick from material negative component;
-   - suppression for below-threshold, defaulted-neutral, inactive forecast, high skip-safety, and unsupported timing evidence;
-   - deterministic `supportedBy` references.
+   - stronger player-quality candidate versus stronger roster-fit candidate;
+   - stronger roster/timing candidate versus stronger base-value candidate;
+   - roster fit versus timing pressure;
+   - player quality with caveat versus cleaner alternative;
+   - value opportunity versus roster/timing;
+   - close same-strength cluster;
+   - clear leader suppresses tradeoff;
+   - same-position or no-supported-contrast case suppresses tradeoff;
+   - deterministic support references include both sides of the tradeoff;
+   - repeated equivalent inputs produce identical tradeoff output.
 8. Run focused validation:
 
    ```powershell
@@ -117,17 +103,18 @@ Generate a deterministic primary decision frame and concise top-candidate summar
 
 Type changes are not expected. Do not edit `src/types/draft.ts` unless implementation reveals a missing type required by the already-approved contract.
 
-No UI, persistence, scenario, or recommendation-engine files are expected.
+No UI, persistence, scenario, recommendation-engine, or forecast files are expected.
 
 ## Acceptance Criteria
 
-- `generateStrategicInsights` derives deterministic score-gap labels from existing recommendation order and scores.
-- A clean top player produces a concise best-player or player-quality frame.
-- A top player with material roster/timing support produces the appropriate supported frame.
-- A top player with a meaningful negative component produces a caveated frame or caveated summary.
-- Close top scores avoid overstated certainty by using the `close_call` frame.
-- Unsupported, inactive, defaulted-neutral, below-threshold, high-safety, or neutral tier/forecast/run/timing evidence does not produce UI-facing claims.
-- Every generated primary or candidate-summary insight includes traceable `supportedBy` references.
+- Close top options with different supported strengths produce exactly one deterministic `tradeoff` insight.
+- A stronger overall player versus stronger roster-fit option is explained without implying certainty.
+- A stronger roster/timing option versus stronger base-value option is explained using existing component evidence.
+- Timing-pressure tradeoffs appear only when timing components materially support them.
+- Clear leaders do not receive unnecessary tradeoff text.
+- Same-position or no-supported-contrast cases suppress tradeoff output.
+- Every tradeoff references the relevant players and supporting components.
+- Primary decision frames and candidate summaries from Task 2 remain deterministic.
 - Recommendation scores, ordering, components, adjustments, and reasons are unchanged.
 - Focused tests, TypeScript validation, and `git diff --check` pass.
 
@@ -135,33 +122,21 @@ No UI, persistence, scenario, or recommendation-engine files are expected.
 
 Stop and report instead of broadening the slice if:
 
-- the existing component evidence is insufficient to support a required frame without changing Recommendation Engine behavior;
-- frame selection requires broad multi-candidate tradeoff logic that belongs in Task 3;
-- implementing summaries requires roster reconstruction beyond existing top-recommendation component evidence;
-- validation failures require recommendation scoring, forecast, UI, persistence, scenario, or schema changes;
-- a needed insight claim would be unsupported by structured inputs.
+- tradeoff generation requires new recommendation scoring signals or changed recommendation components;
+- deciding the tradeoff requires broad roster reconstruction that belongs in Task 4;
+- deciding the tradeoff requires board/pocket analysis beyond existing material recommendation components and should wait for Task 5;
+- supporting the desired wording would require unsupported claims about exact availability, opponents, probabilities, projections, or ADP quality;
+- validation failures require UI, persistence, scenario, schema, recommendation scoring, or forecast changes.
 
 ## Slice Review
 
-1. Smallest meaningful increment: yes - this adds the first visible domain insight while leaving tradeoffs, roster summaries, board notes, and UI for later tasks.
-2. Executable without redefining the approach: yes - frame priority, thresholds, supported evidence, tests, and validation commands are explicit.
+1. Smallest meaningful increment: yes - this adds one focused insight category without pulling in roster summaries, board notes, or UI.
+2. Executable without redefining the approach: yes - comparison scope, priority order, supported evidence, tests, and validation commands are explicit.
 3. Avoids unnecessary architecture changes: yes - work remains inside the pure Insight Engine.
-4. Reasonable blast radius: yes - expected changes are limited to two files, with a possible type-file edit only if the existing contract is insufficient.
+4. Reasonable blast radius: yes - expected changes are limited to two files.
 5. Comfortably reviewable and revertible: yes - no existing recommendation behavior should change.
-6. Observable and testable acceptance criteria: yes - generated frames, summaries, support references, suppression behavior, and validation commands are directly testable.
+6. Observable and testable acceptance criteria: yes - tradeoff presence, suppression, support references, determinism, and validation commands are directly testable.
 
 ## Follow-up
 
-After this slice passes, promote Task 3: Add Top-Options Tradeoff Insights.
-
-## Completion Notes
-
-Completed on 2026-07-06.
-
-- Added deterministic score-gap labels in `src/lib/insights.ts`.
-- Added primary decision-frame selection for clean best player, value over need, need over value, pocket pressure, tier boundary, run pressure, caveated top pick, close call, and no material insight.
-- Added top-candidate summary generation from supported material components with traceable `supportedBy` references.
-- Added suppression behavior for below-threshold, defaulted-neutral, inactive, high-safety, and unsupported evidence.
-- Extended `src/lib/insights.test.ts` to 21 focused tests covering frame selection, summaries, suppression, support references, determinism, and immutability.
-- Confirmed `npm test -- src/lib/insights.test.ts`, `npx tsc --noEmit`, and `git diff --check` pass.
-- No recommendation scoring, ordering, reasons, forecast behavior, UI, persistence, or scenario contracts changed.
+After this slice passes, promote Task 4: Add Roster Construction Insights.
