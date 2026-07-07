@@ -1,7 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { RecommendationsPanel } from "@/components/RecommendationsPanel";
-import type { PlayerRecommendation } from "@/types/draft";
+import type {
+  PlayerRecommendation,
+  StrategicInsightBundle,
+} from "@/types/draft";
 
 describe("RecommendationsPanel diagnostics", () => {
   it("renders engine order, raw scores, cap evidence, and exact reasons", () => {
@@ -11,6 +14,7 @@ describe("RecommendationsPanel diagnostics", () => {
         isDraftComplete={false}
         isUserPick={true}
         recommendations={recommendations}
+        strategicInsights={createNeutralStrategicInsights()}
         onDraftPlayer={vi.fn()}
       />,
     );
@@ -54,6 +58,7 @@ describe("RecommendationsPanel diagnostics", () => {
         isDraftComplete={true}
         isUserPick={false}
         recommendations={createRecommendations().slice(0, 1)}
+        strategicInsights={createNeutralStrategicInsights()}
         onDraftPlayer={vi.fn()}
       />,
     );
@@ -67,6 +72,7 @@ describe("RecommendationsPanel diagnostics", () => {
         isDraftComplete={false}
         isUserPick={true}
         recommendations={[createNeutralRecommendation()]}
+        strategicInsights={createNeutralStrategicInsights()}
         onDraftPlayer={vi.fn()}
       />,
     );
@@ -80,7 +86,155 @@ describe("RecommendationsPanel diagnostics", () => {
     expect(markup).not.toContain("tier_cliff");
     expect(markup).not.toContain("A major WR tier drop follows.");
   });
+
+  it("renders strategic insights in deterministic order", () => {
+    const markup = renderToStaticMarkup(
+      <RecommendationsPanel
+        isDraftComplete={false}
+        isUserPick={true}
+        recommendations={createRecommendations()}
+        strategicInsights={createStrategicInsights()}
+        onDraftPlayer={vi.fn()}
+      />,
+    );
+
+    const primaryPosition = markup.indexOf("Close call at the top");
+    const candidatePosition = markup.indexOf("Diagnostic Runner carries starter utility.");
+    const tradeoffPosition = markup.indexOf("Player quality versus roster timing");
+    const rosterPosition = markup.indexOf("Open RB starter slot");
+    const caveatPosition = markup.indexOf("Recommended with a caveat");
+
+    expect(markup).toContain("strategic-insights");
+    expect(primaryPosition).toBeGreaterThanOrEqual(0);
+    expect(primaryPosition).toBeLessThan(candidatePosition);
+    expect(candidatePosition).toBeLessThan(tradeoffPosition);
+    expect(tradeoffPosition).toBeLessThan(rosterPosition);
+    expect(rosterPosition).toBeLessThan(caveatPosition);
+    expect(markup).not.toContain("Comparable profiles remain later");
+  });
+
+  it("falls back to a board insight when no roster insight is visible", () => {
+    const markup = renderToStaticMarkup(
+      <RecommendationsPanel
+        isDraftComplete={false}
+        isUserPick={true}
+        recommendations={createRecommendations()}
+        strategicInsights={createStrategicInsights({ rosterInsights: [] })}
+        onDraftPlayer={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Comparable profiles remain later");
+  });
+
+  it("suppresses the strategic insight area for neutral bundles", () => {
+    const markup = renderToStaticMarkup(
+      <RecommendationsPanel
+        isDraftComplete={false}
+        isUserPick={true}
+        recommendations={createRecommendations()}
+        strategicInsights={createNeutralStrategicInsights()}
+        onDraftPlayer={vi.fn()}
+      />,
+    );
+
+    expect(markup).not.toContain("strategic-insights");
+    expect(markup).not.toContain("Close call at the top");
+  });
 });
+
+function createNeutralStrategicInsights(): StrategicInsightBundle {
+  return {
+    summary: {
+      leadingPlayerId: null,
+      decisionFrame: "no_material_insight",
+      scoreGapLabel: "unavailable",
+    },
+    primaryInsight: null,
+    candidateInsights: [],
+    tradeoffInsights: [],
+    rosterInsights: [],
+    boardInsights: [],
+    caveats: [],
+    suppressedSignals: [],
+  };
+}
+
+function createStrategicInsights(
+  overrides: Partial<StrategicInsightBundle> = {},
+): StrategicInsightBundle {
+  return {
+    ...createNeutralStrategicInsights(),
+    summary: {
+      leadingPlayerId: "diagnostic-rb",
+      decisionFrame: "close_call",
+      scoreGapLabel: "close_call",
+    },
+    primaryInsight: {
+      id: "primary",
+      kind: "primary_decision",
+      severity: "info",
+      title: "Close call at the top",
+      body: "The top options are close enough to compare context.",
+      supportedBy: [{ playerId: "diagnostic-rb" }],
+    },
+    candidateInsights: [
+      {
+        id: "candidate",
+        kind: "candidate_summary",
+        severity: "positive",
+        title: "Diagnostic Runner carries starter utility.",
+        body: "Existing roster evidence supports this candidate.",
+        supportedBy: [{ playerId: "diagnostic-rb", componentId: "roster_fit" }],
+      },
+    ],
+    tradeoffInsights: [
+      {
+        id: "tradeoff",
+        kind: "tradeoff",
+        severity: "info",
+        title: "Player quality versus roster timing",
+        body: "The second option offers a different decision shape.",
+        supportedBy: [
+          { playerId: "diagnostic-rb", componentId: "base_value" },
+          { playerId: "uncapped-wr", componentId: "roster_fit" },
+        ],
+      },
+    ],
+    rosterInsights: [
+      {
+        id: "roster",
+        kind: "roster_context",
+        severity: "positive",
+        title: "Open RB starter slot",
+        body: "The current roster still has direct RB utility.",
+        supportedBy: [{ playerId: "diagnostic-rb", componentId: "roster_fit" }],
+      },
+    ],
+    boardInsights: [
+      {
+        id: "board",
+        kind: "board_context",
+        severity: "info",
+        title: "Comparable profiles remain later",
+        body: "Board evidence does not add urgency here.",
+        supportedBy: [{ playerId: "uncapped-wr" }],
+      },
+    ],
+    caveats: [
+      {
+        id: "caveat",
+        kind: "caveat",
+        severity: "warning",
+        title: "Recommended with a caveat",
+        body: "A negative component is still material.",
+        supportedBy: [{ playerId: "diagnostic-rb", componentId: "value_opportunity" }],
+      },
+    ],
+    suppressedSignals: [],
+    ...overrides,
+  };
+}
 
 function createNeutralRecommendation(): PlayerRecommendation {
   return {

@@ -7,10 +7,16 @@ import type {
   DraftSummary,
 } from "@/lib/draftRepository";
 import { loadDraftWorkspace } from "@/lib/draftWorkspaceLoader";
+import { generateStrategicInsights } from "@/lib/insights";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import { MANAGED_SEED_RANKING_SET_ID } from "@/lib/managedSeedRankingSet";
 import { createRecommendationRankingContext } from "@/lib/recommendationRankingContext";
-import type { DraftWorkspace, Position, RankingEntry } from "@/types/draft";
+import type {
+  DraftWorkspace,
+  Position,
+  RankingEntry,
+  StrategicInsightBundle,
+} from "@/types/draft";
 import type { RankingSetSummary } from "@/types/rankings";
 
 vi.mock("next/navigation", () => ({
@@ -65,6 +71,14 @@ describe("DraftRoom loaded workspace recommendations", () => {
       recommendationRankingContext:
         recommendationRankingContextResult.context,
     });
+    const expectedInsights = generateStrategicInsights({
+      draft: workspace.draft,
+      rankings: workspace.rankings,
+      leagueSettings: workspace.leagueSettings,
+      userTeamId: workspace.draft.userTeamId,
+      recommendations: expectedRecommendations,
+    });
+    const expectedInsightTitles = collectRenderableInsightTitles(expectedInsights);
     const markup = renderToStaticMarkup(
       <DraftRoom
         draft={workspace.draft}
@@ -109,6 +123,8 @@ describe("DraftRoom loaded workspace recommendations", () => {
     expect(expectedRecommendations.some((recommendation) => {
       return recommendation.reasons.length > 0;
     })).toBe(true);
+    expect(expectedInsightTitles.length).toBeGreaterThan(0);
+    expect(markup).toContain(expectedInsightTitles[0]);
     expect(expectedRecommendations.some((recommendation) => {
       return recommendation.components.some(
         (component) => component.id === "draft_pocket_timing",
@@ -154,8 +170,11 @@ describe("DraftRoom loaded workspace recommendations", () => {
     ).not.toContain(draftedPlayer.player.id);
     expect(markup).not.toContain(draftedPlayer.player.name);
 
+    const recommendationListMarkup = markup.slice(
+      markup.indexOf("recommendation-list"),
+    );
     const renderedNamePositions = expectedRecommendations.map((recommendation) => {
-      return markup.indexOf(recommendation.ranking.player.name);
+      return recommendationListMarkup.indexOf(recommendation.ranking.player.name);
     });
     expect(renderedNamePositions.every((position) => position >= 0)).toBe(true);
     expect(renderedNamePositions).toEqual(
@@ -198,6 +217,18 @@ describe("DraftRoom loaded workspace recommendations", () => {
     expect(markup).toContain("River Stone");
   });
 });
+
+function collectRenderableInsightTitles(
+  bundle: StrategicInsightBundle,
+): string[] {
+  return [
+    bundle.primaryInsight,
+    bundle.candidateInsights[0],
+    bundle.tradeoffInsights[0],
+    bundle.rosterInsights[0] ?? bundle.boardInsights[0],
+    ...bundle.caveats,
+  ].flatMap((insight) => (insight ? [insight.title] : []));
+}
 
 function createPersistedWorkspace(): DraftWorkspace {
   const teamCount = 4;

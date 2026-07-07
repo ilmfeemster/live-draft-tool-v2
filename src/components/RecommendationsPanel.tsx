@@ -1,9 +1,14 @@
-import type { PlayerRecommendation } from "@/types/draft";
+import type {
+  Insight,
+  PlayerRecommendation,
+  StrategicInsightBundle,
+} from "@/types/draft";
 
 type RecommendationsPanelProps = {
   isDraftComplete: boolean;
   isUserPick: boolean;
   recommendations: PlayerRecommendation[];
+  strategicInsights: StrategicInsightBundle;
   onDraftPlayer: (playerId: string) => void;
 };
 
@@ -11,8 +16,11 @@ export function RecommendationsPanel({
   isDraftComplete,
   isUserPick,
   recommendations,
+  strategicInsights,
   onDraftPlayer,
 }: RecommendationsPanelProps) {
+  const visibleInsights = collectVisibleInsights(strategicInsights);
+
   return (
     <section
       className={
@@ -28,12 +36,35 @@ export function RecommendationsPanel({
         </p>
       </div>
 
+      {visibleInsights.length > 0 ? (
+        <div
+          className="mt-4 grid gap-2 rounded border border-zinc-200 bg-zinc-50 p-3"
+          data-testid="strategic-insights"
+        >
+          {visibleInsights.map((insight) => (
+            <article
+              key={insight.id}
+              className={`rounded border bg-white p-2 ${getInsightToneClassName(
+                insight.severity,
+              )}`}
+            >
+              <div className="text-sm font-semibold text-zinc-900">
+                {insight.title}
+              </div>
+              {insight.body ? (
+                <p className="mt-1 text-sm text-zinc-600">{insight.body}</p>
+              ) : null}
+            </article>
+          ))}
+        </div>
+      ) : null}
+
       {recommendations.length === 0 ? (
         <div className="mt-4 rounded border border-dashed border-zinc-300 p-3 text-sm text-zinc-500">
           No recommendations available.
         </div>
       ) : (
-        <div className="mt-4 grid gap-2">
+        <div className="mt-4 grid gap-2" data-testid="recommendation-list">
           {recommendations.map((recommendation, index) => {
             const {
               ranking,
@@ -206,6 +237,30 @@ export function RecommendationsPanel({
       )}
     </section>
   );
+}
+
+function collectVisibleInsights(bundle: StrategicInsightBundle): Insight[] {
+  return [
+    bundle.primaryInsight,
+    bundle.candidateInsights[0],
+    bundle.tradeoffInsights[0],
+    bundle.rosterInsights[0] ?? bundle.boardInsights[0],
+    ...bundle.caveats,
+  ].filter((insight): insight is Insight => Boolean(insight));
+}
+
+function getInsightToneClassName(severity: Insight["severity"]): string {
+  switch (severity) {
+    case "positive":
+      return "border-emerald-200";
+    case "warning":
+      return "border-amber-200";
+    case "neutral":
+      return "border-zinc-200";
+    case "info":
+    default:
+      return "border-sky-200";
+  }
 }
 
 function DiagnosticValue({ label, value }: { label: string; value: string }) {

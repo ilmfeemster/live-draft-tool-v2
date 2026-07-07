@@ -22,6 +22,7 @@ import {
   undoLastPickAction,
 } from "@/app/actions/draftActions";
 import type { CreateConfiguredDraftFromRankingSetError } from "@/lib/draftCreationWorkflow";
+import { generateStrategicInsights } from "@/lib/insights";
 import { generatePlayerRecommendations } from "@/lib/recommendations";
 import { exportWorkspaceToScenarioV2 } from "@/lib/scenarioPortability";
 import {
@@ -169,6 +170,21 @@ export function DraftRoom({
   ]);
   const recommendations =
     transientSession?.recommendations ?? persistedRecommendations;
+  const strategicInsights = useMemo(() => {
+    return generateStrategicInsights({
+      draft: displayedDraft,
+      rankings: activeRankings,
+      leagueSettings: activeLeagueSettings,
+      userTeamId: displayedDraft.userTeamId,
+      recommendations,
+    });
+  }, [
+    activeLeagueSettings,
+    activeRankings,
+    displayedDraft,
+    displayedDraft.userTeamId,
+    recommendations,
+  ]);
 
   const currentPick = displayedDraft.picks.find(
     (pick) => pick.pickNumber === displayedDraft.currentPickNumber,
@@ -643,6 +659,7 @@ export function DraftRoom({
             isDraftComplete={areDraftActionsDisabled}
             isUserPick={isUserPick}
             recommendations={recommendations}
+            strategicInsights={strategicInsights}
             onDraftPlayer={draftPlayer}
           />
           <AvailablePlayersTable

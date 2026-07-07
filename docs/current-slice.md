@@ -2,7 +2,7 @@
 
 ## Status
 
-Pending. This slice is planned for implementation after Phase 6 Task 5.
+Complete. Implemented on 2026-07-07.
 
 ## Context
 
@@ -115,6 +115,19 @@ No persistence, schema, scenario serialization, recommendation-engine, forecast-
 - The UI does not display unsupported opponent, probability, exact-player availability, AI, projection, VORP, or ADP-quality claims.
 - Recommendation scores, ordering, components, adjustments, reasons, forecast output, profile transitions, and insight generation behavior are unchanged.
 - Focused component tests, focused Insight Engine regression tests, TypeScript validation, and `git diff --check` pass.
+
+## Completion Notes
+
+- Added strategic insight derivation in `DraftRoom` from the displayed draft, active rankings, active league settings, user team id, and selected recommendations.
+- Passed the derived `StrategicInsightBundle` into `RecommendationsPanel`.
+- Rendered primary, candidate, tradeoff, roster-or-board, and caveat insights in deterministic order while suppressing neutral/empty bundles.
+- Preserved existing recommendation cards, score details, raw components, cap adjustments, score-backed reasons, draft buttons, and empty recommendation behavior.
+- Added focused component coverage for ordered insight rendering, neutral suppression, board fallback, Draft Room render-boundary output, and preserved recommendation diagnostics.
+- Validation passed on 2026-07-07:
+  - `npm test -- src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx`
+  - `npm test -- src/lib/insights.test.ts`
+  - `npx tsc --noEmit`
+  - `git diff --check`
 
 ## Failure Conditions
 
