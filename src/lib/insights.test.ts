@@ -213,14 +213,34 @@ function timingEvidence(
 ): RecommendationScoreComponent["evidence"] {
   return {
     forecastStatus: "active",
+    targetPickNumber: 24,
     candidateInCurrentPocket: true,
+    candidateInForecastedPocket: false,
     candidatePosition: "RB",
     profilePosition: "RB",
+    profileOverallTierOrigin: "source",
+    profileOverallTier: 2,
+    profileAnchorPlayerId: "profile-anchor",
+    profileOrdinal: 1,
     skipSafety: "low",
     allocationRole: "full",
+    comparableReplacementCount: 0,
+    nearReplacementCount: 0,
+    replacementQuality: "low",
+    currentProfileCount: 1,
+    forecastedProfileCount: 0,
+    profileDisappeared: true,
+    highestMeaningfulTierDisappeared: false,
     thresholdMatched: "low_skip_safety",
     ...overrides,
   };
+}
+
+function createDraftPocketTimingComponent(
+  delta = 6,
+  overrides: RecommendationScoreComponent["evidence"] = {},
+) {
+  return createComponent("draft_pocket_timing", delta, timingEvidence(overrides));
 }
 
 describe("generateStrategicInsights", () => {
@@ -1144,6 +1164,319 @@ describe("generateStrategicInsights", () => {
           "timing",
         ],
         reasonId: "roster_fit:reason",
+      },
+    ]);
+    expect(generateStrategicInsights(input)).toEqual(
+      generateStrategicInsights(cloneJson(input)),
+    );
+  });
+
+  it("generates next-pocket pressure for low skip safety with absent comparable profiles", () => {
+    const top = createRecommendation({
+      id: "pocket-rb",
+      overallRank: 8,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createDraftPocketTimingComponent(6),
+      ],
+    });
+    const bundle = generateStrategicInsights(createInsightInput([top]));
+
+    expect(bundle.boardInsights).toEqual([
+      expect.objectContaining({
+        id: "next_pocket:low_skip_safety:pocket-rb",
+        kind: "next_pocket",
+        severity: "warning",
+        title: "Next-pocket profile pressure",
+        body: "Comparable RB profiles thin out before your next pick.",
+        supportedBy: [
+          expect.objectContaining({
+            playerId: "pocket-rb",
+            componentId: "draft_pocket_timing",
+            reasonId: "draft_pocket_timing:reason",
+            forecastProfileId: "profile:RB:source:2",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("generates next-pocket context for medium skip safety with limited profile support", () => {
+    const top = createRecommendation({
+      id: "limited-wr",
+      overallRank: 10,
+      position: "WR",
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(10, 80),
+        createDraftPocketTimingComponent(3, {
+          candidatePosition: "WR",
+          profilePosition: "WR",
+          skipSafety: "medium",
+          thresholdMatched: "medium_skip_safety",
+          comparableReplacementCount: 1,
+          nearReplacementCount: 1,
+          replacementQuality: "medium",
+          forecastedProfileCount: 1,
+          profileDisappeared: false,
+        }),
+      ],
+    });
+    const bundle = generateStrategicInsights(createInsightInput([top]));
+
+    expect(bundle.boardInsights[0]).toMatchObject({
+      id: "next_pocket:medium_skip_safety:limited-wr",
+      kind: "next_pocket",
+      severity: "info",
+      title: "Limited next-pocket support",
+      body: "This WR profile has limited next-pocket support.",
+    });
+  });
+
+  it("generates wait-safe board context when comparable profiles remain", () => {
+    const top = createRecommendation({
+      id: "wait-wr",
+      overallRank: 10,
+      position: "WR",
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(10, 80),
+        createDraftPocketTimingComponent(0, {
+          candidatePosition: "WR",
+          profilePosition: "WR",
+          skipSafety: "high",
+          allocationRole: "neutral",
+          thresholdMatched: "high_skip_safety",
+          comparableReplacementCount: 3,
+          nearReplacementCount: 0,
+          replacementQuality: "high",
+          forecastedProfileCount: 3,
+          profileDisappeared: false,
+        }),
+      ],
+    });
+    const bundle = generateStrategicInsights(createInsightInput([top]));
+
+    expect(bundle.boardInsights[0]).toMatchObject({
+      id: "next_pocket:wait_safe:wait-wr",
+      kind: "next_pocket",
+      severity: "info",
+      title: "Comparable profiles remain",
+      body: "Comparable WR profiles remain in the next pocket.",
+    });
+  });
+
+  it("suppresses meaningful tier disappearance for defaulted-neutral profiles", () => {
+    const top = createRecommendation({
+      id: "neutral-tier-rb",
+      overallRank: 8,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createDraftPocketTimingComponent(6, {
+          profileOverallTierOrigin: "defaulted-neutral",
+          comparableReplacementCount: 1,
+          forecastedProfileCount: 1,
+          profileDisappeared: false,
+          highestMeaningfulTierDisappeared: true,
+        }),
+      ],
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([top])).boardInsights,
+    ).toEqual([]);
+  });
+
+  it.each([
+    {
+      label: "no-adp aggregate forecast",
+      component: createDraftPocketTimingComponent(6),
+      forecast: createTestForecast(),
+    },
+    {
+      label: "no-next-pick aggregate forecast",
+      component: createDraftPocketTimingComponent(6),
+      forecast: {
+        ...createTestForecast(),
+        status: "no-next-pick" as const,
+        targetPickNumber: null,
+        picksToRemove: null,
+      },
+    },
+    {
+      label: "inactive component forecast",
+      component: createDraftPocketTimingComponent(6, {
+        forecastStatus: "no-adp",
+      }),
+    },
+    {
+      label: "missing timing component",
+      component: null,
+    },
+    {
+      label: "outside current pocket",
+      component: createDraftPocketTimingComponent(6, {
+        candidateInCurrentPocket: false,
+      }),
+    },
+  ])("suppresses board insight for $label", ({ component, forecast }) => {
+    const top = createRecommendation({
+      id: "suppressed-rb",
+      overallRank: 8,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        ...(component ? [component] : []),
+      ],
+    });
+
+    expect(
+      generateStrategicInsights(
+        createInsightInput([top], forecast ? { forecast } : {}),
+      ).boardInsights,
+    ).toEqual([]);
+  });
+
+  it("suppresses board insight for DST and K timing evidence", () => {
+    const recommendations = (["DST", "K"] as const).map((position, index) => {
+      return createRecommendation({
+        id: `early-${position.toLowerCase()}`,
+        overallRank: 80 + index,
+        position,
+        totalScore: 100 - index,
+        baseScore: 80,
+        components: [
+          createBaseComponent(80 + index, 80),
+          createDraftPocketTimingComponent(6, {
+            candidatePosition: position,
+            profilePosition: position,
+          }),
+        ],
+      });
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput(recommendations))
+        .boardInsights,
+    ).toEqual([]);
+  });
+
+  it("suppresses pressure insight for neutral timing allocation", () => {
+    const top = createRecommendation({
+      id: "neutral-allocation-rb",
+      overallRank: 8,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createDraftPocketTimingComponent(6, {
+          allocationRole: "neutral",
+        }),
+      ],
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([top])).boardInsights,
+    ).toEqual([]);
+  });
+
+  it("uses same-profile timing evidence consistently for close candidates", () => {
+    const first = createRecommendation({
+      id: "same-profile-1",
+      overallRank: 8,
+      position: "WR",
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createDraftPocketTimingComponent(6, {
+          candidatePosition: "WR",
+          profilePosition: "WR",
+          profileOverallTier: 3,
+          profileAnchorPlayerId: "same-profile-anchor",
+          currentProfileCount: 2,
+        }),
+      ],
+    });
+    const second = createRecommendation({
+      id: "same-profile-2",
+      overallRank: 9,
+      position: "WR",
+      totalScore: 98,
+      baseScore: 80,
+      components: [
+        createBaseComponent(9, 80),
+        createDraftPocketTimingComponent(6, {
+          candidatePosition: "WR",
+          profilePosition: "WR",
+          profileOverallTier: 3,
+          profileAnchorPlayerId: "same-profile-anchor",
+          profileOrdinal: 2,
+          currentProfileCount: 2,
+        }),
+      ],
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([first, second]))
+        .boardInsights[0]?.supportedBy,
+    ).toEqual([
+      expect.objectContaining({
+        playerId: "same-profile-1",
+        componentId: "draft_pocket_timing",
+        forecastProfileId: "profile:WR:source:3",
+      }),
+    ]);
+  });
+
+  it("includes deterministic draft-pocket support references", () => {
+    const top = createRecommendation({
+      id: "supported-pocket-rb",
+      overallRank: 8,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createDraftPocketTimingComponent(6),
+      ],
+    });
+    const input = createInsightInput([top]);
+
+    expect(generateStrategicInsights(input).boardInsights[0]?.supportedBy).toEqual([
+      {
+        playerId: "supported-pocket-rb",
+        componentId: "draft_pocket_timing",
+        evidenceKeys: [
+          "allocationRole",
+          "candidateInCurrentPocket",
+          "candidateInForecastedPocket",
+          "candidatePosition",
+          "comparableReplacementCount",
+          "currentProfileCount",
+          "forecastStatus",
+          "forecastedProfileCount",
+          "highestMeaningfulTierDisappeared",
+          "nearReplacementCount",
+          "profileAnchorPlayerId",
+          "profileDisappeared",
+          "profileOrdinal",
+          "profileOverallTier",
+          "profileOverallTierOrigin",
+          "profilePosition",
+          "replacementQuality",
+          "skipSafety",
+          "targetPickNumber",
+          "thresholdMatched",
+        ],
+        reasonId: "draft_pocket_timing:reason",
+        forecastProfileId: "profile:RB:source:2",
       },
     ]);
     expect(generateStrategicInsights(input)).toEqual(

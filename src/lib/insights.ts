@@ -75,6 +75,51 @@ type RosterInsightCandidate = {
   slotAnalysis: RosterSlotAnalysis;
 };
 
+type ForecastSignalLevel = "high" | "medium" | "low" | "neutral";
+
+type TimingAllocationRole = "full" | "reduced" | "neutral";
+
+type OverallTierOrigin = "source" | "defaulted-neutral";
+
+type BoardInsightType =
+  | "low_skip_safety"
+  | "medium_skip_safety"
+  | "meaningful_tier_disappears"
+  | "wait_safe";
+
+type DraftPocketTimingEvidence = {
+  forecastStatus: string | null;
+  targetPickNumber: number | null;
+  candidatePosition: Position;
+  profilePosition: Position;
+  profileOverallTierOrigin: OverallTierOrigin | null;
+  profileOverallTier: number | null;
+  profileAnchorPlayerId: string | null;
+  profileOrdinal: number | null;
+  allocationRole: TimingAllocationRole | null;
+  candidateInCurrentPocket: boolean | null;
+  candidateInForecastedPocket: boolean | null;
+  comparableReplacementCount: number | null;
+  nearReplacementCount: number | null;
+  replacementQuality: ForecastSignalLevel | null;
+  skipSafety: ForecastSignalLevel | null;
+  currentProfileCount: number | null;
+  forecastedProfileCount: number | null;
+  profileDisappeared: boolean | null;
+  highestMeaningfulTierDisappeared: boolean | null;
+  thresholdMatched: string | null;
+};
+
+type BoardInsightCandidate = {
+  recommendation: PlayerRecommendation;
+  component: RecommendationScoreComponent;
+  support: InsightSupport;
+  evidence: DraftPocketTimingEvidence;
+  type: BoardInsightType;
+  priority: number;
+  recommendationIndex: number;
+};
+
 function getComponent(
   recommendation: PlayerRecommendation,
   componentId: string,
@@ -159,6 +204,27 @@ function isPosition(value: string | null): value is Position {
     value === "DST" ||
     value === "K"
   );
+}
+
+function isForecastSignalLevel(
+  value: string | null,
+): value is ForecastSignalLevel {
+  return (
+    value === "high" ||
+    value === "medium" ||
+    value === "low" ||
+    value === "neutral"
+  );
+}
+
+function isTimingAllocationRole(
+  value: string | null,
+): value is TimingAllocationRole {
+  return value === "full" || value === "reduced" || value === "neutral";
+}
+
+function isOverallTierOrigin(value: string | null): value is OverallTierOrigin {
+  return value === "source" || value === "defaulted-neutral";
 }
 
 function deriveScoreGapLabel(
@@ -1000,6 +1066,315 @@ function createRosterInsight(candidate: RosterInsightCandidate): Insight {
   };
 }
 
+function getDraftPocketTimingEvidence(
+  component: RecommendationScoreComponent,
+): DraftPocketTimingEvidence | null {
+  const candidatePosition = getStringEvidence(component, "candidatePosition");
+  const profilePosition = getStringEvidence(component, "profilePosition");
+
+  if (!isPosition(candidatePosition) || !isPosition(profilePosition)) {
+    return null;
+  }
+
+  const profileOverallTierOrigin = getStringEvidence(
+    component,
+    "profileOverallTierOrigin",
+  );
+  const allocationRole = getStringEvidence(component, "allocationRole");
+  const replacementQuality = getStringEvidence(component, "replacementQuality");
+  const skipSafety = getStringEvidence(component, "skipSafety");
+
+  return {
+    forecastStatus: getStringEvidence(component, "forecastStatus"),
+    targetPickNumber: getNumberEvidence(component, "targetPickNumber"),
+    candidatePosition,
+    profilePosition,
+    profileOverallTierOrigin: isOverallTierOrigin(profileOverallTierOrigin)
+      ? profileOverallTierOrigin
+      : null,
+    profileOverallTier: getNumberEvidence(component, "profileOverallTier"),
+    profileAnchorPlayerId: getStringEvidence(component, "profileAnchorPlayerId"),
+    profileOrdinal: getNumberEvidence(component, "profileOrdinal"),
+    allocationRole: isTimingAllocationRole(allocationRole)
+      ? allocationRole
+      : null,
+    candidateInCurrentPocket: getBooleanEvidence(
+      component,
+      "candidateInCurrentPocket",
+    ),
+    candidateInForecastedPocket: getBooleanEvidence(
+      component,
+      "candidateInForecastedPocket",
+    ),
+    comparableReplacementCount: getNumberEvidence(
+      component,
+      "comparableReplacementCount",
+    ),
+    nearReplacementCount: getNumberEvidence(component, "nearReplacementCount"),
+    replacementQuality: isForecastSignalLevel(replacementQuality)
+      ? replacementQuality
+      : null,
+    skipSafety: isForecastSignalLevel(skipSafety) ? skipSafety : null,
+    currentProfileCount: getNumberEvidence(component, "currentProfileCount"),
+    forecastedProfileCount: getNumberEvidence(
+      component,
+      "forecastedProfileCount",
+    ),
+    profileDisappeared: getBooleanEvidence(component, "profileDisappeared"),
+    highestMeaningfulTierDisappeared: getBooleanEvidence(
+      component,
+      "highestMeaningfulTierDisappeared",
+    ),
+    thresholdMatched: getStringEvidence(component, "thresholdMatched"),
+  };
+}
+
+function getForecastProfileId(evidence: DraftPocketTimingEvidence) {
+  if (
+    evidence.profileOverallTierOrigin === null ||
+    evidence.profileOverallTier === null
+  ) {
+    return undefined;
+  }
+
+  return `profile:${evidence.profilePosition}:${evidence.profileOverallTierOrigin}:${evidence.profileOverallTier}`;
+}
+
+function createForecastComponentSupport(
+  recommendation: PlayerRecommendation,
+  component: RecommendationScoreComponent,
+  evidence: DraftPocketTimingEvidence,
+): InsightSupport {
+  return {
+    ...createComponentSupport(recommendation, component),
+    forecastProfileId: getForecastProfileId(evidence),
+  };
+}
+
+function hasActiveForecastContext(
+  input: InsightInput,
+  evidence: DraftPocketTimingEvidence,
+) {
+  if (input.forecast && input.forecast.status !== "active") {
+    return false;
+  }
+
+  return evidence.forecastStatus === "active";
+}
+
+function isBoardEligibleTimingEvidence({
+  input,
+  evidence,
+}: {
+  input: InsightInput;
+  evidence: DraftPocketTimingEvidence;
+}) {
+  return (
+    hasActiveForecastContext(input, evidence) &&
+    evidence.candidateInCurrentPocket === true &&
+    evidence.candidatePosition !== "DST" &&
+    evidence.candidatePosition !== "K"
+  );
+}
+
+function hasPressureAllocation(evidence: DraftPocketTimingEvidence) {
+  return evidence.allocationRole === "full" || evidence.allocationRole === "reduced";
+}
+
+function hasAbsentComparableProfiles(evidence: DraftPocketTimingEvidence) {
+  return (
+    evidence.comparableReplacementCount === 0 ||
+    evidence.forecastedProfileCount === 0 ||
+    evidence.profileDisappeared === true
+  );
+}
+
+function hasLimitedComparableProfiles(evidence: DraftPocketTimingEvidence) {
+  return (
+    evidence.replacementQuality === "medium" ||
+    (evidence.comparableReplacementCount !== null &&
+      evidence.comparableReplacementCount <= 1) ||
+    (evidence.nearReplacementCount !== null && evidence.nearReplacementCount > 0)
+  );
+}
+
+function hasWaitSafeProfiles(evidence: DraftPocketTimingEvidence) {
+  return (
+    evidence.replacementQuality === "high" ||
+    (evidence.comparableReplacementCount !== null &&
+      evidence.comparableReplacementCount >= 2) ||
+    (evidence.forecastedProfileCount !== null &&
+      evidence.forecastedProfileCount >= 2)
+  );
+}
+
+function createBoardInsightCandidate({
+  input,
+  recommendation,
+  component,
+  recommendationIndex,
+  type,
+  priority,
+}: {
+  input: InsightInput;
+  recommendation: PlayerRecommendation;
+  component: RecommendationScoreComponent;
+  recommendationIndex: number;
+  type: BoardInsightType;
+  priority: number;
+}): BoardInsightCandidate | null {
+  const evidence = getDraftPocketTimingEvidence(component);
+
+  if (!evidence || !isBoardEligibleTimingEvidence({ input, evidence })) {
+    return null;
+  }
+
+  return {
+    recommendation,
+    component,
+    support: createForecastComponentSupport(recommendation, component, evidence),
+    evidence,
+    type,
+    priority,
+    recommendationIndex,
+  };
+}
+
+function classifyBoardInsightCandidates({
+  input,
+  recommendation,
+  recommendationIndex,
+}: {
+  input: InsightInput;
+  recommendation: PlayerRecommendation;
+  recommendationIndex: number;
+}) {
+  const component = getComponent(recommendation, "draft_pocket_timing");
+
+  if (!component) {
+    return [];
+  }
+
+  const evidence = getDraftPocketTimingEvidence(component);
+
+  if (!evidence || !isBoardEligibleTimingEvidence({ input, evidence })) {
+    return [];
+  }
+
+  const candidates: BoardInsightCandidate[] = [];
+  const materialPressure =
+    isMaterialPositive(component) && hasPressureAllocation(evidence);
+  const addCandidate = (type: BoardInsightType, priority: number) => {
+    const candidate = createBoardInsightCandidate({
+      input,
+      recommendation,
+      component,
+      recommendationIndex,
+      type,
+      priority,
+    });
+
+    if (candidate) {
+      candidates.push(candidate);
+    }
+  };
+
+  if (
+    materialPressure &&
+    evidence.skipSafety === "low" &&
+    evidence.thresholdMatched === "low_skip_safety" &&
+    hasAbsentComparableProfiles(evidence)
+  ) {
+    addCandidate("low_skip_safety", 1);
+  }
+
+  if (
+    materialPressure &&
+    evidence.skipSafety === "medium" &&
+    evidence.thresholdMatched === "medium_skip_safety" &&
+    evidence.allocationRole === "full" &&
+    hasLimitedComparableProfiles(evidence)
+  ) {
+    addCandidate("medium_skip_safety", 2);
+  }
+
+  if (
+    materialPressure &&
+    evidence.profileOverallTierOrigin === "source" &&
+    evidence.highestMeaningfulTierDisappeared === true
+  ) {
+    addCandidate("meaningful_tier_disappears", 3);
+  }
+
+  if (
+    component.direction === "neutral" &&
+    evidence.skipSafety === "high" &&
+    evidence.thresholdMatched === "high_skip_safety" &&
+    hasWaitSafeProfiles(evidence)
+  ) {
+    addCandidate("wait_safe", 4);
+  }
+
+  return candidates;
+}
+
+function selectBoardInsight(input: InsightInput): Insight | null {
+  const candidates = input.recommendations
+    .slice(0, 3)
+    .flatMap((recommendation, recommendationIndex) => {
+      return classifyBoardInsightCandidates({
+        input,
+        recommendation,
+        recommendationIndex,
+      });
+    })
+    .sort((a, b) => {
+      if (a.priority !== b.priority) {
+        return a.priority - b.priority;
+      }
+
+      return a.recommendationIndex - b.recommendationIndex;
+    });
+  const [selected] = candidates;
+
+  return selected ? createBoardInsight(selected) : null;
+}
+
+function createBoardInsight(candidate: BoardInsightCandidate): Insight {
+  const { evidence, recommendation, type } = candidate;
+  const titles: Record<BoardInsightType, string> = {
+    low_skip_safety: "Next-pocket profile pressure",
+    medium_skip_safety: "Limited next-pocket support",
+    meaningful_tier_disappears: "Current-pocket tier context",
+    wait_safe: "Comparable profiles remain",
+  };
+  const bodies: Record<BoardInsightType, string> = {
+    low_skip_safety:
+      `Comparable ${evidence.profilePosition} profiles thin out before your next pick.`,
+    medium_skip_safety:
+      `This ${evidence.profilePosition} profile has limited next-pocket support.`,
+    meaningful_tier_disappears:
+      `Current-pocket timing is supported for this ${evidence.profilePosition} profile.`,
+    wait_safe:
+      `Comparable ${evidence.profilePosition} profiles remain in the next pocket.`,
+  };
+  const insightKind = type === "meaningful_tier_disappears"
+    ? "board_context"
+    : "next_pocket";
+
+  return {
+    id: `${insightKind}:${type}:${recommendation.playerId}`,
+    kind: insightKind,
+    severity:
+      type === "low_skip_safety" || type === "meaningful_tier_disappears"
+        ? "warning"
+        : "info",
+    title: titles[type],
+    body: bodies[type],
+    supportedBy: [candidate.support],
+  };
+}
+
 function createTradeoffInsight(selection: TradeoffSelection): Insight {
   const [first, second] = selection.candidates;
   const playerNames = [
@@ -1367,6 +1742,7 @@ export function generateStrategicInsights(
     input,
     scoreGapLabel,
   });
+  const boardInsight = selectBoardInsight(input);
   const candidateSummary = topRecommendation
     ? createCandidateSummary(topRecommendation)
     : null;
@@ -1381,7 +1757,7 @@ export function generateStrategicInsights(
     candidateInsights: candidateSummary ? [candidateSummary] : [],
     tradeoffInsights: tradeoffInsight ? [tradeoffInsight] : [],
     rosterInsights: rosterInsight ? [rosterInsight] : [],
-    boardInsights: [],
+    boardInsights: boardInsight ? [boardInsight] : [],
     caveats: [],
     suppressedSignals: [],
   };

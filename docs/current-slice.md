@@ -2,7 +2,7 @@
 
 ## Status
 
-Pending. This slice is planned for implementation after Phase 6 Task 4.
+Complete. Task 5 passed focused validation on 2026-07-07.
 
 ## Context
 
@@ -157,3 +157,15 @@ Stop and report instead of broadening the slice if:
 ## Follow-up
 
 After this slice passes, promote Task 6: Present Strategic Insights in the Draft Experience.
+
+## Completion Notes
+
+Completed on 2026-07-07.
+
+- Added deterministic board and next-pocket insight selection in `src/lib/insights.ts`.
+- Interpreted existing `draft_pocket_timing` component evidence for low skip-safety pressure, medium skip-safety limited support, source-tier current-pocket context, and high skip-safety wait-safe context.
+- Added profile-level `next_pocket` and `board_context` insight output with traceable `supportedBy` references and stable forecast profile ids.
+- Suppressed unsupported board insight states for inactive aggregate forecasts, inactive component evidence, missing timing evidence, outside-pocket candidates, DST/K, neutral pressure allocation, and defaulted-neutral tier-disappearance claims.
+- Preserved recommendation scoring, ordering, components, adjustments, reasons, forecast construction, profile transitions, timing allocation, UI, persistence, and scenario contracts.
+- Extended `src/lib/insights.test.ts` to 52 focused tests covering board/next-pocket insight presence, suppression, support references, same-profile evidence, determinism, and immutability.
+- Confirmed `npm test -- src/lib/insights.test.ts`, `npx tsc --noEmit`, and `git diff --check` pass.
