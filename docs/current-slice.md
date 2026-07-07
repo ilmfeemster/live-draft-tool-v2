@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Ready for implementation.
+Complete. Task 3 passed focused validation on 2026-07-06.
 
 ## Context
 
@@ -140,3 +140,15 @@ Stop and report instead of broadening the slice if:
 ## Follow-up
 
 After this slice passes, promote Task 4: Add Roster Construction Insights.
+
+## Completion Notes
+
+Completed on 2026-07-06.
+
+- Added top-options tradeoff selection in `src/lib/insights.ts`.
+- Classified supported candidate strengths for player quality, roster fit, timing pressure, value opportunity, and caveats using existing recommendation components only.
+- Added deterministic tradeoff priority for player quality versus roster/timing, roster fit versus timing pressure, player quality with caveat, value versus roster/timing, and close same-strength clusters.
+- Added concise `tradeoff` insight output with traceable `supportedBy` references for both sides.
+- Preserved existing primary decision frames, candidate summaries, recommendation scoring, ordering, reasons, forecast behavior, UI, persistence, and scenario contracts.
+- Extended `src/lib/insights.test.ts` to 29 focused tests covering tradeoff presence, suppression, support references, determinism, and immutability.
+- Confirmed `npm test -- src/lib/insights.test.ts`, `npx tsc --noEmit`, and `git diff --check` pass.

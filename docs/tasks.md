@@ -124,7 +124,7 @@ Produce the first useful strategic insight by explaining the top recommendation'
 
 ## Task 3 - Add Top-Options Tradeoff Insights
 
-- [ ] Pending
+- [x] Complete
 
 ### Goal
 
@@ -343,7 +343,7 @@ Prove the Strategy & Insight Engine improves decision understanding without chan
 
 Phase 5.5 exit validation completed on 2026-07-06. Task 16 evidence included the focused Phase 5.5 regression set with 323 passing tests, the full automated suite with 810 passing tests and 1 intentionally skipped DB-gated test in the default run, TypeScript validation, lint with only the documented pre-existing `rankingNormalizer.test.ts` warning, production build, Prisma validation, PostgreSQL integration validation for ranking-set repository behavior, and user-completed browser QA across managed rankings, missing data, Draft Room, recommendation behavior, scenario/replay, export/re-import, and determinism.
 
-Phase 6 Tasks 1-2 are complete. The Insight Engine contract, neutral bundle behavior, primary decision frames, score-gap labels, top-candidate summaries, support references, suppression behavior, determinism, and immutability are covered by focused tests in `src/lib/insights.test.ts`. Task 2 validation passed with 21 focused tests, TypeScript validation, and `git diff --check` on 2026-07-06. The next testing work should focus on deterministic top-options tradeoff behavior before UI presentation.
+Phase 6 Tasks 1-3 are complete. The Insight Engine contract, neutral bundle behavior, primary decision frames, score-gap labels, top-candidate summaries, top-options tradeoff insights, support references, suppression behavior, determinism, and immutability are covered by focused tests in `src/lib/insights.test.ts`. Task 3 validation passed with 29 focused tests, TypeScript validation, and `git diff --check` on 2026-07-06. The next testing work should focus on deterministic roster construction insight behavior before UI presentation.
 
 ---
 

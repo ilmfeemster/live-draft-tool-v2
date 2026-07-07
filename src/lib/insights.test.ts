@@ -534,6 +534,309 @@ describe("generateStrategicInsights", () => {
     expect(bundle.candidateInsights).toEqual([]);
   });
 
+  it("generates a player-quality versus roster-fit tradeoff", () => {
+    const top = createRecommendation({
+      id: "quality-wr",
+      overallRank: 1,
+      position: "WR",
+      totalScore: 100,
+      baseScore: 100,
+    });
+    const second = createRecommendation({
+      id: "need-rb",
+      overallRank: 8,
+      totalScore: 95,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createComponent("roster_fit", 10, {
+          position: "RB",
+          timing: "direct_starter_need",
+        }),
+      ],
+    });
+
+    const bundle = generateStrategicInsights(createInsightInput([top, second]));
+
+    expect(bundle.tradeoffInsights).toEqual([
+      expect.objectContaining({
+        id: "tradeoff:player_quality_vs_roster_timing:quality-wr:need-rb",
+        kind: "tradeoff",
+        title: "Player quality versus roster/timing",
+        supportedBy: [
+          expect.objectContaining({
+            playerId: "quality-wr",
+            componentId: "base_value",
+          }),
+          expect.objectContaining({
+            playerId: "need-rb",
+            componentId: "roster_fit",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("explains a roster/timing recommendation against a stronger base-value option", () => {
+    const top = createRecommendation({
+      id: "need-rb",
+      overallRank: 8,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createComponent("roster_fit", 10, {
+          position: "RB",
+          timing: "direct_starter_need",
+        }),
+      ],
+    });
+    const second = createRecommendation({
+      id: "quality-wr",
+      overallRank: 1,
+      position: "WR",
+      totalScore: 95,
+      baseScore: 100,
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([top, second]))
+        .tradeoffInsights[0],
+    ).toMatchObject({
+      id: "tradeoff:player_quality_vs_roster_timing:quality-wr:need-rb",
+      title: "Player quality versus roster/timing",
+    });
+  });
+
+  it("generates a roster-fit versus timing-pressure tradeoff", () => {
+    const top = createRecommendation({
+      id: "need-rb",
+      overallRank: 8,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createComponent("roster_fit", 10, {
+          position: "RB",
+          timing: "direct_starter_need",
+        }),
+      ],
+    });
+    const second = createRecommendation({
+      id: "timing-wr",
+      overallRank: 9,
+      position: "WR",
+      totalScore: 96,
+      baseScore: 80,
+      components: [
+        createBaseComponent(9, 80),
+        createComponent("draft_pocket_timing", 6, timingEvidence({
+          candidatePosition: "WR",
+          profilePosition: "WR",
+        })),
+      ],
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([top, second]))
+        .tradeoffInsights[0],
+    ).toMatchObject({
+      id: "tradeoff:roster_fit_vs_timing_pressure:need-rb:timing-wr",
+      title: "Roster fit versus timing pressure",
+      supportedBy: [
+        expect.objectContaining({
+          playerId: "need-rb",
+          componentId: "roster_fit",
+        }),
+        expect.objectContaining({
+          playerId: "timing-wr",
+          componentId: "draft_pocket_timing",
+        }),
+      ],
+    });
+  });
+
+  it("generates a player-quality with caveat tradeoff", () => {
+    const top = createRecommendation({
+      id: "quality-wr",
+      overallRank: 1,
+      position: "WR",
+      totalScore: 100,
+      baseScore: 100,
+      components: [
+        createBaseComponent(1, 100),
+        createComponent("roster_fit", -12, {
+          position: "WR",
+          timing: "saturated",
+        }),
+      ],
+    });
+    const second = createRecommendation({
+      id: "clean-rb",
+      overallRank: 8,
+      totalScore: 96,
+      baseScore: 80,
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([top, second]))
+        .tradeoffInsights[0],
+    ).toMatchObject({
+      id: "tradeoff:player_quality_vs_caveat:quality-wr:clean-rb",
+      severity: "warning",
+      title: "Player quality with a caveat",
+      supportedBy: [
+        expect.objectContaining({
+          playerId: "quality-wr",
+          componentId: "base_value",
+        }),
+        expect.objectContaining({
+          playerId: "quality-wr",
+          componentId: "roster_fit",
+        }),
+      ],
+    });
+  });
+
+  it("generates a value versus roster/timing tradeoff", () => {
+    const top = createRecommendation({
+      id: "value-wr",
+      overallRank: 12,
+      position: "WR",
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(12, 80),
+        createComponent("value_opportunity", 5, {
+          currentPickNumber: 24,
+          overallRank: 12,
+          thresholdMatched: "clear_value",
+        }),
+      ],
+    });
+    const second = createRecommendation({
+      id: "need-rb",
+      overallRank: 14,
+      totalScore: 96,
+      baseScore: 80,
+      components: [
+        createBaseComponent(14, 80),
+        createComponent("roster_fit", 10, {
+          position: "RB",
+          timing: "direct_starter_need",
+        }),
+      ],
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([top, second]))
+        .tradeoffInsights[0],
+    ).toMatchObject({
+      id: "tradeoff:value_vs_roster_timing:value-wr:need-rb",
+      title: "Value versus roster/timing",
+    });
+  });
+
+  it("generates a restrained close-cluster tradeoff for similar supported cases", () => {
+    const top = createRecommendation({
+      id: "need-rb",
+      overallRank: 8,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createComponent("roster_fit", 10, {
+          position: "RB",
+          timing: "direct_starter_need",
+        }),
+      ],
+    });
+    const second = createRecommendation({
+      id: "need-wr",
+      overallRank: 9,
+      position: "WR",
+      totalScore: 98,
+      baseScore: 80,
+      components: [
+        createBaseComponent(9, 80),
+        createComponent("roster_fit", 10, {
+          position: "WR",
+          timing: "direct_starter_need",
+        }),
+      ],
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([top, second]))
+        .tradeoffInsights[0],
+    ).toMatchObject({
+      id: "tradeoff:close_same_strength:need-rb:need-wr",
+      title: "Close options with similar support",
+    });
+  });
+
+  it("suppresses tradeoffs for a clear leader", () => {
+    const top = createRecommendation({
+      id: "quality-wr",
+      overallRank: 1,
+      position: "WR",
+      totalScore: 100,
+      baseScore: 100,
+    });
+    const second = createRecommendation({
+      id: "need-rb",
+      overallRank: 8,
+      totalScore: 91,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createComponent("roster_fit", 10, {
+          position: "RB",
+          timing: "direct_starter_need",
+        }),
+      ],
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([top, second]))
+        .tradeoffInsights,
+    ).toEqual([]);
+  });
+
+  it("suppresses tradeoffs when close same-position options have no useful contrast", () => {
+    const top = createRecommendation({
+      id: "need-rb-1",
+      overallRank: 8,
+      totalScore: 100,
+      baseScore: 80,
+      components: [
+        createBaseComponent(8, 80),
+        createComponent("roster_fit", 10, {
+          position: "RB",
+          timing: "direct_starter_need",
+        }),
+      ],
+    });
+    const second = createRecommendation({
+      id: "need-rb-2",
+      overallRank: 9,
+      totalScore: 98,
+      baseScore: 80,
+      components: [
+        createBaseComponent(9, 80),
+        createComponent("roster_fit", 10, {
+          position: "RB",
+          timing: "direct_starter_need",
+        }),
+      ],
+    });
+
+    expect(
+      generateStrategicInsights(createInsightInput([top, second]))
+        .tradeoffInsights,
+    ).toEqual([]);
+  });
+
   it("returns deterministic output for equivalent inputs", () => {
     const recommendations = [
       createRecommendation({

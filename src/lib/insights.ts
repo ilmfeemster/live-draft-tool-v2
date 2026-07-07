@@ -19,6 +19,28 @@ type SupportedComponent = {
   support: InsightSupport;
 };
 
+type TradeoffCandidate = {
+  recommendation: PlayerRecommendation;
+  playerQuality: SupportedComponent | null;
+  rosterFit: SupportedComponent | null;
+  timingPressure: SupportedComponent | null;
+  valueOpportunity: SupportedComponent | null;
+  caveat: SupportedComponent | null;
+};
+
+type TradeoffType =
+  | "player_quality_vs_roster_timing"
+  | "roster_fit_vs_timing_pressure"
+  | "player_quality_vs_caveat"
+  | "value_vs_roster_timing"
+  | "close_same_strength";
+
+type TradeoffSelection = {
+  type: TradeoffType;
+  candidates: [TradeoffCandidate, TradeoffCandidate];
+  support: InsightSupport[];
+};
+
 function getComponent(
   recommendation: PlayerRecommendation,
   componentId: string,
@@ -351,6 +373,319 @@ function getSupportedUrgencyComponent(recommendation: PlayerRecommendation) {
   );
 }
 
+function getSupportedValueOpportunityComponent(
+  recommendation: PlayerRecommendation,
+) {
+  return getSupportedComponent(
+    recommendation,
+    "value_opportunity",
+    isSupportedValueOpportunity,
+  );
+}
+
+function classifyTradeoffCandidate(
+  recommendation: PlayerRecommendation,
+): TradeoffCandidate {
+  return {
+    recommendation,
+    playerQuality: getSupportedComponent(
+      recommendation,
+      "base_value",
+      isMaterialPositive,
+    ),
+    rosterFit: getSupportedComponent(
+      recommendation,
+      "roster_fit",
+      isSupportedRosterFit,
+    ),
+    timingPressure: getSupportedUrgencyComponent(recommendation),
+    valueOpportunity: getSupportedValueOpportunityComponent(recommendation),
+    caveat: getMaterialCaveat(recommendation),
+  };
+}
+
+function getComparisonCandidates(
+  recommendations: readonly PlayerRecommendation[],
+  scoreGapLabel: InsightScoreGapLabel,
+) {
+  if (scoreGapLabel !== "close_call" && scoreGapLabel !== "slight_lean") {
+    return [];
+  }
+
+  const [topRecommendation] = recommendations;
+
+  if (!topRecommendation) {
+    return [];
+  }
+
+  return recommendations
+    .slice(0, 3)
+    .filter((recommendation) => {
+      return topRecommendation.totalScore - recommendation.totalScore <= SLIGHT_LEAN_SCORE_GAP;
+    })
+    .map(classifyTradeoffCandidate);
+}
+
+function getCandidatePairs(candidates: readonly TradeoffCandidate[]) {
+  const pairs: Array<[TradeoffCandidate, TradeoffCandidate]> = [];
+
+  for (let firstIndex = 0; firstIndex < candidates.length; firstIndex += 1) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < candidates.length;
+      secondIndex += 1
+    ) {
+      pairs.push([candidates[firstIndex], candidates[secondIndex]]);
+    }
+  }
+
+  return pairs;
+}
+
+function hasRosterOrTiming(candidate: TradeoffCandidate) {
+  return Boolean(candidate.rosterFit ?? candidate.timingPressure);
+}
+
+function getRosterOrTimingSupport(candidate: TradeoffCandidate) {
+  return candidate.rosterFit?.support ?? candidate.timingPressure?.support ?? null;
+}
+
+function hasSamePosition(
+  first: TradeoffCandidate,
+  second: TradeoffCandidate,
+) {
+  return (
+    first.recommendation.ranking.player.position ===
+    second.recommendation.ranking.player.position
+  );
+}
+
+function getPlayerQualityVsRosterTimingTradeoff(
+  pairs: readonly [TradeoffCandidate, TradeoffCandidate][],
+): TradeoffSelection | null {
+  for (const [first, second] of pairs) {
+    const firstPlayerQuality = first.playerQuality;
+    const secondPlayerQuality = second.playerQuality;
+    const firstQualityAdvantage =
+      firstPlayerQuality &&
+      first.recommendation.baseScore > second.recommendation.baseScore &&
+      hasRosterOrTiming(second);
+    const secondQualityAdvantage =
+      secondPlayerQuality &&
+      second.recommendation.baseScore > first.recommendation.baseScore &&
+      hasRosterOrTiming(first);
+
+    if (firstQualityAdvantage) {
+      const contrastSupport = getRosterOrTimingSupport(second);
+
+      if (contrastSupport) {
+        return {
+          type: "player_quality_vs_roster_timing",
+          candidates: [first, second],
+          support: [firstPlayerQuality.support, contrastSupport],
+        };
+      }
+    }
+
+    if (secondQualityAdvantage) {
+      const contrastSupport = getRosterOrTimingSupport(first);
+
+      if (contrastSupport) {
+        return {
+          type: "player_quality_vs_roster_timing",
+          candidates: [second, first],
+          support: [secondPlayerQuality.support, contrastSupport],
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function getRosterVsTimingTradeoff(
+  pairs: readonly [TradeoffCandidate, TradeoffCandidate][],
+): TradeoffSelection | null {
+  for (const [first, second] of pairs) {
+    if (first.rosterFit && second.timingPressure) {
+      return {
+        type: "roster_fit_vs_timing_pressure",
+        candidates: [first, second],
+        support: [first.rosterFit.support, second.timingPressure.support],
+      };
+    }
+
+    if (second.rosterFit && first.timingPressure) {
+      return {
+        type: "roster_fit_vs_timing_pressure",
+        candidates: [second, first],
+        support: [second.rosterFit.support, first.timingPressure.support],
+      };
+    }
+  }
+
+  return null;
+}
+
+function getPlayerQualityVsCaveatTradeoff(
+  pairs: readonly [TradeoffCandidate, TradeoffCandidate][],
+): TradeoffSelection | null {
+  for (const [first, second] of pairs) {
+    const firstPlayerQuality = first.playerQuality;
+    const firstCaveat = first.caveat;
+    const secondPlayerQuality = second.playerQuality;
+    const secondCaveat = second.caveat;
+    const firstQualityWithCaveat =
+      firstPlayerQuality &&
+      firstCaveat &&
+      first.recommendation.baseScore > second.recommendation.baseScore &&
+      !second.caveat;
+    const secondQualityWithCaveat =
+      secondPlayerQuality &&
+      secondCaveat &&
+      second.recommendation.baseScore > first.recommendation.baseScore &&
+      !first.caveat;
+
+    if (firstQualityWithCaveat) {
+      return {
+        type: "player_quality_vs_caveat",
+        candidates: [first, second],
+        support: [firstPlayerQuality.support, firstCaveat.support],
+      };
+    }
+
+    if (secondQualityWithCaveat) {
+      return {
+        type: "player_quality_vs_caveat",
+        candidates: [second, first],
+        support: [secondPlayerQuality.support, secondCaveat.support],
+      };
+    }
+  }
+
+  return null;
+}
+
+function getValueVsRosterTimingTradeoff(
+  pairs: readonly [TradeoffCandidate, TradeoffCandidate][],
+): TradeoffSelection | null {
+  for (const [first, second] of pairs) {
+    if (first.valueOpportunity && hasRosterOrTiming(second)) {
+      const contrastSupport = getRosterOrTimingSupport(second);
+
+      if (contrastSupport) {
+        return {
+          type: "value_vs_roster_timing",
+          candidates: [first, second],
+          support: [first.valueOpportunity.support, contrastSupport],
+        };
+      }
+    }
+
+    if (second.valueOpportunity && hasRosterOrTiming(first)) {
+      const contrastSupport = getRosterOrTimingSupport(first);
+
+      if (contrastSupport) {
+        return {
+          type: "value_vs_roster_timing",
+          candidates: [second, first],
+          support: [second.valueOpportunity.support, contrastSupport],
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function getPrimaryStrength(candidate: TradeoffCandidate) {
+  return (
+    candidate.rosterFit ??
+    candidate.timingPressure ??
+    candidate.valueOpportunity ??
+    candidate.playerQuality
+  );
+}
+
+function getCloseSameStrengthTradeoff(
+  pairs: readonly [TradeoffCandidate, TradeoffCandidate][],
+): TradeoffSelection | null {
+  for (const [first, second] of pairs) {
+    const firstStrength = getPrimaryStrength(first);
+    const secondStrength = getPrimaryStrength(second);
+
+    if (
+      firstStrength &&
+      secondStrength &&
+      firstStrength.component.id === secondStrength.component.id &&
+      !hasSamePosition(first, second)
+    ) {
+      return {
+        type: "close_same_strength",
+        candidates: [first, second],
+        support: [firstStrength.support, secondStrength.support],
+      };
+    }
+  }
+
+  return null;
+}
+
+function selectTradeoffInsight({
+  recommendations,
+  scoreGapLabel,
+}: {
+  recommendations: readonly PlayerRecommendation[];
+  scoreGapLabel: InsightScoreGapLabel;
+}): Insight | null {
+  const candidates = getComparisonCandidates(recommendations, scoreGapLabel);
+  const pairs = getCandidatePairs(candidates);
+  const selection =
+    getPlayerQualityVsRosterTimingTradeoff(pairs) ??
+    getRosterVsTimingTradeoff(pairs) ??
+    getPlayerQualityVsCaveatTradeoff(pairs) ??
+    getValueVsRosterTimingTradeoff(pairs) ??
+    getCloseSameStrengthTradeoff(pairs);
+
+  return selection ? createTradeoffInsight(selection) : null;
+}
+
+function createTradeoffInsight(selection: TradeoffSelection): Insight {
+  const [first, second] = selection.candidates;
+  const playerNames = [
+    first.recommendation.ranking.player.name,
+    second.recommendation.ranking.player.name,
+  ];
+  const titles: Record<TradeoffType, string> = {
+    player_quality_vs_roster_timing: "Player quality versus roster/timing",
+    roster_fit_vs_timing_pressure: "Roster fit versus timing pressure",
+    player_quality_vs_caveat: "Player quality with a caveat",
+    value_vs_roster_timing: "Value versus roster/timing",
+    close_same_strength: "Close options with similar support",
+  };
+  const bodies: Record<TradeoffType, string> = {
+    player_quality_vs_roster_timing:
+      `${playerNames[0]} has the stronger player-quality case; ${playerNames[1]} has the stronger roster or timing support.`,
+    roster_fit_vs_timing_pressure:
+      `${playerNames[0]} has the cleaner roster-fit case; ${playerNames[1]} carries more timing pressure.`,
+    player_quality_vs_caveat:
+      `${playerNames[0]} has the stronger player-quality case, but the recommendation carries a material caveat.`,
+    value_vs_roster_timing:
+      `${playerNames[0]} is the value case; ${playerNames[1]} has the stronger roster or timing support.`,
+    close_same_strength:
+      `${playerNames[0]} and ${playerNames[1]} are close options with similar supported cases.`,
+  };
+
+  return {
+    id: `tradeoff:${selection.type}:${first.recommendation.playerId}:${second.recommendation.playerId}`,
+    kind: "tradeoff",
+    severity: selection.type === "player_quality_vs_caveat" ? "warning" : "info",
+    title: titles[selection.type],
+    body: bodies[selection.type],
+    supportedBy: selection.support,
+  };
+}
+
 function getPrimaryFrame({
   recommendations,
   scoreGapLabel,
@@ -674,6 +1009,10 @@ export function generateStrategicInsights(
     primaryFrame.frame,
     primaryFrame.support,
   );
+  const tradeoffInsight = selectTradeoffInsight({
+    recommendations: input.recommendations,
+    scoreGapLabel,
+  });
   const candidateSummary = topRecommendation
     ? createCandidateSummary(topRecommendation)
     : null;
@@ -686,7 +1025,7 @@ export function generateStrategicInsights(
     },
     primaryInsight,
     candidateInsights: candidateSummary ? [candidateSummary] : [],
-    tradeoffInsights: [],
+    tradeoffInsights: tradeoffInsight ? [tradeoffInsight] : [],
     rosterInsights: [],
     boardInsights: [],
     caveats: [],
