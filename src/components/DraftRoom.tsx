@@ -95,6 +95,7 @@ export function DraftRoom({
   const [replayTargetInput, setReplayTargetInput] = useState("");
 
   const displayedDraft = transientSession?.draft ?? activeDraft;
+  const displayedUserTeamId = displayedDraft.userTeamId;
   const activeRankings = transientSession?.rankings ?? rankings;
   const activeLeagueSettings = transientSession?.leagueSettings ?? leagueSettings;
   const activeRankingTierSemantics =
@@ -130,7 +131,7 @@ export function DraftRoom({
 
   const userRosterPlayers = useMemo<UserRosterPlayer[]>(() => {
     return displayedDraft.picks
-      .filter((pick) => pick.teamId === displayedDraft.userTeamId && pick.playerId)
+      .filter((pick) => pick.teamId === displayedUserTeamId && pick.playerId)
       .map((pick) => {
         const ranking = activeRankings.find((entry) => entry.player.id === pick.playerId);
 
@@ -147,7 +148,7 @@ export function DraftRoom({
       })
       .filter((player): player is NonNullable<typeof player> => Boolean(player))
       .sort((a, b) => a.pickNumber - b.pickNumber);
-  }, [activeRankings, displayedDraft.picks, displayedDraft.userTeamId]);
+  }, [activeRankings, displayedDraft.picks, displayedUserTeamId]);
 
   const persistedRecommendations = useMemo(() => {
     return generatePlayerRecommendations({
@@ -175,21 +176,21 @@ export function DraftRoom({
       draft: displayedDraft,
       rankings: activeRankings,
       leagueSettings: activeLeagueSettings,
-      userTeamId: displayedDraft.userTeamId,
+      userTeamId: displayedUserTeamId,
       recommendations,
     });
   }, [
     activeLeagueSettings,
     activeRankings,
     displayedDraft,
-    displayedDraft.userTeamId,
+    displayedUserTeamId,
     recommendations,
   ]);
 
   const currentPick = displayedDraft.picks.find(
     (pick) => pick.pickNumber === displayedDraft.currentPickNumber,
   );
-  const isUserPick = currentPick?.teamId === displayedDraft.userTeamId;
+  const isUserPick = currentPick?.teamId === displayedUserTeamId;
   const totalPicks = displayedDraft.teamCount * displayedDraft.rounds;
   const isDraftComplete =
     displayedDraft.picks.length === totalPicks &&

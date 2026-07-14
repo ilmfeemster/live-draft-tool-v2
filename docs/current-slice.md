@@ -2,7 +2,7 @@
 
 ## Status
 
-Pending. This slice is planned for implementation after Phase 6 Tasks 1-6 are complete.
+Blocked pending completion of manual browser QA. Automated validation, unsupported-claim inspection, and partial Browser-plugin QA were completed on 2026-07-07, but the Browser plugin began timing out after the reset confirmation flow before scenario import/replay and final reset verification could be completed.
 
 ## Context
 
@@ -113,6 +113,53 @@ Production source changes are not expected. Test changes are not expected unless
 - No visible insight text or tested insight fixture contains unsupported opponent, probability, exact availability, AI, projection, VORP, ADP-quality, or source-tier-as-position-tier claims.
 - Recommendation scores, ordering, components, adjustments, reasons, forecast output, profile transitions, and persistence/scenario contracts remain unchanged except for the approved insight presentation from Task 6.
 - `docs/tasks.md` and `docs/current-slice.md` record Phase 6 exit-validation evidence after validation completes.
+
+## Partial Validation Notes
+
+Completed on 2026-07-07:
+
+- Focused Phase 6 validation passed:
+  - `npm test -- src/lib/insights.test.ts src/components/RecommendationsPanel.test.tsx src/components/DraftRoom.test.tsx`
+  - Result: 3 test files passed; 60 tests passed.
+- Focused regression validation passed:
+  - `npm test -- src/lib/recommendations.test.ts src/lib/recommendations.scenario.test.ts src/lib/draftPocketForecast.test.ts src/lib/recommendationRankingContext.test.ts src/lib/scenarioValidation.test.ts src/lib/scenarioSession.test.ts src/lib/scenarioSerialization.test.ts src/lib/scenarioReplay.test.ts src/lib/scenarioPortability.test.ts src/lib/draftWorkspaceLoader.test.ts src/lib/draftRepository.test.ts src/lib/draftRepositoryMapping.test.ts src/lib/rankingNormalizer.test.ts src/lib/rankingSetValidation.test.ts src/lib/rankingSetRepository.test.ts src/lib/rankingSetConversion.test.ts src/lib/rankingSnapshot.test.ts src/lib/rankingImportWorkflow.test.ts src/lib/rankingImportPreflight.test.ts src/lib/rankingCandidateValidation.test.ts`
+  - Result: 20 test files passed; 521 tests passed; 1 test skipped.
+- Full automated suite passed after the lint fix:
+  - `npm test`
+  - Result: 48 test files passed; 865 tests passed; 1 test skipped.
+- TypeScript validation passed:
+  - `npx tsc --noEmit`
+- Lint passed with only the documented pre-existing warning in `src/lib/rankingNormalizer.test.ts`:
+  - `npm run lint`
+- Production build passed:
+  - `npm run build`
+- Prisma validation passed:
+  - `npm run prisma:validate`
+- Diff whitespace validation passed with only CRLF normalization warnings:
+  - `git diff --check`
+- Unsupported-claim inspection found no opponent prediction, probability, projection, VORP, AI-reasoning, ADP-quality, exact player availability, or source-tier-as-position-tier claims in the current insight source and fixtures. The inspected "available" matches were current-board/player-pool language, not exact future availability predictions.
+- Partial Browser-plugin manual QA completed after the Browser plugin became available:
+  - Loaded the existing persisted draft at `http://localhost:3000/`.
+  - Confirmed the complete persisted draft state showed disabled Draft buttons, Draft Complete status, persisted Draft Room sections, recommendation details, caveated insight output, close-call/tradeoff text, roster caveat text, and no-next-pick neutral timing diagnostics.
+  - Opened New Draft Setup from the complete draft.
+  - Confirmed missing ranking-set validation appears when creating a draft without selecting a ranking set.
+  - Selected managed ranking set `Test4` and created a disposable persisted draft.
+  - Confirmed the disposable draft loaded at `/?draftId=cmraogjs2000kb4uka8zn3ae3`, showed enabled Draft buttons, strategic insights, current-pocket pressure, a player-quality-versus-roster/timing tradeoff, and open WR starter context.
+  - Drafted the top recommendation and confirmed the draft advanced to pick 2 of 192, recommendations recomputed, and insight output changed to a close-call/Bijan Robinson decision with open RB starter context.
+  - Used Undo Last Pick and confirmed the draft returned to pick 1 of 192, Undo became disabled, and the original Ja'Marr Chase insight frame returned.
+  - Started the reset path on the disposable draft and confirmed the reset confirmation dialog appeared.
+  - Retried after the confirmation was accepted in the visible in-app browser and confirmed the disposable draft reset completed: the draft returned to pick 1 of 192, Undo Last Pick was disabled, Draft buttons were enabled, strategic insights were visible, and the original Ja'Marr Chase current-pocket/open-WR-starter insight returned.
+  - Reopened the scenario file picker twice and provided the fixture path `src\data\scenarios\early-non-default-pressure.json` for import QA.
+
+Blocked:
+
+- Manual browser QA is still incomplete. The Browser plugin can open the scenario file picker but does not expose a supported file-upload method, and the scenario input remained empty after both picker attempts. Scenario import, replay-target change, restart/reset scenario, and scenario replay QA were not completed from Codex.
+
+Follow-up required before marking Task 7 complete:
+
+- Complete the remaining scenario import/replay manual QA states listed in step 7 using a user-selected scenario file in the native picker or another stable manual QA path.
+- Rerun `git diff --check` after any documentation updates.
+- Update `docs/tasks.md` to mark Task 7 complete only after manual QA passes.
 
 ## Failure Conditions
 
